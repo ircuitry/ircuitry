@@ -340,7 +340,7 @@ public sealed class GraphEditor
             else if (input.KeyPressed(Keys.Z)) { if (input.Shift) Redo(); else Undo(); }
             else if (input.KeyPressed(Keys.Y)) Redo();
             else if (input.KeyPressed(Keys.C)) CopySelection();
-            else if (input.KeyPressed(Keys.V)) PasteAtCursor(mw);
+            else if (input.KeyPressed(Keys.V) && !input.Shift) PasteAtCursor(mw);   // Ctrl+Shift+V is install-node-from-clipboard
             else if (input.KeyPressed(Keys.D)) DuplicateSelection();
         }
         if (!uiCapturing && !input.Ctrl && _mode == Mode.Idle && input.KeyPressed(Keys.M))

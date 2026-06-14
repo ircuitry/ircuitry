@@ -139,6 +139,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showsavenode") >= 0) ms?.DebugOpenSaveNode();
         if (Array.IndexOf(_args, "--showgh") >= 0) ms?.DebugShowGh();
         if (Array.IndexOf(_args, "--showinstall") >= 0) ms?.DebugOpenInstall();
+        if (Array.IndexOf(_args, "--showinstallclip") >= 0) ms?.DebugInstallClip();
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();
         if (Array.IndexOf(_args, "--showschedule") >= 0) ms?.DebugSpawnSelect("event.schedule");
         base.LoadContent();

@@ -190,6 +190,15 @@ continuously** (a few seconds after any change, and again on close) to
 `~/ircuitry/workspace.ircuitry`, and auto-loads on the next launch. There's no default
 server - you fill in the connection yourself.
 
+## Community nodes
+
+Beyond the built-ins, ircuitry loads drop-in **`.ircnode`** nodes from `~/ircuitry/nodes/`. Browse
+the gallery at **[ircuitry.github.io/nodes](https://ircuitry.github.io/nodes)**, hit **Copy**, then in
+the app click **Install from clipboard** in the Node Library (or press `Ctrl+Shift+V`) and confirm. You
+can also drag a `.ircnode` file onto the canvas. Share your own by opening a PR against
+[ircuitry/community-nodes](https://github.com/ircuitry/community-nodes). Scripted nodes run code on your
+machine, so the installer shows the source for review first.
+
 ## MCP server (let an AI build bots)
 
 `ircuitry` ships a standard **[Model Context Protocol](https://modelcontextprotocol.io)** server, so an

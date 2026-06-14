@@ -84,6 +84,7 @@ public sealed partial class MainScreen : IScreen
     // confirm installing a dropped community .ircnode (it runs code) before it's installed
     private bool _installOpen, _installJustOpened;
     private string _installPath = "", _installPreview = "";
+    private string? _installText;   // set when installing from clipboard (write text) instead of a dropped file (copy)
     private Vector2 _installScreen;
     private NodeDef? _installDef;
 
@@ -137,11 +138,31 @@ public sealed partial class MainScreen : IScreen
             var text = System.IO.File.ReadAllText(path);
             var def = Ircuitry.Graph.CustomNode.Load(text);
             if (def == null) { Bot.Log.Add(LogLevel.Error, "not a valid .ircnode: " + System.IO.Path.GetFileName(path)); return; }
-            _installPath = path; _installScreen = screen; _installDef = def;
+            _installPath = path; _installText = null; _installScreen = screen; _installDef = def;
             _installPreview = NodePreview(text);
             _installOpen = true; _installJustOpened = true;
         }
         catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "could not read .ircnode: " + ex.Message); }
+    }
+
+    /// <summary>
+    /// Install a community node straight from the clipboard (a copied .ircnode manifest), behind the
+    /// same confirm dialog as a dropped file. This is how the website's Copy button lands in the app.
+    /// </summary>
+    public void InstallFromClipboard()
+    {
+        if (_installOpen) return;
+        var text = (Ircuitry.Core.Clipboard.GetText() ?? "").Trim();
+        if (text.Length == 0) { Bot.Log.Add(LogLevel.Error, "clipboard is empty - copy a node from ircuitry.github.io/nodes first"); return; }
+        NodeDef? def;
+        try { def = Ircuitry.Graph.CustomNode.Load(text); }
+        catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "clipboard is not a valid .ircnode: " + ex.Message); return; }
+        if (def == null) { Bot.Log.Add(LogLevel.Error, "clipboard is not a node manifest (needs a typeId and code or subgraph)"); return; }
+        _installText = text; _installPath = "";
+        _installScreen = new Vector2(_l.Canvas.Center.X, _l.Canvas.Center.Y);
+        _installDef = def;
+        _installPreview = NodePreview(text);
+        _installOpen = true; _installJustOpened = true;
     }
 
     // A short preview of what a dropped node will run, shown in the install confirm dialog.
@@ -213,6 +234,8 @@ public sealed partial class MainScreen : IScreen
         var p = System.IO.Path.Combine(NodeCatalog.CustomDir, "wordcount.ircnode");
         if (System.IO.File.Exists(p)) OnNodeDrop(_l.Canvas.Center, p);
     }
+
+    public void DebugInstallClip() { _l = Layout.Compute(_vw, _vh); InstallFromClipboard(); }
     public void DebugSpawnSelect(string typeId)
     {
         if (!NodeCatalog.TryGet(typeId, out _)) return;
@@ -271,6 +294,7 @@ public sealed partial class MainScreen : IScreen
                 if (input.Ctrl && input.KeyPressed(Keys.E)) _app.ExportActive();
                 if (input.Ctrl && input.KeyPressed(Keys.H)) OpenHistory();
                 if (input.Ctrl && input.KeyPressed(Keys.L)) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); }
+                if (input.Ctrl && input.Shift && input.KeyPressed(Keys.V)) InstallFromClipboard();
             }
         }
     }
@@ -495,7 +519,10 @@ public sealed partial class MainScreen : IScreen
             try
             {
                 System.IO.Directory.CreateDirectory(NodeCatalog.CustomDir);
-                System.IO.File.Copy(_installPath, System.IO.Path.Combine(NodeCatalog.CustomDir, System.IO.Path.GetFileName(_installPath)), overwrite: true);
+                if (_installText != null && d != null)
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(NodeCatalog.CustomDir, d.TypeId + ".ircnode"), _installText);
+                else
+                    System.IO.File.Copy(_installPath, System.IO.Path.Combine(NodeCatalog.CustomDir, System.IO.Path.GetFileName(_installPath)), overwrite: true);
                 NodeCatalog.LoadCustom();
                 if (d != null && NodeCatalog.TryGet(d.TypeId, out var inst)) { _editor.Spawn(inst, _editor.Cam.ScreenToWorld(_installScreen)); _app.MarkDirty(); }
                 Bot.Log.Add(LogLevel.System, $"installed “{d?.Title}” ({d?.TypeId})");
@@ -711,13 +738,15 @@ public sealed partial class MainScreen : IScreen
         // search field in its own (clipped) batch
         float x = content.X + 8, w = content.W - 16;
         var searchRect = new RectF(x, content.Y + 8, w, 30);
+        var pasteRect = new RectF(x, searchRect.Bottom + 6, w, 26);
         r.Begin(BlendMode.Alpha, content.ToRectangle());
         _paletteSearch = _ui.TextField("palette.search", searchRect, _paletteSearch, "⌕  search nodes…");
+        if (_ui.Button("palette.paste", pasteRect, "⎘  Install from clipboard", Theme.Cyan)) InstallFromClipboard();
         r.End();
         string q = _paletteSearch.Trim();
         bool searching = q.Length > 0;
 
-        var listClip = new RectF(content.X, searchRect.Bottom + 6, content.W, content.Bottom - searchRect.Bottom - 6);
+        var listClip = new RectF(content.X, pasteRect.Bottom + 6, content.W, content.Bottom - pasteRect.Bottom - 6);
         r.Begin(BlendMode.Alpha, listClip.ToRectangle());
         float y = listClip.Y - _paletteScroll;
 
