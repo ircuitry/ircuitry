@@ -126,6 +126,18 @@ public static class DeepLink
         return "";
     }
 
+    /// <summary>Open a URL in the user's browser.</summary>
+    public static void OpenUrl(string url)
+    {
+        try
+        {
+            if (OperatingSystem.IsLinux()) Process.Start(new ProcessStartInfo("xdg-open", url) { UseShellExecute = false });
+            else if (OperatingSystem.IsWindows()) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            else if (OperatingSystem.IsMacOS()) Process.Start(new ProcessStartInfo("open", url) { UseShellExecute = false });
+        }
+        catch { /* no browser - nothing to do */ }
+    }
+
     private static void RunQuiet(string file, string args)
     {
         try

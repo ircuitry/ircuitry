@@ -151,6 +151,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showinstall") >= 0) ms?.DebugOpenInstall();
         if (Array.IndexOf(_args, "--showinstallclip") >= 0) ms?.DebugInstallClip();
         if (Array.IndexOf(_args, "--showuninstall") >= 0) ms?.DebugOpenUninstall();
+        if (Array.IndexOf(_args, "--shownodemgr") >= 0) ms?.DebugOpenNodeManager();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();
@@ -314,6 +315,9 @@ public sealed class IrcuitryGame : Game
 
         DrainFileDrops();
         if (_reloadRequested) { _reloadRequested = false; _app.ReloadIfChangedOnDisk(); }
+        // poll the deep-link inbox every frame (a cheap File.Exists): inotify/FileSystemWatcher drops
+        // events under rapid open-link clicks, which made links need many tries. Polling never misses.
+        if (_inboxPath != null) DrainInbox();
         // process one deep-link install per frame, only when no modal is open (so dialogs do not stack)
         if (!_deepLinks.IsEmpty && _screen is MainScreen dlScreen && dlScreen.CanAcceptDeepLink && _deepLinks.TryDequeue(out var link))
         {

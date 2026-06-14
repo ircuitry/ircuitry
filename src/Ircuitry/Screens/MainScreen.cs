@@ -90,6 +90,15 @@ public sealed partial class MainScreen : IScreen
     private bool _uninstallOpen, _uninstallJustOpened;
     private NodeDef? _uninstallDef;
 
+    // community node manager
+    private bool _nodeMgrOpen, _nodeMgrJustOpened;
+    private float _nodeMgrScroll;
+    private readonly HashSet<string> _nodeMgrSel = new();
+    private volatile bool _nodeMgrChecking;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _nodeMgrUpdates = new();   // typeId -> changelog note
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _nodeMgrInLibrary = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _nodeMgrLatest = new();    // typeId -> latest manifest json
+
     // new-bot template picker
     private bool _templateOpen, _templateJustOpened;
 
@@ -101,7 +110,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen;
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen;
 
     public MainScreen(AppModel app)
     {
@@ -284,6 +293,8 @@ public sealed partial class MainScreen : IScreen
         var d = NodeCatalog.Custom.Count > 0 ? NodeCatalog.Custom[0] : null;
         if (d != null) { _uninstallDef = d; _uninstallOpen = true; _uninstallJustOpened = true; }
     }
+
+    public void DebugOpenNodeManager() => OpenNodeManager();
     public void DebugSpawnSelect(string typeId)
     {
         if (!NodeCatalog.TryGet(typeId, out _)) return;
@@ -308,7 +319,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -491,6 +502,11 @@ public sealed partial class MainScreen : IScreen
             r.Begin();
             DrawUninstallModal(r);
             r.End();
+        }
+        else if (_nodeMgrOpen)
+        {
+            _ui.Enabled = true;
+            DrawNodeManager(r);
         }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
@@ -784,24 +800,39 @@ public sealed partial class MainScreen : IScreen
         _ => c.ToString(),
     };
 
+    private static string CategoryIcon(NodeCategory c) => c switch
+    {
+        NodeCategory.Event => "⚡",
+        NodeCategory.Filter => "❓",
+        NodeCategory.Logic => "🔀",
+        NodeCategory.Data => "🔢",
+        NodeCategory.Ai => "🤖",
+        NodeCategory.Storage => "💾",
+        NodeCategory.Action => "💬",
+        _ => "🧩",
+    };
+
     private void DrawPalette(Renderer r)
     {
         var p = _l.Palette;
         var content = new RectF(p.X + 6, p.Y + Hud.HeaderH + 2, p.W - 12, p.H - Hud.HeaderH - 8);
         if (content.Contains(In.Mouse)) _paletteScroll = Math.Max(0, _paletteScroll - In.ScrollDelta / 4f);
 
-        // search field in its own (clipped) batch
+        // search field + a single tidy entry point for community nodes (install / update / remove)
         float x = content.X + 8, w = content.W - 16;
         var searchRect = new RectF(x, content.Y + 8, w, 30);
-        var pasteRect = new RectF(x, searchRect.Bottom + 6, w, 26);
+        var mgrRect = new RectF(x, searchRect.Bottom + 8, w, 30);
         r.Begin(BlendMode.Alpha, content.ToRectangle());
         _paletteSearch = _ui.TextField("palette.search", searchRect, _paletteSearch, "⌕  search nodes…");
-        if (_ui.Button("palette.paste", pasteRect, "⎘  Install from clipboard", Theme.Cyan)) InstallFromClipboard();
+        int customCount = NodeCatalog.Custom.Count;
+        if (_ui.Button("palette.manage", mgrRect, customCount > 0 ? $"🧩  Community nodes · {customCount}" : "🧩  Community nodes", Theme.Berry))
+            OpenNodeManager();
         r.End();
         string q = _paletteSearch.Trim();
         bool searching = q.Length > 0;
 
-        var listClip = new RectF(content.X, pasteRect.Bottom + 6, content.W, content.Bottom - pasteRect.Bottom - 6);
+        var listClip = new RectF(content.X, mgrRect.Bottom + 8, content.W, content.Bottom - mgrRect.Bottom - 10);
+        if (listClip.Contains(In.Mouse)) { /* scroll handled above on content */ }
         r.Begin(BlendMode.Alpha, listClip.ToRectangle());
         float y = listClip.Y - _paletteScroll;
 
@@ -815,22 +846,40 @@ public sealed partial class MainScreen : IScreen
             var col = Theme.Category(group.Key);
             bool collapsed = !searching && _openCat != group.Key;
 
-            var hdr = new RectF(x, y, w, 22);
-            var hf = r.Fonts.Get(FontKind.SansBold, 11);
-            r.Text(hf, (collapsed ? "▸  " : "▾  ") + CategoryName(group.Key).ToUpperInvariant() + "  (" + matches.Count + ")",
-                new Vector2(x, y + 4), Theme.WithAlpha(col, 0.95f));
-            if (!searching && !Modal && In.LeftPressed && hdr.Contains(In.Mouse))   // accordion: open this, collapse the rest
+            // cosy pill header: tinted rounded background, colored icon tile, readable name, count badge, chevron
+            const float hh = 32f;
+            var hdr = new RectF(x, y, w, hh);
+            bool hHover = hdr.Contains(In.Mouse) && listClip.Contains(In.Mouse);
+            r.RoundFill(hdr, Theme.Mix(Theme.PanelHi, col, hHover ? 0.28f : 0.16f), 10f);
+            r.RoundOutline(hdr, Theme.WithAlpha(col, 0.35f), 10f);
+            var tile = new RectF(hdr.X + 5, hdr.Y + 5, hh - 10, hh - 10);
+            r.RoundFill(tile, col, 7f);
+            var icf = r.Fonts.Get(FontKind.Display, 14);
+            string ci = CategoryIcon(group.Key);
+            r.Text(icf, ci, new Vector2(tile.Center.X - icf.MeasureString(ci).X / 2f, tile.Center.Y - icf.MeasureString(ci).Y / 2f), Theme.TextInk);
+            var nf = r.Fonts.Get(FontKind.SansBold, 13);
+            r.Text(nf, CategoryName(group.Key), new Vector2(tile.Right + 9, hdr.Center.Y - nf.MeasureString("M").Y / 2f - 1), Theme.Text);
+            var cf = r.Fonts.Get(FontKind.SansBold, 11);
+            string cnt = matches.Count.ToString();
+            float cw = cf.MeasureString(cnt).X + 14;
+            var badge = new RectF(hdr.Right - 12 - 16 - cw, hdr.Center.Y - 9, cw, 18);
+            r.RoundFill(badge, Theme.WithAlpha(col, 0.92f), 9f);
+            r.Text(cf, cnt, new Vector2(badge.Center.X - cf.MeasureString(cnt).X / 2f, badge.Center.Y - cf.MeasureString(cnt).Y / 2f), Theme.TextInk);
+            var chf = r.Fonts.Get(FontKind.SansBold, 12);
+            r.Text(chf, collapsed ? "▸" : "▾", new Vector2(hdr.Right - 18, hdr.Center.Y - chf.MeasureString("M").Y / 2f - 1), Theme.WithAlpha(Theme.Text, 0.55f));
+
+            if (!searching && !Modal && In.LeftPressed && hdr.Contains(In.Mouse))
                 _openCat = _openCat == group.Key ? (NodeCategory?)null : group.Key;
-            y += 26;
+            y += hh + 7;
 
             if (collapsed) continue;
             foreach (var def in matches)
             {
-                var chip = new RectF(x, y, w, 38);
+                var chip = new RectF(x + 6, y, w - 6, 40);
                 if (chip.Bottom > listClip.Y && chip.Y < listClip.Bottom) DrawPaletteChip(r, chip, def, col, listClip);
-                y += 44;
+                y += 46;
             }
-            y += 8;
+            y += 10;
         }
         r.End();
 
@@ -843,37 +892,21 @@ public sealed partial class MainScreen : IScreen
     private void DrawPaletteChip(Renderer r, RectF chip, NodeDef def, Color col, RectF content)
     {
         bool hover = chip.Contains(In.Mouse) && content.Contains(In.Mouse) && _dragDef == null;
-        r.RoundFill(chip, hover ? Theme.Mix(Theme.PanelHi, col, 0.12f) : Theme.PanelHi, 8f);
-        r.RoundOutline(chip, Theme.WithAlpha(col, hover ? 0.6f : 0.28f), 8f);
-        r.Fill(new RectF(chip.X, chip.Y + 6, 3, chip.H - 12), col);
+        r.RoundFill(chip, hover ? Theme.Mix(Theme.PanelHi, col, 0.14f) : Theme.PanelHi, 9f);
+        r.RoundOutline(chip, Theme.WithAlpha(col, hover ? 0.65f : 0.30f), 9f);
+        r.Fill(new RectF(chip.X, chip.Y + 7, 3, chip.H - 14), col);
         var iconImg = def.IconImage != null ? r.IconTexture(def.TypeId, def.IconImage) : null;
         if (iconImg != null)
-            r.Image(iconImg, new RectF(chip.X + 11, chip.Center.Y - 9, 18, 18));
+            r.Image(iconImg, new RectF(chip.X + 12, chip.Center.Y - 10, 20, 20));
         else
         {
-            var iconF = r.Fonts.Get(FontKind.Display, 16);
-            r.Text(iconF, def.Icon, new Vector2(chip.X + 12, chip.Center.Y - iconF.MeasureString(def.Icon).Y / 2f), col);
+            var iconF = r.Fonts.Get(FontKind.Display, 17);
+            r.Text(iconF, def.Icon, new Vector2(chip.X + 13, chip.Center.Y - iconF.MeasureString(def.Icon).Y / 2f), col);
         }
+        r.Text(r.Fonts.Get(FontKind.SansBold, 13), def.Title, new Vector2(chip.X + 42, chip.Y + 6), Theme.Text);
+        r.Text(r.Fonts.Get(FontKind.Sans, 10), def.Subtitle, new Vector2(chip.X + 42, chip.Y + 23), Theme.TextFaint);
 
-        r.Text(r.Fonts.Get(FontKind.SansBold, 13), def.Title, new Vector2(chip.X + 40, chip.Y + 5), Theme.Text);
-        r.Text(r.Fonts.Get(FontKind.Sans, 10), def.Subtitle, new Vector2(chip.X + 40, chip.Y + 22), Theme.TextFaint);
-
-        // installed community nodes get an uninstall affordance on hover
-        bool custom = NodeCatalog.IsCustom(def.TypeId);
-        var rmR = new RectF(chip.Right - 28, chip.Center.Y - 11, 22, 22);
-        bool overRm = custom && hover && rmR.Contains(In.Mouse);
-        if (custom && hover)
-        {
-            r.RoundFill(rmR, overRm ? Theme.WithAlpha(Theme.Alert, 0.18f) : Theme.PanelLo, 6f);
-            var xf = r.Fonts.Get(FontKind.SansBold, 13);
-            r.Text(xf, "✕", new Vector2(rmR.Center.X - xf.MeasureString("✕").X / 2f, rmR.Center.Y - xf.MeasureString("✕").Y / 2f), overRm ? Theme.Alert : Theme.TextFaint);
-        }
-
-        if (hover && In.LeftPressed && !Modal)
-        {
-            if (overRm) { _uninstallDef = def; _uninstallOpen = true; _uninstallJustOpened = true; }
-            else { _dragDef = def; _dragStart = In.Mouse; _dragging = false; }
-        }
+        if (hover && In.LeftPressed && !Modal) { _dragDef = def; _dragStart = In.Mouse; _dragging = false; }
     }
 
     private void DrawUninstallModal(Renderer r)
@@ -902,6 +935,224 @@ public sealed partial class MainScreen : IScreen
         }
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_uninstallJustOpened) _uninstallOpen = false;
         _uninstallJustOpened = false;
+    }
+
+    // ====================== community node manager ======================
+    private const string NodeLibraryUrl = "https://ircuitry.github.io/nodes";
+
+    private void OpenNodeManager()
+    {
+        if (Modal) return;
+        _l = Layout.Compute(_vw, _vh);
+        _nodeMgrOpen = true; _nodeMgrJustOpened = true; _nodeMgrScroll = 0; _nodeMgrSel.Clear();
+        StartNodeUpdateCheck();
+    }
+
+    // Fetch the live library index on a background thread and flag installed nodes whose code differs.
+    private void StartNodeUpdateCheck()
+    {
+        _nodeMgrChecking = true;
+        _nodeMgrUpdates.Clear(); _nodeMgrInLibrary.Clear(); _nodeMgrLatest.Clear();
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                var (status, body) = Ircuitry.Net.Http.Send("GET",
+                    "https://raw.githubusercontent.com/ircuitry/community-nodes/main/index.json",
+                    System.Array.Empty<(string, string)>(), null);
+                if (status < 200 || status >= 300) return;
+
+                var installed = new Dictionary<string, (string code, string sub)>();
+                try
+                {
+                    foreach (var f in System.IO.Directory.GetFiles(NodeCatalog.CustomDir, "*.ircnode"))
+                        try
+                        {
+                            using var d = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(f));
+                            var root = d.RootElement;
+                            string tid = root.TryGetProperty("typeId", out var t) ? t.GetString() ?? "" : "";
+                            if (tid.Length == 0) continue;
+                            string code = root.TryGetProperty("code", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.String ? c.GetString() ?? "" : "";
+                            string sub = root.TryGetProperty("subgraph", out var s) ? s.GetRawText() : "";
+                            installed[tid] = (code, sub);
+                        }
+                        catch { }
+                }
+                catch { }
+
+                using var doc = System.Text.Json.JsonDocument.Parse(body);
+                if (!doc.RootElement.TryGetProperty("nodes", out var arr) || arr.ValueKind != System.Text.Json.JsonValueKind.Array) return;
+                foreach (var n in arr.EnumerateArray())
+                {
+                    string tid = n.TryGetProperty("typeId", out var t) ? t.GetString() ?? "" : "";
+                    if (tid.Length == 0) continue;
+                    _nodeMgrInLibrary[tid] = 1;
+                    if (!n.TryGetProperty("manifest", out var man) || man.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                    _nodeMgrLatest[tid] = man.GetRawText();
+                    if (installed.TryGetValue(tid, out var inst))
+                    {
+                        string idxCode = man.TryGetProperty("code", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.String ? c.GetString() ?? "" : "";
+                        string idxSub = man.TryGetProperty("subgraph", out var s) ? s.GetRawText() : "";
+                        if (idxCode != inst.code || idxSub != inst.sub)
+                        {
+                            string note = n.TryGetProperty("note", out var nn) ? nn.GetString() ?? "" : "";
+                            _nodeMgrUpdates[tid] = note.Length > 0 ? note : "updated in the library";
+                        }
+                    }
+                }
+            }
+            catch { }
+            finally { _nodeMgrChecking = false; }
+        });
+    }
+
+    private void UpdateNode(string tid)
+    {
+        if (!_nodeMgrLatest.TryGetValue(tid, out var manifest)) return;
+        try
+        {
+            System.IO.Directory.CreateDirectory(NodeCatalog.CustomDir);
+            string target = System.IO.Path.Combine(NodeCatalog.CustomDir, tid + ".ircnode");
+            foreach (var f in System.IO.Directory.GetFiles(NodeCatalog.CustomDir, "*.ircnode"))
+                try
+                {
+                    using var d = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(f));
+                    if ((d.RootElement.TryGetProperty("typeId", out var t) ? t.GetString() : "") == tid) { target = f; break; }
+                }
+                catch { }
+            System.IO.File.WriteAllText(target, manifest);
+            NodeCatalog.LoadCustom();
+            _nodeMgrUpdates.TryRemove(tid, out _);
+            Bot.Log.Add(LogLevel.System, $"updated node {tid}");
+        }
+        catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "update failed: " + ex.Message); }
+    }
+
+    private void RemoveSelectedNodes()
+    {
+        int n = 0;
+        foreach (var tid in _nodeMgrSel.ToList())
+            if (NodeCatalog.Uninstall(tid)) { n++; _nodeMgrUpdates.TryRemove(tid, out _); }
+        _nodeMgrSel.Clear();
+        if (n > 0) Bot.Log.Add(LogLevel.System, $"uninstalled {n} community node(s)");
+    }
+
+    private void DrawNodeManager(Renderer r)
+    {
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = MathF.Min(780, _vw * 0.92f), ph = MathF.Min(620, _vh * 0.9f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Community nodes", Theme.Berry);
+
+        var custom = NodeCatalog.Custom;
+        int updates = _nodeMgrUpdates.Count;
+        float x = panel.X + 20, top = panel.Y + Hud.HeaderH + 14;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 14), custom.Count == 0 ? "No community nodes installed" : $"{custom.Count} installed", new Vector2(x, top), Theme.Text);
+        string status = _nodeMgrChecking ? "checking the library for updates…" : updates > 0 ? $"{updates} update{(updates == 1 ? "" : "s")} available" : "all up to date";
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), status, new Vector2(x, top + 20), updates > 0 ? Theme.Warn : Theme.TextDim);
+        r.End();
+
+        r.Begin();
+        float bh = 30, by = top - 2, gap = 10, bx = panel.Right - 20;
+        bx -= 138; if (_ui.Button("nm.browse", new RectF(bx, by, 138, bh), "🌐 Browse library ↗", Theme.Lime)) Ircuitry.App.DeepLink.OpenUrl(NodeLibraryUrl);
+        bx -= gap + 176; if (_ui.Button("nm.paste", new RectF(bx, by, 176, bh), "⎘  Install from clipboard", Theme.Cyan)) { _nodeMgrOpen = false; InstallFromClipboard(); }
+        if (updates > 0) { bx -= gap + 138; if (_ui.Button("nm.updateall", new RectF(bx, by, 138, bh), $"⤓ Update all ({updates})", Theme.Amber, primary: true)) foreach (var tid in _nodeMgrUpdates.Keys.ToList()) UpdateNode(tid); }
+        r.End();
+
+        float listTop = top + 44;
+        float footerY = panel.Bottom - 52;
+        var listRect = new RectF(panel.X + 16, listTop, panel.W - 32, footerY - listTop - 10);
+        r.Begin(); r.RoundFill(listRect, Theme.PanelLo, 8); r.RoundOutline(listRect, Theme.Edge, 8); r.End();
+
+        if (custom.Count == 0)
+        {
+            r.Begin();
+            r.TextCenteredX(r.Fonts.Get(FontKind.SansBold, 15), "Nothing installed yet", listRect.Center.X, listRect.Center.Y - 16, Theme.TextDim);
+            r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 12), "Copy a node from the library and use Install from clipboard.", listRect.Center.X, listRect.Center.Y + 8, Theme.TextFaint);
+            r.End();
+        }
+        else DrawNodeManagerList(r, listRect);
+
+        r.Begin();
+        int sel = _nodeMgrSel.Count;
+        var allR = new RectF(panel.X + 16, footerY, 116, 34);
+        var closeR = new RectF(panel.Right - 16 - 100, footerY, 100, 34);
+        var rmR = new RectF(closeR.X - 12 - 184, footerY, 184, 34);
+        if (_ui.Button("nm.all", allR, sel == custom.Count && custom.Count > 0 ? "Select none" : "Select all", Theme.Idle))
+        {
+            if (sel == custom.Count) _nodeMgrSel.Clear();
+            else { _nodeMgrSel.Clear(); foreach (var d in custom) _nodeMgrSel.Add(d.TypeId); }
+        }
+        bool canRemove = sel > 0;
+        if (_ui.Button("nm.remove", rmR, canRemove ? $"🗑  Remove selected ({sel})" : "Remove selected", canRemove ? Theme.Alert : Theme.Idle, primary: canRemove) && canRemove)
+            RemoveSelectedNodes();
+        if (_ui.Button("nm.close", closeR, "CLOSE", Theme.Cyan, primary: true)) _nodeMgrOpen = false;
+        r.End();
+
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_nodeMgrJustOpened) _nodeMgrOpen = false;
+        _nodeMgrJustOpened = false;
+    }
+
+    private void DrawNodeManagerList(Renderer r, RectF rect)
+    {
+        var custom = NodeCatalog.Custom;
+        const float rowH = 60f;
+        float total = custom.Count * rowH;
+        if (rect.Contains(In.Mouse) && In.ScrollDelta != 0) _nodeMgrScroll -= In.ScrollDelta;
+        _nodeMgrScroll = Math.Clamp(_nodeMgrScroll, 0, MathF.Max(0, total - rect.H));
+
+        r.Begin(BlendMode.Alpha, rect.ToRectangle());
+        float y = rect.Y - _nodeMgrScroll;
+        var tf = r.Fonts.Get(FontKind.SansBold, 13);
+        var mf = r.Fonts.Get(FontKind.Mono, 10);
+        var nf = r.Fonts.Get(FontKind.Sans, 11);
+        var icf = r.Fonts.Get(FontKind.Display, 18);
+        foreach (var def in custom)
+        {
+            var row = new RectF(rect.X + 4, y + 3, rect.W - 8, rowH - 6);
+            if (row.Bottom >= rect.Y && row.Y <= rect.Bottom)
+            {
+                bool selected = _nodeMgrSel.Contains(def.TypeId);
+                bool hover = row.Contains(In.Mouse) && rect.Contains(In.Mouse);
+                var col = Theme.Category(def.Category);
+                r.RoundFill(row, selected ? Theme.Mix(Theme.PanelHi, Theme.Cyan, 0.20f) : hover ? Theme.PanelHi : Theme.Panel, 8);
+                r.RoundOutline(row, selected ? Theme.Cyan : Theme.WithAlpha(col, 0.3f), 8);
+
+                var cb = new RectF(row.X + 12, row.Center.Y - 9, 18, 18);
+                r.RoundFill(cb, selected ? Theme.Cyan : Theme.PanelLo, 5);
+                r.RoundOutline(cb, selected ? Theme.Cyan : Theme.Edge, 5);
+                if (selected) r.Text(tf, "✓", new Vector2(cb.Center.X - tf.MeasureString("✓").X / 2f, cb.Center.Y - tf.MeasureString("✓").Y / 2f), Theme.TextInk);
+
+                var iconImg = def.IconImage != null ? r.IconTexture(def.TypeId, def.IconImage) : null;
+                if (iconImg != null) r.Image(iconImg, new RectF(row.X + 40, row.Center.Y - 11, 22, 22));
+                else r.Text(icf, def.Icon, new Vector2(row.X + 40, row.Center.Y - icf.MeasureString(def.Icon).Y / 2f), col);
+
+                bool inLib = _nodeMgrInLibrary.ContainsKey(def.TypeId);
+                bool hasUpdate = _nodeMgrUpdates.TryGetValue(def.TypeId, out var note);
+                r.Text(tf, def.Title, new Vector2(row.X + 72, row.Y + 9), Theme.Text);
+                r.Text(mf, def.TypeId, new Vector2(row.X + 72, row.Y + 27), Theme.TextDim);
+                string meta = hasUpdate ? "update available · " + note
+                    : _nodeMgrChecking ? CategoryName(def.Category)
+                    : inLib ? CategoryName(def.Category) + " · up to date"
+                    : CategoryName(def.Category) + " · local";
+                r.Text(nf, r.Ellipsize(nf, meta, row.W - 230), new Vector2(row.X + 72, row.Y + 42), hasUpdate ? Theme.Warn : Theme.TextFaint);
+
+                var upR = new RectF(row.Right - 12 - 96, row.Center.Y - 14, 96, 28);
+                if (hasUpdate)
+                {
+                    bool up = _ui.Button("nm.up." + def.TypeId, upR, "⤓ Update", Theme.Amber);
+                    if (up && rect.Contains(In.Mouse)) UpdateNode(def.TypeId);
+                }
+
+                if (hover && In.LeftPressed && !_nodeMgrJustOpened && !(hasUpdate && upR.Contains(In.Mouse)))
+                {
+                    if (selected) _nodeMgrSel.Remove(def.TypeId); else _nodeMgrSel.Add(def.TypeId);
+                }
+            }
+            y += rowH;
+        }
+        r.End();
     }
 
     private void UpdatePaletteDrag(Renderer r)
