@@ -61,8 +61,7 @@ public static class DeepLink
         if (!OperatingSystem.IsLinux()) return;
         try
         {
-            string exec = Environment.GetEnvironmentVariable("APPIMAGE") ?? "";
-            if (exec.Length == 0) exec = Environment.ProcessPath ?? "";
+            string exec = ResolveExec();
             if (exec.Length == 0) return;
 
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -73,7 +72,7 @@ public static class DeepLink
                 "[Desktop Entry]\n" +
                 "Type=Application\n" +
                 "Name=ircuitry\n" +
-                "Exec=\"" + exec + "\" %u\n" +
+                "Exec=" + exec + "\n" +   // ResolveExec includes quoting and the %u placeholder
                 "Icon=ircuitry\n" +
                 "Terminal=false\n" +
                 "NoDisplay=true\n" +
@@ -86,6 +85,45 @@ public static class DeepLink
             RunQuiet("update-desktop-database", appsDir);
         }
         catch { /* registration is best-effort */ }
+    }
+
+    // Build the .desktop Exec line, choosing a launcher that the OS can actually run.
+    private static string ResolveExec()
+    {
+        string appImage = Environment.GetEnvironmentVariable("APPIMAGE") ?? "";
+        if (appImage.Length > 0) return Q(appImage) + " %u";   // AppImage: self-contained, runs directly
+
+        string proc = Environment.ProcessPath ?? "";
+        string procName = Path.GetFileName(proc);
+        bool selfContained = File.Exists(Path.Combine(AppContext.BaseDirectory, "libcoreclr.so"))
+                          || File.Exists(Path.Combine(AppContext.BaseDirectory, "coreclr.dll"));
+
+        // A framework-dependent apphost (e.g. a dev build) cannot find the .NET runtime when the
+        // desktop launches it with a bare environment, so route through `dotnet <App.dll>` instead.
+        // A self-contained apphost (the released builds) bundles the runtime and runs directly.
+        bool viaDotnet = procName is "dotnet" or "dotnet.exe" || (!selfContained && proc.Length > 0);
+        if (viaDotnet)
+        {
+            string dll = System.Reflection.Assembly.GetEntryAssembly()?.Location ?? "";
+            string dotnet = procName is "dotnet" or "dotnet.exe" ? proc : FindDotnet();
+            if (dll.Length > 0 && dotnet.Length > 0) return Q(dotnet) + " " + Q(dll) + " %u";
+        }
+        return proc.Length > 0 ? Q(proc) + " %u" : "";
+    }
+
+    private static string Q(string s) => "\"" + s + "\"";
+
+    private static string FindDotnet()
+    {
+        var cands = new System.Collections.Generic.List<string>();
+        string? root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrEmpty(root)) cands.Add(Path.Combine(root, "dotnet"));
+        cands.Add("/usr/bin/dotnet");
+        cands.Add("/usr/share/dotnet/dotnet");
+        cands.Add("/usr/local/share/dotnet/dotnet");
+        cands.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "dotnet"));
+        foreach (var c in cands) if (File.Exists(c)) return c;
+        return "";
     }
 
     private static void RunQuiet(string file, string args)

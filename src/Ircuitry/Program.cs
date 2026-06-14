@@ -25,6 +25,12 @@ public static class Program
             Environment.Exit(Ircuitry.App.Mcp.McpServer.RunStdio(args));
             return;
         }
+        if (Array.IndexOf(args, "--register-scheme") >= 0)
+        {
+            DeepLink.Register();
+            Console.WriteLine("registered ircuitry:// handler");
+            return;
+        }
         if (Array.IndexOf(args, "--listnodes") >= 0)
         {
             foreach (var d in Ircuitry.Graph.NodeCatalog.Custom)
