@@ -157,6 +157,8 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showupgrade") >= 0) ms?.DebugShowUpgrade();
         if (Array.IndexOf(_args, "--demoshot") >= 0) ms?.DebugDemoShot();
         if (Array.IndexOf(_args, "--showsecretpick") >= 0) ms?.DebugOpenSecretPick();
+        if (Array.IndexOf(_args, "--showservers") >= 0) ms?.DebugShowServers();
+        if (Array.IndexOf(_args, "--shownetwork") >= 0) ms?.DebugShowNetwork();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();

@@ -71,6 +71,11 @@ public sealed partial class MainScreen : IScreen
     private Action<string>? _secretPickApply;
     private string _secretPickTitle = "", _secretPickName = "", _secretPickNewVal = "";
     private float _secretPickScroll;
+    private bool _serversOpen, _serversJustOpened;
+    private string _serverSaveName = "";
+    private float _serversScroll;
+    private bool _networkOpen, _networkJustOpened;
+    private float _networkScroll;
     private string _secretName = "", _secretValue = "";
 
     // "Obby" - advanced bot-tools controls, collapsed by default in the inspector
@@ -126,7 +131,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -313,6 +318,15 @@ public sealed partial class MainScreen : IScreen
 
     public void DebugOpenNodeManager() => OpenNodeManager();
     public void DebugOpenSecretPick() { _l = Layout.Compute(_vw, _vh); OpenSecretPicker("", "API key", _ => { }); }
+    public void DebugShowServers() { _l = Layout.Compute(_vw, _vh); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
+    public void DebugShowNetwork()
+    {
+        _l = Layout.Compute(_vw, _vh);
+        DebugDemoShot();   // bot 1 -> libera
+        var b2 = _app.AddBot("greeter"); b2.Name = "welcomer"; b2.Settings.Host = "irc.libera.chat"; b2.Settings.Channels = "#cozy";
+        var b3 = _app.AddBot("pingpong"); b3.Name = "pong-bot"; b3.Settings.Host = "irc.oftc.net"; b3.Settings.Channels = "#bots";
+        _networkOpen = true; _networkJustOpened = true;
+    }
 
     private bool _demoShotFit;
     // Build a clean, credential-free showcase graph for marketing screenshots.
@@ -363,7 +377,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -564,6 +578,16 @@ public sealed partial class MainScreen : IScreen
         {
             _ui.Enabled = true;
             DrawSecretPicker(r);
+        }
+        else if (_serversOpen)
+        {
+            _ui.Enabled = true;
+            DrawServersModal(r);
+        }
+        else if (_networkOpen)
+        {
+            _ui.Enabled = true;
+            DrawNetworkModal(r);
         }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
@@ -1655,7 +1679,12 @@ public sealed partial class MainScreen : IScreen
         y = Labeled(r, "BOT NAME", x, y);
         var nm = _ui.TextField("c.name", new RectF(x, y, w, 30), Bot.Name, "bot name");
         if (nm != Bot.Name) { Bot.Name = string.IsNullOrWhiteSpace(nm) ? Bot.Name : nm; _app.MarkDirty(); }
-        y += 42;
+        y += 38;
+        // reusable servers + a live map of bots ↔ servers
+        float half = (w - 8) / 2f;
+        if (_ui.Button("c.servers", new RectF(x, y, half, 28), "📡 Servers", Theme.Sky)) { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; }
+        if (_ui.Button("c.network", new RectF(x + half + 8, y, half, 28), "🗺 Network", Theme.Berry)) { _networkOpen = true; _networkJustOpened = true; }
+        y += 40;
 
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), "IRC Connection", new Vector2(x, y), Theme.Text); y += 24;
         var (slabel, scol, _) = StatusInfo();
@@ -1782,6 +1811,143 @@ public sealed partial class MainScreen : IScreen
         if (_ui.Button("sp.cancel", cancelR, "CANCEL", Theme.Cyan)) _secretPickOpen = false;
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_secretPickJustOpened) _secretPickOpen = false;
         _secretPickJustOpened = false;
+        r.End();
+    }
+
+    // ====================== saved servers + network map ======================
+    private void ApplyServer(Ircuitry.Core.ServerProfile p)
+    {
+        var s = Bot.Settings;
+        s.Host = p.Host; s.Port = p.Port; s.UseTls = p.UseTls;
+        s.AcceptInvalidCerts = p.AcceptInvalidCerts; s.AutoReconnect = p.AutoReconnect;
+        if (p.Nick.Length > 0) s.Nick = p.Nick;
+        if (p.Channels.Length > 0) s.Channels = p.Channels;
+        s.SaslUser = p.SaslUser; s.SaslPass = p.SaslPass;
+        _app.MarkDirty();
+        Bot.Log.Add(LogLevel.System, $"loaded server '{p.Name}' ({p.Host}:{p.Port})");
+    }
+
+    private void SaveCurrentAsServer(string name)
+    {
+        var s = Bot.Settings;
+        Ircuitry.Core.Servers.Save(new Ircuitry.Core.ServerProfile
+        {
+            Name = name.Trim(), Host = s.Host, Port = s.Port, UseTls = s.UseTls,
+            AcceptInvalidCerts = s.AcceptInvalidCerts, AutoReconnect = s.AutoReconnect,
+            Nick = s.Nick, Channels = s.Channels, SaslUser = s.SaslUser, SaslPass = s.SaslPass,
+        });
+        Bot.Log.Add(LogLevel.System, $"saved server '{name.Trim()}'");
+    }
+
+    private void DrawServersModal(Renderer r)
+    {
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = 540, ph = MathF.Min(560, _vh * 0.9f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Saved servers", Theme.Sky);
+        float x = panel.X + 20, w = panel.W - 40, y = panel.Y + Hud.HeaderH + 14;
+        var list = Ircuitry.Core.Servers.All();
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), list.Count == 0 ? "No saved servers yet. Save this bot's connection below to reuse it." : "Reuse a server across bots. Passwords stay in your secrets file.", new Vector2(x, y), Theme.TextDim);
+        y += 24;
+
+        float saveY = panel.Bottom - 92;
+        var listRect = new RectF(x, y, w, saveY - y - 10);
+        r.RoundFill(listRect, Theme.PanelLo, 8); r.RoundOutline(listRect, Theme.Edge, 8);
+        r.End();
+
+        if (listRect.Contains(In.Mouse) && In.ScrollDelta != 0) _serversScroll -= In.ScrollDelta;
+        _serversScroll = Math.Clamp(_serversScroll, 0, MathF.Max(0, list.Count * 50f - listRect.H));
+        r.Begin(BlendMode.Alpha, listRect.ToRectangle());
+        float ly = listRect.Y + 4 - _serversScroll;
+        foreach (var p in list)
+        {
+            var row = new RectF(listRect.X + 4, ly, listRect.W - 8, 46);
+            if (row.Bottom >= listRect.Y && row.Y <= listRect.Bottom)
+            {
+                r.RoundFill(row, Theme.Panel, 7); r.RoundOutline(row, Theme.Hairline, 7);
+                r.Text(r.Fonts.Get(FontKind.SansBold, 13), p.Name, new Vector2(row.X + 12, row.Y + 6), Theme.Text);
+                r.Text(r.Fonts.Get(FontKind.Mono, 10), $"{p.Host}:{p.Port}{(p.UseTls ? " · TLS" : "")}{(p.Channels.Length > 0 ? " · " + p.Channels : "")}", new Vector2(row.X + 12, row.Y + 25), Theme.TextDim);
+                if (_ui.Button("sv.use." + p.Name, new RectF(row.Right - 70 - 34, row.Y + 9, 70, 28), "Use", Theme.Lime) && listRect.Contains(In.Mouse))
+                { ApplyServer(p); _serversOpen = false; }
+                if (_ui.Button("sv.del." + p.Name, new RectF(row.Right - 30, row.Y + 9, 28, 28), "✕", Theme.Idle) && listRect.Contains(In.Mouse))
+                { Ircuitry.Core.Servers.Delete(p.Name); }
+            }
+            ly += 50;
+        }
+        r.End();
+
+        r.Begin();
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "SAVE THIS BOT'S CONNECTION", new Vector2(x, saveY), Theme.TextFaint);
+        _serverSaveName = _ui.TextField("sv.name", new RectF(x, saveY + 18, w - 120, 30), _serverSaveName, "server name");
+        bool canSave = _serverSaveName.Trim().Length > 0 && Bot.Settings.Host.Length > 0;
+        if (_ui.Button("sv.save", new RectF(x + w - 112, saveY + 18, 112, 30), "💾 Save", canSave ? Theme.Sky : Theme.Idle, primary: canSave) && canSave)
+            SaveCurrentAsServer(_serverSaveName);
+        if (_ui.Button("sv.close", new RectF(panel.Right - 20 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _serversOpen = false;
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_serversJustOpened) _serversOpen = false;
+        _serversJustOpened = false;
+        r.End();
+    }
+
+    private void DrawNetworkModal(Renderer r)
+    {
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = MathF.Min(820, _vw * 0.92f), ph = MathF.Min(620, _vh * 0.9f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Network · bots & servers", Theme.Berry);
+
+        // group bots by server host (multiple bots per server)
+        var groups = new List<(string host, int port, bool tls, List<Bot> bots)>();
+        foreach (var b in _app.Bots)
+        {
+            string host = b.Settings.Host.Length > 0 ? b.Settings.Host : "(no server set)";
+            var g = groups.FirstOrDefault(x => x.host == host && x.port == b.Settings.Port);
+            if (g.bots == null) { g = (host, b.Settings.Port, b.Settings.UseTls, new List<Bot>()); groups.Add(g); }
+            g.bots.Add(b);
+        }
+        int online = _app.Bots.Count(b => b.Runtime.Running);
+        r.TextRight(r.Fonts.Get(FontKind.Mono, 11), $"{_app.Bots.Count} bots · {online} online · {groups.Count} servers", panel.Right - 18, panel.Y + 14, Theme.TextFaint);
+        r.End();
+
+        var area = new RectF(panel.X + 16, panel.Y + Hud.HeaderH + 12, panel.W - 32, panel.Bottom - (panel.Y + Hud.HeaderH) - 24);
+        r.Begin(BlendMode.Alpha, area.ToRectangle());
+        float gx = area.X, gy = area.Y - _networkScroll;
+        float maxBottom = gy;
+        foreach (var grp in groups)
+        {
+            float cardH = 64 + grp.bots.Count * 30 + 10;
+            var card = new RectF(gx, gy, area.W, cardH);
+            if (card.Bottom >= area.Y && card.Y <= area.Bottom)
+            {
+                r.RoundFill(card, Theme.PanelLo, 10); r.RoundOutline(card, Theme.WithAlpha(Theme.Sky, 0.5f), 10);
+                bool anyOn = grp.bots.Exists(b => b.Runtime.Running);
+                Hud.SoftDot(r, new Vector2(card.X + 20, card.Y + 24), 6f, anyOn ? Theme.Ok : Theme.Idle);
+                r.Text(r.Fonts.Get(FontKind.SansBold, 16), grp.host, new Vector2(card.X + 36, card.Y + 14), Theme.Text);
+                r.Text(r.Fonts.Get(FontKind.Mono, 11), grp.host == "(no server set)" ? "fill in a server to connect" : $":{grp.port}{(grp.tls ? "  ·  TLS" : "")}", new Vector2(card.X + 36, card.Y + 36), Theme.TextDim);
+                float by = card.Y + 60;
+                foreach (var b in grp.bots)
+                {
+                    var col = StatusColor(b.Runtime);
+                    Hud.SoftDot(r, new Vector2(card.X + 30, by + 9), 4f, col);
+                    r.Text(r.Fonts.Get(FontKind.SansBold, 12), b.Name, new Vector2(card.X + 42, by + 2), Theme.Text);
+                    string chans = b.Settings.Channels.Length > 0 ? b.Settings.Channels : "no channels";
+                    r.Text(r.Fonts.Get(FontKind.Mono, 10), (b.Runtime.Running ? "online" : "offline") + "  ·  " + chans, new Vector2(card.X + 42 + 120, by + 3), Theme.TextDim);
+                    by += 30;
+                }
+            }
+            gy += cardH + 12;
+            maxBottom = gy;
+        }
+        r.End();
+        float total = maxBottom + _networkScroll - area.Y;
+        if (area.Contains(In.Mouse) && In.ScrollDelta != 0) _networkScroll -= In.ScrollDelta;
+        _networkScroll = Math.Clamp(_networkScroll, 0, MathF.Max(0, total - area.H));
+
+        r.Begin();
+        if (_ui.Button("nw.close", new RectF(panel.Right - 16 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _networkOpen = false;
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_networkJustOpened) _networkOpen = false;
+        _networkJustOpened = false;
         r.End();
     }
 
