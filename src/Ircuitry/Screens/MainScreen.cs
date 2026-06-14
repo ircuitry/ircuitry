@@ -126,6 +126,8 @@ public sealed partial class MainScreen : IScreen
     private volatile string _upStatus = "";
     private volatile bool _upDownloadDone;
     private float _upBodyScroll;
+    private float _upCheckAt = -1f;     // last update check (re-checks every 6h)
+    private string _upSeenVer = "";     // newest version we have already prompted for
 
     // new-bot template picker
     private bool _templateOpen, _templateJustOpened;
@@ -424,7 +426,7 @@ public sealed partial class MainScreen : IScreen
             }
         }
 
-        UpdateTick();
+        UpdateTick(clock);
     }
 
     private void OpenHistory()
@@ -1316,6 +1318,7 @@ public sealed partial class MainScreen : IScreen
                 if (url.Length == 0) return;
                 _upVer = ver; _upBody = notes; _upAssetUrl = url; _upAssetName = name;
                 _upIsAppImage = (Environment.GetEnvironmentVariable("APPIMAGE") ?? "").Length > 0;
+                if (ver != _upSeenVer) { _upSeenVer = ver; _upPrompted = false; }   // a genuinely new version may prompt again
                 _upState = UpState.Available;
             }
             catch { /* offline / rate-limited - just skip the check */ }
@@ -1343,9 +1346,14 @@ public sealed partial class MainScreen : IScreen
         return p;
     }
 
-    // runs every frame: auto-ask once, and hand a finished download from the worker to the game thread
-    private void UpdateTick()
+    // runs every frame: re-check periodically, auto-ask once, and hand a finished download to the game thread
+    private void UpdateTick(Clock clock)
     {
+        // re-check GitHub every 6 hours so a long-running instance still notices new releases
+        if (_upCheckAt < 0) _upCheckAt = clock.Time;
+        else if (clock.Time - _upCheckAt > 6 * 3600f && _upState != UpState.Downloading && _upState != UpState.Applying)
+        { _upCheckAt = clock.Time; StartUpdateCheck(); }
+
         if (_upState == UpState.Available && !_upPrompted && !Modal && !_tut.Active)
         { _upPrompted = true; _upPromptOpen = true; _upPromptJustOpened = true; _upBodyScroll = 0; }
 
