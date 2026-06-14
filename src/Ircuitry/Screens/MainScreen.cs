@@ -76,6 +76,13 @@ public sealed partial class MainScreen : IScreen
     private float _serversScroll;
     private bool _networkOpen, _networkJustOpened;
     private float _networkScroll;
+    // achievements
+    private float _achLastTick = -1f, _achEvalAt = -1f;
+    private readonly Queue<Ircuitry.Core.AchDef> _achToasts = new();
+    private Ircuitry.Core.AchDef? _achCur;
+    private float _achCurUntil;
+    private bool _achOpen, _achJustOpened;
+    private float _achScroll;
     private string _secretName = "", _secretValue = "";
 
     // "Obby" - advanced bot-tools controls, collapsed by default in the inspector
@@ -131,7 +138,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -319,6 +326,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugOpenNodeManager() => OpenNodeManager();
     public void DebugOpenSecretPick() { _l = Layout.Compute(_vw, _vh); OpenSecretPicker("", "API key", _ => { }); }
     public void DebugShowServers() { _l = Layout.Compute(_vw, _vh); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
+    public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     public void DebugShowNetwork()
     {
         _l = Layout.Compute(_vw, _vh);
@@ -371,13 +379,14 @@ public sealed partial class MainScreen : IScreen
         _editor.Graph = Bot.Graph;
         _l = Layout.Compute(_vw, _vh);
         ClipboardPoll(clock);
+        AchievementsTick(clock);
 
         if (DebugAutoHistory && Bot.Runtime.HistoryCount > 0 && (!_historyOpen || _historyRuns.Count != Bot.Runtime.HistoryCount)) OpenHistory();
         if (DebugAutoQuick && !Modal) { OpenQuickAdd(_l.Canvas.Center); DebugAutoQuick = false; }
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -589,12 +598,20 @@ public sealed partial class MainScreen : IScreen
             _ui.Enabled = true;
             DrawNetworkModal(r);
         }
+        else if (_achOpen)
+        {
+            _ui.Enabled = true;
+            DrawAchievementsModal(r);
+        }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
         DrawTutorial(r, clock);
 
         // ---------- update overlay (on top of absolutely everything) ----------
         if (_upState == UpState.Downloading || _upState == UpState.Applying) DrawUpgradeOverlay(r, clock);
+
+        // ---------- achievement toast ----------
+        DrawAchToast(r, clock);
 
         _ui.EndFrame(); // blur stale focus (e.g. after switching node/bot) so canvas shortcuts keep working
     }
@@ -871,6 +888,7 @@ public sealed partial class MainScreen : IScreen
         if (_ui.Button("tab.export", Slot(96), "EXPORT", Theme.Cyan)) _app.ExportActive();
         if (_ui.Button("tab.import", Slot(96), "IMPORT", Theme.Cyan)) { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; }
         if (_ui.Button("tab.help", Slot(40), "?", Theme.Amber)) ForceStartTutorial();
+        if (_ui.Button("tab.ach", Slot(44), "🏆", Theme.Amber)) { _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     }
 
     // ===================================================================
@@ -1948,6 +1966,118 @@ public sealed partial class MainScreen : IScreen
         if (_ui.Button("nw.close", new RectF(panel.Right - 16 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _networkOpen = false;
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_networkJustOpened) _networkOpen = false;
         _networkJustOpened = false;
+        r.End();
+    }
+
+    // ====================== achievements ======================
+    private void AchievementsTick(Clock clock)
+    {
+        double dt = _achLastTick < 0 ? 0 : Math.Max(0, clock.Time - _achLastTick);
+        _achLastTick = clock.Time;
+        if (dt > 0 && dt < 5)   // ignore big gaps (the app was paused/asleep)
+            foreach (var b in _app.Bots) if (b.Runtime.Running) Ircuitry.Core.Achievements.AddOnline(b.Name, dt);
+
+        if (clock.Time - _achEvalAt < 2f) return;
+        _achEvalAt = clock.Time;
+        var snapshot = _app.Bots
+            .Select(b => (b.Name, (IReadOnlyCollection<string>)b.Graph.Nodes.Select(n => n.TypeId).ToHashSet()))
+            .ToList();
+        foreach (var d in Ircuitry.Core.Achievements.Evaluate(snapshot)) _achToasts.Enqueue(d);
+        Ircuitry.Core.Achievements.Save();
+    }
+
+    private void DrawAchToast(Renderer r, Clock clock)
+    {
+        if (_achCur == null && _achToasts.Count > 0) { _achCur = _achToasts.Dequeue(); _achCurUntil = clock.Time + 4.6f; }
+        if (_achCur == null) return;
+        float left = _achCurUntil - clock.Time;
+        if (left <= 0) { _achCur = null; return; }
+
+        float pw = 320, ph = 78;
+        float appear = Math.Min(1f, (4.6f - left) / 0.3f);     // slide in
+        float leave = Math.Min(1f, left / 0.3f);               // slide out
+        float slide = (1f - Math.Min(appear, leave)) * (pw + 30);
+        var panel = new RectF(_vw - pw - 18 + slide, 70, pw, ph);
+
+        r.Begin(BlendMode.Add);
+        r.Glow(new Vector2(panel.X + 38, panel.Center.Y), 70f, Theme.WithAlpha(Theme.Amber, 0.25f));
+        r.End();
+        r.Begin();
+        r.RoundFill(panel, Theme.PanelHi, 14); r.RoundOutline(panel, Theme.Amber, 14);
+        r.Fill(new RectF(panel.X, panel.Y + 12, 4, panel.H - 24), Theme.Amber);
+        var tile = new RectF(panel.X + 14, panel.Center.Y - 22, 44, 44);
+        r.RoundFill(tile, Theme.WithAlpha(Theme.Amber, 0.22f), 11);
+        var icf = r.Fonts.Get(FontKind.Display, 24);
+        r.Text(icf, _achCur.Icon, new Vector2(tile.Center.X - icf.MeasureString(_achCur.Icon).X / 2f, tile.Center.Y - icf.MeasureString(_achCur.Icon).Y / 2f), Theme.Text);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "🏆 ACHIEVEMENT UNLOCKED", new Vector2(tile.Right + 12, panel.Y + 14), Theme.AmberDim);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 16), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 16), _achCur.Title, pw - 80), new Vector2(tile.Right + 12, panel.Y + 32), Theme.Text);
+        r.Text(r.Fonts.Get(FontKind.Sans, 11), _achCur.Category, new Vector2(tile.Right + 12, panel.Y + 54), Theme.TextDim);
+        r.End();
+    }
+
+    private void DrawAchievementsModal(Renderer r)
+    {
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = MathF.Min(640, _vw * 0.92f), ph = MathF.Min(620, _vh * 0.9f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Achievements", Theme.Amber);
+
+        var snapshot = _app.Bots.Select(b => (b.Name, (IReadOnlyCollection<string>)b.Graph.Nodes.Select(n => n.TypeId).ToHashSet())).ToList();
+        var defs = Ircuitry.Core.Achievements.AllDefs(snapshot);
+        int got = defs.Count(d => d.Unlocked);
+        r.TextRight(r.Fonts.Get(FontKind.Mono, 12), $"{got}/{defs.Count} unlocked", panel.Right - 18, panel.Y + 14, Theme.TextFaint);
+        r.End();
+
+        var area = new RectF(panel.X + 16, panel.Y + Hud.HeaderH + 12, panel.W - 32, panel.Bottom - (panel.Y + Hud.HeaderH) - 24);
+        r.Begin(BlendMode.Alpha, area.ToRectangle());
+        float y = area.Y - _achScroll;
+        string cat = "";
+        var bf = r.Fonts.Get(FontKind.SansBold, 13);
+        float rowH = 56;
+        foreach (var d in defs)
+        {
+            if (d.Category != cat)
+            {
+                cat = d.Category;
+                if (y + 22 >= area.Y && y <= area.Bottom) r.Text(r.Fonts.Get(FontKind.SansBold, 12), cat.ToUpperInvariant(), new Vector2(area.X + 2, y + 4), Theme.TextDim);
+                y += 26;
+            }
+            var row = new RectF(area.X, y, area.W, rowH - 8);
+            if (row.Bottom >= area.Y && row.Y <= area.Bottom)
+            {
+                var col = d.Unlocked ? Theme.Amber : Theme.Idle;
+                r.RoundFill(row, d.Unlocked ? Theme.Mix(Theme.PanelHi, Theme.Amber, 0.14f) : Theme.Panel, 10);
+                r.RoundOutline(row, Theme.WithAlpha(col, d.Unlocked ? 0.7f : 0.3f), 10);
+                var tile = new RectF(row.X + 8, row.Center.Y - 17, 34, 34);
+                r.RoundFill(tile, d.Unlocked ? Theme.WithAlpha(Theme.Amber, 0.25f) : Theme.PanelLo, 9);
+                var icf = r.Fonts.Get(FontKind.Display, 18);
+                r.Text(icf, d.Icon, new Vector2(tile.Center.X - icf.MeasureString(d.Icon).X / 2f, tile.Center.Y - icf.MeasureString(d.Icon).Y / 2f), d.Unlocked ? Theme.Text : Theme.TextFaint);
+                r.Text(bf, d.Title, new Vector2(row.X + 50, row.Y + 6), d.Unlocked ? Theme.Text : Theme.TextDim);
+                r.Text(r.Fonts.Get(FontKind.Sans, 10), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 10), d.Desc, row.W - 150), new Vector2(row.X + 50, row.Y + 26), Theme.TextFaint);
+                // progress / status on the right
+                if (d.Unlocked)
+                    r.TextRight(bf, "✓", row.Right - 14, row.Center.Y - 8, Theme.Amber);
+                else
+                {
+                    float bw = 88;
+                    var track = new RectF(row.Right - 14 - bw, row.Center.Y + 4, bw, 6);
+                    r.RoundFill(track, Theme.PanelLo, 3);
+                    if (d.Progress > 0.001f) r.RoundFill(new RectF(track.X, track.Y, MathF.Max(6, bw * d.Progress), 6), Theme.Cyan, 3);
+                    r.TextRight(r.Fonts.Get(FontKind.Mono, 9), d.Detail, row.Right - 14, row.Center.Y - 13, Theme.TextFaint);
+                }
+            }
+            y += rowH;
+        }
+        r.End();
+        float total = y + _achScroll - area.Y;
+        if (area.Contains(In.Mouse) && In.ScrollDelta != 0) _achScroll -= In.ScrollDelta;
+        _achScroll = Math.Clamp(_achScroll, 0, MathF.Max(0, total - area.H));
+
+        r.Begin();
+        if (_ui.Button("ach.close", new RectF(panel.Right - 16 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _achOpen = false;
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_achJustOpened) _achOpen = false;
+        _achJustOpened = false;
         r.End();
     }
 

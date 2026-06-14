@@ -95,7 +95,7 @@ public sealed class IrcuitryGame : Game
         _app = new AppModel();
         _screen = new MainScreen(_app);
         // autosave on close - but never in demo/screenshot modes (they'd clobber the real workspace)
-        Exiting += (_, _) => { if (!_demo && _shotPath == null) _app.Save(); };
+        Exiting += (_, _) => { if (!_demo && _shotPath == null) { _app.Save(); Ircuitry.Core.Achievements.Save(); } };
         Window.TextInput += (_, e) => OnText(e.Character);
         // FileDrop fires on the OS event thread; queue the files and apply them on the game thread
         // (Update) so we never mutate the graph/bot list while Update/Draw are iterating it.
@@ -159,6 +159,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showsecretpick") >= 0) ms?.DebugOpenSecretPick();
         if (Array.IndexOf(_args, "--showservers") >= 0) ms?.DebugShowServers();
         if (Array.IndexOf(_args, "--shownetwork") >= 0) ms?.DebugShowNetwork();
+        if (Array.IndexOf(_args, "--showach") >= 0) ms?.DebugShowAchievements();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();

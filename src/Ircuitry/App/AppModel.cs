@@ -84,6 +84,7 @@ public sealed class AppModel
         Bots.Add(bot);
         Active = Bots.Count - 1;
         Dirty = true;
+        Ircuitry.Core.Achievements.BotCreated();   // milestone tracking (first bot, 10th, ...)
         return bot;
     }
 
