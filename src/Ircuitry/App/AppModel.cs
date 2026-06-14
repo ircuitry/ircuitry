@@ -200,6 +200,22 @@ public sealed class AppModel
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "import failed: " + ex.Message); return null; }
     }
 
+    /// <summary>Import a .ircbot from its JSON text (used by deep-link workflow installs) as a new bot tab.</summary>
+    public Bot? ImportText(string json)
+    {
+        try
+        {
+            var (g, name) = GraphSerializer.Load(json);
+            var bot = new Bot(name.Length > 0 ? name : "imported") { Graph = g };
+            Bots.Add(bot);
+            Active = Bots.Count - 1;
+            Dirty = true;
+            bot.Log.Add(LogLevel.System, $"imported {g.Nodes.Count} node(s)");
+            return bot;
+        }
+        catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "import failed: " + ex.Message); return null; }
+    }
+
     public IReadOnlyList<string> Importable()
     {
         try { return Directory.Exists(WorkspaceDir) ? Directory.GetFiles(WorkspaceDir, "*.ircbot") : Array.Empty<string>(); }

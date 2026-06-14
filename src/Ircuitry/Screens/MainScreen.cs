@@ -87,6 +87,8 @@ public sealed partial class MainScreen : IScreen
     private string? _installText;   // set when installing from clipboard (write text) instead of a dropped file (copy)
     private Vector2 _installScreen;
     private NodeDef? _installDef;
+    private bool _uninstallOpen, _uninstallJustOpened;
+    private NodeDef? _uninstallDef;
 
     // new-bot template picker
     private bool _templateOpen, _templateJustOpened;
@@ -99,7 +101,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen;
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen;
 
     public MainScreen(AppModel app)
     {
@@ -154,12 +156,51 @@ public sealed partial class MainScreen : IScreen
         if (_installOpen) return;
         var text = (Ircuitry.Core.Clipboard.GetText() ?? "").Trim();
         if (text.Length == 0) { Bot.Log.Add(LogLevel.Error, "clipboard is empty - copy a node from ircuitry.github.io/nodes first"); return; }
+        StageInstall(text, "clipboard");
+    }
+
+    /// <summary>True when a deep-link install can be shown right now (nothing modal is open).</summary>
+    public bool CanAcceptDeepLink => !Modal;
+
+    /// <summary>
+    /// Handle an <c>ircuitry://</c> link: download the named community node/workflow and stage it for a
+    /// one-click confirm. Two clicks total: one on the website, one here.
+    /// </summary>
+    public void HandleDeepLink(string link)
+    {
+        if (!Ircuitry.App.DeepLink.TryParse(link, out var action, out var url))
+        { Bot.Log.Add(LogLevel.Error, "unrecognised link: " + link); return; }
+        if (!Ircuitry.App.DeepLink.IsAllowedUrl(url))
+        { Bot.Log.Add(LogLevel.Error, "blocked link (only ircuitry community URLs are allowed): " + url); return; }
+
+        Bot.Log.Add(LogLevel.System, "fetching " + url);
+        string text;
+        try
+        {
+            var (status, body) = Ircuitry.Net.Http.Send("GET", url, System.Array.Empty<(string, string)>(), null);
+            if (status < 200 || status >= 300) { Bot.Log.Add(LogLevel.Error, $"download failed (HTTP {status})"); return; }
+            text = body;
+        }
+        catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "download failed: " + ex.Message); return; }
+
+        if (action == "install-bot")
+        {
+            var bot = _app.ImportText(text);
+            if (bot != null) Bot.Log.Add(LogLevel.System, $"imported workflow “{bot.Name}” - set your server/nick/channels, then RUN BOT");
+            return;
+        }
+        StageInstall(text, "link");   // default action: install-node
+    }
+
+    // Stage a community node (from clipboard or a deep link) in the install confirm dialog.
+    private void StageInstall(string text, string source)
+    {
         NodeDef? def;
         try { def = Ircuitry.Graph.CustomNode.Load(text); }
-        catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "clipboard is not a valid .ircnode: " + ex.Message); return; }
-        if (def == null) { Bot.Log.Add(LogLevel.Error, "clipboard is not a node manifest (needs a typeId and code or subgraph)"); return; }
+        catch (Exception ex) { Bot.Log.Add(LogLevel.Error, source + " is not a valid .ircnode: " + ex.Message); return; }
+        if (def == null) { Bot.Log.Add(LogLevel.Error, source + " is not a node manifest (needs a typeId and code or subgraph)"); return; }
         _installText = text; _installPath = "";
-        _installScreen = new Vector2(_l.Canvas.Center.X, _l.Canvas.Center.Y);
+        _installScreen = new Vector2((_vw > 0 ? _vw : 1280) / 2f, (_vh > 0 ? _vh : 800) / 2f);
         _installDef = def;
         _installPreview = NodePreview(text);
         _installOpen = true; _installJustOpened = true;
@@ -236,6 +277,13 @@ public sealed partial class MainScreen : IScreen
     }
 
     public void DebugInstallClip() { _l = Layout.Compute(_vw, _vh); InstallFromClipboard(); }
+
+    public void DebugOpenUninstall()
+    {
+        _l = Layout.Compute(_vw, _vh);
+        var d = NodeCatalog.Custom.Count > 0 ? NodeCatalog.Custom[0] : null;
+        if (d != null) { _uninstallDef = d; _uninstallOpen = true; _uninstallJustOpened = true; }
+    }
     public void DebugSpawnSelect(string typeId)
     {
         if (!NodeCatalog.TryGet(typeId, out _)) return;
@@ -260,7 +308,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -435,6 +483,13 @@ public sealed partial class MainScreen : IScreen
             _ui.Enabled = true;
             r.Begin();
             DrawInstallModal(r);
+            r.End();
+        }
+        else if (_uninstallOpen)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawUninstallModal(r);
             r.End();
         }
 
@@ -803,7 +858,50 @@ public sealed partial class MainScreen : IScreen
         r.Text(r.Fonts.Get(FontKind.SansBold, 13), def.Title, new Vector2(chip.X + 40, chip.Y + 5), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.Sans, 10), def.Subtitle, new Vector2(chip.X + 40, chip.Y + 22), Theme.TextFaint);
 
-        if (hover && In.LeftPressed && !Modal) { _dragDef = def; _dragStart = In.Mouse; _dragging = false; }
+        // installed community nodes get an uninstall affordance on hover
+        bool custom = NodeCatalog.IsCustom(def.TypeId);
+        var rmR = new RectF(chip.Right - 28, chip.Center.Y - 11, 22, 22);
+        bool overRm = custom && hover && rmR.Contains(In.Mouse);
+        if (custom && hover)
+        {
+            r.RoundFill(rmR, overRm ? Theme.WithAlpha(Theme.Alert, 0.18f) : Theme.PanelLo, 6f);
+            var xf = r.Fonts.Get(FontKind.SansBold, 13);
+            r.Text(xf, "✕", new Vector2(rmR.Center.X - xf.MeasureString("✕").X / 2f, rmR.Center.Y - xf.MeasureString("✕").Y / 2f), overRm ? Theme.Alert : Theme.TextFaint);
+        }
+
+        if (hover && In.LeftPressed && !Modal)
+        {
+            if (overRm) { _uninstallDef = def; _uninstallOpen = true; _uninstallJustOpened = true; }
+            else { _dragDef = def; _dragStart = In.Mouse; _dragging = false; }
+        }
+    }
+
+    private void DrawUninstallModal(Renderer r)
+    {
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
+        float pw = 460, ph = 196;
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Uninstall community node?", Theme.Alert);
+        var d = _uninstallDef;
+        float x = panel.X + 22, y = panel.Y + Hud.HeaderH + 18;
+        if (d != null)
+        {
+            r.Text(r.Fonts.Get(FontKind.SansBold, 15), d.Icon + "  " + d.Title, new Vector2(x, y), Theme.Text); y += 24;
+            r.Text(r.Fonts.Get(FontKind.Mono, 11), d.TypeId, new Vector2(x, y), Theme.TextDim); y += 24;
+        }
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), "Removes it from your Node Library. You can re-add it any time.", new Vector2(x, y), Theme.TextDim);
+
+        var goR = new RectF(panel.Right - 22 - 120, panel.Bottom - 50, 120, 34);
+        var cancelR = new RectF(goR.X - 12 - 110, panel.Bottom - 50, 110, 34);
+        if (_ui.Button("uninstall.cancel", cancelR, "CANCEL", Theme.Idle)) _uninstallOpen = false;
+        if (_ui.Button("uninstall.go", goR, "UNINSTALL", Theme.Alert, primary: true))
+        {
+            if (d != null && NodeCatalog.Uninstall(d.TypeId)) Bot.Log.Add(LogLevel.System, $"uninstalled “{d.Title}” ({d.TypeId})");
+            else Bot.Log.Add(LogLevel.Error, "could not uninstall " + (d?.TypeId ?? "node"));
+            _uninstallOpen = false;
+        }
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_uninstallJustOpened) _uninstallOpen = false;
+        _uninstallJustOpened = false;
     }
 
     private void UpdatePaletteDrag(Renderer r)

@@ -31,10 +31,11 @@ cat > "$DEB/usr/share/applications/$APPID.desktop" <<EOF
 Type=Application
 Name=ircuitry
 Comment=Visual IRCv3 bot builder
-Exec=$APPID
+Exec=$APPID %u
 Icon=$APPID
 Terminal=false
 Categories=Development;Network;
+MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;
 EOF
 
 SIZE=$(du -sk "$DEB/opt" "$DEB/usr" | awk '{s+=$1} END{print s}')
@@ -65,10 +66,11 @@ cat > "$APPDIR/$APPID.desktop" <<EOF
 Type=Application
 Name=ircuitry
 Comment=Visual IRCv3 bot builder
-Exec=Ircuitry
+Exec=Ircuitry %u
 Icon=$APPID
 Terminal=false
 Categories=Development;Network;
+MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;
 EOF
 cp "$APPDIR/$APPID.desktop" "$APPDIR/usr/share/applications/$APPID.desktop"
 cat > "$APPDIR/AppRun" <<'EOF'

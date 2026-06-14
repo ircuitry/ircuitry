@@ -45,9 +45,17 @@ public sealed class IrcuitryGame : Game
     private FileSystemWatcher? _wsWatcher;
     private volatile bool _reloadRequested;
 
-    public IrcuitryGame(string[] args)
+    // deep-link (ircuitry://) install: an inbox file other instances append to, plus our own launch link
+    private readonly string? _inboxPath;
+    private readonly string? _initialDeepLink;
+    private FileSystemWatcher? _inboxWatcher;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _deepLinks = new();
+
+    public IrcuitryGame(string[] args, string? inboxPath = null, string? initialDeepLink = null)
     {
         _args = args;
+        _inboxPath = inboxPath;
+        _initialDeepLink = initialDeepLink;
         _gdm = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = 1600,
@@ -99,6 +107,8 @@ public sealed class IrcuitryGame : Game
         };
         // watch the workspace file: an external edit (another editor, git, this assistant) auto-reloads it
         if (!_demo && _shotPath == null) StartWorkspaceWatcher();
+        if (_inboxPath != null) StartInboxWatcher();
+        if (_initialDeepLink != null) _deepLinks.Enqueue(_initialDeepLink);
 
         UpdateViewport();
         if (_demo) StartDemo();
@@ -140,6 +150,9 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showgh") >= 0) ms?.DebugShowGh();
         if (Array.IndexOf(_args, "--showinstall") >= 0) ms?.DebugOpenInstall();
         if (Array.IndexOf(_args, "--showinstallclip") >= 0) ms?.DebugInstallClip();
+        if (Array.IndexOf(_args, "--showuninstall") >= 0) ms?.DebugOpenUninstall();
+        for (int i = 0; i < _args.Length - 1; i++)
+            if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();
         if (Array.IndexOf(_args, "--showschedule") >= 0) ms?.DebugSpawnSelect("event.schedule");
         base.LoadContent();
@@ -207,6 +220,43 @@ public sealed class IrcuitryGame : Game
         catch { /* watching is best-effort */ }
     }
 
+    // watch the deep-link inbox: another launch (a click on an ircuitry:// link) appends here; we drain it
+    private void StartInboxWatcher()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_inboxPath!) ?? AppModel.WorkspaceDir;
+            var name = Path.GetFileName(_inboxPath!);
+            Directory.CreateDirectory(dir);
+            _inboxWatcher = new FileSystemWatcher(dir, name)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
+                EnableRaisingEvents = true,
+            };
+            _inboxWatcher.Changed += (_, _) => DrainInbox();
+            _inboxWatcher.Created += (_, _) => DrainInbox();
+        }
+        catch { _inboxWatcher = null; }
+    }
+
+    private void DrainInbox()
+    {
+        if (_inboxPath == null) return;
+        try
+        {
+            if (!File.Exists(_inboxPath)) return;
+            var tmp = _inboxPath + ".taking";
+            File.Move(_inboxPath, tmp, true);   // claim the batch atomically so appends are not lost mid-read
+            foreach (var line in File.ReadAllLines(tmp))
+            {
+                var s = line.Trim();
+                if (s.Length > 0) _deepLinks.Enqueue(s);
+            }
+            File.Delete(tmp);
+        }
+        catch { /* mid-write or gone; a later event retries */ }
+    }
+
     private void UpdateViewport() =>
         _r.SetViewport(GraphicsDevice.PresentationParameters.BackBufferWidth, GraphicsDevice.PresentationParameters.BackBufferHeight);
 
@@ -264,6 +314,13 @@ public sealed class IrcuitryGame : Game
 
         DrainFileDrops();
         if (_reloadRequested) { _reloadRequested = false; _app.ReloadIfChangedOnDisk(); }
+        // process one deep-link install per frame, only when no modal is open (so dialogs do not stack)
+        if (!_deepLinks.IsEmpty && _screen is MainScreen dlScreen && dlScreen.CanAcceptDeepLink && _deepLinks.TryDequeue(out var link))
+        {
+            Ircuitry.Core.Sdl.Restore(Window.Handle);
+            Ircuitry.Core.Sdl.Show(Window.Handle);   // surface the window (it may be minimised or in the tray)
+            dlScreen.HandleDeepLink(link);
+        }
         if (Ircuitry.Core.Sdl.CloseRequested) { Ircuitry.Core.Sdl.CloseRequested = false; (_screen as MainScreen)?.RequestClosePrompt(); }
         UpdateWindowTitle();
 
@@ -329,6 +386,7 @@ public sealed class IrcuitryGame : Game
         if (disposing)
         {
             _wsWatcher?.Dispose();
+            _inboxWatcher?.Dispose();
             // final autosave - Dispose runs when the loop ends, including window-close
             if (!_demo && _shotPath == null) { try { _app?.Save(announce: false); } catch { } }
             _mock?.Dispose();

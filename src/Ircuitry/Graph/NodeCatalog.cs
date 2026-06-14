@@ -28,6 +28,32 @@ public static class NodeCatalog
     public static NodeDef Get(string typeId) => _byId[typeId];
     public static bool TryGet(string typeId, out NodeDef def) => _byId.TryGetValue(typeId, out def!);
 
+    /// <summary>True if this typeId is an installed community/custom node (not a built-in).</summary>
+    public static bool IsCustom(string typeId) => _custom.Any(c => c.TypeId == typeId);
+
+    /// <summary>
+    /// Delete the installed <c>.ircnode</c> backing <paramref name="typeId"/> and reload the catalog.
+    /// Scans the files (a dropped node may be named differently than its typeId) and removes the match.
+    /// </summary>
+    public static bool Uninstall(string typeId)
+    {
+        try
+        {
+            if (!Directory.Exists(CustomDir)) return false;
+            foreach (var f in Directory.GetFiles(CustomDir, "*.ircnode"))
+            {
+                try
+                {
+                    var d = CustomNode.Load(File.ReadAllText(f));
+                    if (d != null && d.TypeId == typeId) { File.Delete(f); LoadCustom(); return true; }
+                }
+                catch { /* skip unreadable file */ }
+            }
+        }
+        catch { /* dir unreadable */ }
+        return false;
+    }
+
     /// <summary>Where drop-in <c>.ircnode</c> community nodes are installed.</summary>
     public static string CustomDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry", "nodes");
