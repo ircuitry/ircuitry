@@ -1,0 +1,32 @@
+{
+  "typeId": "irc.stripcolor",
+  "title": "Strip IRC Colors",
+  "subtitle": "community",
+  "icon": "🧹",
+  "category": "Data",
+  "description": "Removes mIRC color/format codes (\\x03,\\x02,\\x1f,...).",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,re\ns=(os.environ.get('TEXT') or os.environ.get('ARGS') or '')\ns=re.sub(r'\\x03(\\d{1,2}(,\\d{1,2})?)?','',s)\nprint(re.sub(r'[\\x02\\x0f\\x16\\x1d\\x1e\\x1f]','',s))\n"
+}

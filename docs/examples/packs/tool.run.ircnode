@@ -1,0 +1,44 @@
+{
+  "typeId": "tool.run",
+  "title": "Run Command",
+  "subtitle": "community",
+  "icon": "⚙️",
+  "category": "Action",
+  "description": "Runs a shell command in a working directory and returns stdout+stderr and the exit code. POWERFUL - gives shell access.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "cmd",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "stdout",
+      "kind": "Text"
+    },
+    {
+      "name": "exit",
+      "kind": "Number"
+    }
+  ],
+  "params": [
+    {
+      "key": "cwd",
+      "label": "Working dir",
+      "type": "Text",
+      "default": ".",
+      "placeholder": "."
+    }
+  ],
+  "language": "python",
+  "timeout": 20,
+  "code": "import os,json,subprocess\ncmd=os.environ.get('CMD','')\ncwd=os.environ.get('CWD','.') or '.'\nif not cmd:\n    print(json.dumps({'stdout':'','exit':'0'})); raise SystemExit\ntry:\n    r=subprocess.run(cmd,shell=True,cwd=cwd,capture_output=True,text=True,timeout=15)\n    print(json.dumps({'stdout':(r.stdout+r.stderr)[:6000],'exit':str(r.returncode)}))\nexcept Exception as e:\n    print(json.dumps({'stdout':'ERROR: '+str(e),'exit':'1'}))\n"
+}

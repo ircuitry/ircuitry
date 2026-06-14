@@ -1,0 +1,32 @@
+{
+  "typeId": "hash.md5",
+  "title": "MD5 Hash",
+  "subtitle": "community",
+  "icon": "#️⃣",
+  "category": "Data",
+  "description": "MD5 hex digest of the input.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,hashlib\nprint(hashlib.md5((os.environ.get('TEXT') or os.environ.get('ARGS') or '').encode()).hexdigest())\n"
+}

@@ -1,0 +1,32 @@
+{
+  "typeId": "text.b64encode",
+  "title": "Base64 Encode",
+  "subtitle": "community",
+  "icon": "🔐",
+  "category": "Data",
+  "description": "Encodes text to Base64.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,base64\nprint(base64.b64encode((os.environ.get('TEXT') or os.environ.get('ARGS') or '').encode()).decode())\n"
+}

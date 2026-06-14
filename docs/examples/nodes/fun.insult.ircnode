@@ -1,0 +1,32 @@
+{
+  "typeId": "fun.insult",
+  "title": "Playful Insult",
+  "subtitle": "community",
+  "icon": "😈",
+  "category": "Data",
+  "description": "A cheeky (PG) insult, aimed at {nick} or the given name.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "target",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,random\nadj=['absolute','utterly','spectacularly','remarkably','impressively']\nnoun=['walnut','potato','keyboard goblin','soggy biscuit','lost packet','404 error','rubber duck','spam filter']\nt=(os.environ.get('TARGET') or os.environ.get('ARGS') or os.environ.get('NICK') or 'you').strip()\nprint(f'{t} is an {random.choice(adj)} {random.choice(noun)}. 😈')\n"
+}

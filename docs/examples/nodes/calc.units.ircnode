@@ -1,0 +1,32 @@
+{
+  "typeId": "calc.units",
+  "title": "Unit Convert",
+  "subtitle": "community",
+  "icon": "📏",
+  "category": "Data",
+  "description": "Length/mass, e.g. '5 km', '10 mi', '70 kg', '150 lb'.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "value",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,re\ns=(os.environ.get('VALUE') or os.environ.get('ARGS') or '').strip().lower()\nm=re.match(r'^(-?\\d+(?:\\.\\d+)?)\\s*([a-z]+)$',s)\nif not m: print('e.g. 5 km, 10 mi, 70 kg, 150 lb'); raise SystemExit\nv=float(m.group(1));u=m.group(2)\nif u in ('km','mi','m','ft'):\n    km = v if u=='km' else v*1.60934 if u=='mi' else v/1000 if u=='m' else v*0.0003048\n    print('%.3f km · %.3f mi · %.1f m'%(km, km/1.60934, km*1000))\nelif u in ('kg','lb','g','oz'):\n    kg = v if u=='kg' else v*0.453592 if u=='lb' else v/1000 if u=='g' else v*0.0283495\n    print('%.3f kg · %.3f lb · %.0f g'%(kg, kg/0.453592, kg*1000))\nelse: print('units: km mi m ft kg lb g oz')\n"
+}

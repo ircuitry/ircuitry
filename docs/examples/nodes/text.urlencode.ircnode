@@ -1,0 +1,32 @@
+{
+  "typeId": "text.urlencode",
+  "title": "URL Encode",
+  "subtitle": "community",
+  "icon": "🔗",
+  "category": "Data",
+  "description": "Percent-encodes text for URLs.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,urllib.parse\nprint(urllib.parse.quote((os.environ.get('TEXT') or os.environ.get('ARGS') or '')))\n"
+}

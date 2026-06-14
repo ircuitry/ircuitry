@@ -1,0 +1,32 @@
+{
+  "typeId": "fun.compliment",
+  "title": "Compliment",
+  "subtitle": "community",
+  "icon": "💖",
+  "category": "Data",
+  "description": "A wholesome compliment for {nick} or the given name.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "target",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,random\nc=['you are a ray of sunshine','your code compiles on the first try','you are the bug-fix this channel needed','you make great choices','your ping is low and your spirits high','you are 100% uptime energy']\nt=(os.environ.get('TARGET') or os.environ.get('ARGS') or os.environ.get('NICK') or 'you').strip()\nprint(f'{t}, {random.choice(c)}. 💖')\n"
+}

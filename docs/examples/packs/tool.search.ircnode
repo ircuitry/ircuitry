@@ -1,0 +1,47 @@
+{
+  "typeId": "tool.search",
+  "title": "Search Files (grep)",
+  "subtitle": "community",
+  "icon": "🔎",
+  "category": "Storage",
+  "description": "Regex-searches files under Root and outputs file:line: text for each match (capped).",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "pattern",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "matches",
+      "kind": "Text"
+    }
+  ],
+  "params": [
+    {
+      "key": "root",
+      "label": "Workspace root",
+      "type": "Text",
+      "default": ".",
+      "placeholder": "."
+    },
+    {
+      "key": "glob",
+      "label": "File glob",
+      "type": "Text",
+      "default": "**/*",
+      "placeholder": "**/*.cs"
+    }
+  ],
+  "language": "python",
+  "timeout": 20,
+  "code": "import os,glob,re\nroot=os.environ.get('ROOT','.') or '.'\ng=os.environ.get('GLOB','**/*') or '**/*'\ntry:\n    rx=re.compile(os.environ.get('PATTERN',''))\nexcept Exception as e:\n    print('bad pattern: '+str(e)); raise SystemExit\nout=[]\nfor f in glob.glob(os.path.join(root,g),recursive=True):\n    if not os.path.isfile(f): continue\n    try:\n        for i,line in enumerate(open(f,errors='replace'),1):\n            if rx.search(line):\n                out.append(os.path.relpath(f,root)+':'+str(i)+': '+line.rstrip()[:200])\n                if len(out)>=200: break\n    except: pass\n    if len(out)>=200: break\nprint('\\n'.join(out) if out else 'no matches')\n"
+}

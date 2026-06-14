@@ -1,0 +1,32 @@
+{
+  "typeId": "calc.percent",
+  "title": "Percentage",
+  "subtitle": "community",
+  "icon": "％",
+  "category": "Data",
+  "description": "X% of Y, or X out of Y. e.g. '20% of 150' or '30 of 120'.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "expr",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,re\ns=(os.environ.get('EXPR') or os.environ.get('ARGS') or '').strip().lower()\nm=re.match(r'^(-?\\d+(?:\\.\\d+)?)\\s*%\\s*of\\s*(-?\\d+(?:\\.\\d+)?)$',s)\nif m: print('%g'%(float(m.group(1))/100*float(m.group(2)))); raise SystemExit\nm=re.match(r'^(-?\\d+(?:\\.\\d+)?)\\s*of\\s*(-?\\d+(?:\\.\\d+)?)$',s)\nif m and float(m.group(2)): print('%g%%'%(float(m.group(1))/float(m.group(2))*100)); raise SystemExit\nprint(\"try '20% of 150' or '30 of 120'\")\n"
+}

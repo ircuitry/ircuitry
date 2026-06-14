@@ -1,0 +1,28 @@
+{
+  "typeId": "fun.fortune",
+  "title": "Fortune Cookie",
+  "subtitle": "community",
+  "icon": "🥠",
+  "category": "Data",
+  "description": "A random fortune-cookie message.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport random\nf=['A pleasant surprise is waiting for you.','Your hard work is about to pay off.','Now is the time to try something new.','Good news will come to you by email.','A thrilling time is in your near future.','The bug you seek is on line 42.','Trust your instincts; ship it.','Beware of off-by-one errors.']\nprint('🥠 '+random.choice(f))\n"
+}

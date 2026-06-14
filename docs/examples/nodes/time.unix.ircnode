@@ -1,0 +1,32 @@
+{
+  "typeId": "time.unix",
+  "title": "Unix Timestamp",
+  "subtitle": "community",
+  "icon": "⏱️",
+  "category": "Data",
+  "description": "Current unix timestamp, or convert one to a date.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "ts",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,datetime\ns=(os.environ.get('TS') or os.environ.get('ARGS') or '').strip()\nif not s: print(int(datetime.datetime.now().timestamp())); raise SystemExit\ntry: print(datetime.datetime.fromtimestamp(int(s)).strftime('%Y-%m-%d %H:%M:%S'))\nexcept Exception: print('give a unix timestamp (or leave blank for now)')\n"
+}

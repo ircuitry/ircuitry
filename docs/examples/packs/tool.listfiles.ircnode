@@ -1,0 +1,40 @@
+{
+  "typeId": "tool.listfiles",
+  "title": "List Files",
+  "subtitle": "community",
+  "icon": "📂",
+  "category": "Storage",
+  "description": "Lists files under Root matching a glob (e.g. **/*.cs). Outputs newline-separated relative paths.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "glob",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "files",
+      "kind": "Text"
+    }
+  ],
+  "params": [
+    {
+      "key": "root",
+      "label": "Workspace root",
+      "type": "Text",
+      "default": ".",
+      "placeholder": "."
+    }
+  ],
+  "language": "python",
+  "timeout": 20,
+  "code": "import os,glob\nroot=os.environ.get('ROOT','.') or '.'\npat=os.environ.get('GLOB','**/*') or '**/*'\nhits=[os.path.relpath(h,root) for h in glob.glob(os.path.join(root,pat),recursive=True) if os.path.isfile(h)]\nprint('\\n'.join(sorted(hits)[:500]) if hits else 'no files')\n"
+}

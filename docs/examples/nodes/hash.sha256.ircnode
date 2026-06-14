@@ -1,0 +1,32 @@
+{
+  "typeId": "hash.sha256",
+  "title": "SHA-256 Hash",
+  "subtitle": "community",
+  "icon": "🔒",
+  "category": "Data",
+  "description": "SHA-256 hex digest of the input.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,hashlib\nprint(hashlib.sha256((os.environ.get('TEXT') or os.environ.get('ARGS') or '').encode()).hexdigest())\n"
+}

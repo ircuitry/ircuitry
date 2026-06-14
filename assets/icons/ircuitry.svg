@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#66CBDD"/>
+      <stop offset="1" stop-color="#42A4B8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- app tile -->
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#tile)"/>
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="none" stroke="#2C7886" stroke-opacity="0.30" stroke-width="6"/>
+
+  <!-- chat bubble (IRC) -->
+  <rect x="104" y="118" width="304" height="208" rx="44" fill="#FCF7EB"/>
+  <path d="M168 322 L150 392 L236 322 Z" fill="#FCF7EB"/>
+
+  <!-- circuit traces inside the bubble (orthogonal, the app's signature wiring) -->
+  <g fill="none" stroke="#3FA7BA" stroke-width="17" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M176 196 H300 V268 H338"/>
+  </g>
+
+  <!-- solder nodes -->
+  <g>
+    <circle cx="300" cy="196" r="11" fill="#3FA7BA"/>
+    <circle cx="300" cy="268" r="11" fill="#3FA7BA"/>
+    <circle cx="176" cy="196" r="24" fill="#F2AE46"/>
+    <circle cx="176" cy="196" r="24" fill="none" stroke="#FCF7EB" stroke-width="7"/>
+    <circle cx="338" cy="268" r="24" fill="#8CC454"/>
+    <circle cx="338" cy="268" r="24" fill="none" stroke="#FCF7EB" stroke-width="7"/>
+  </g>
+</svg>

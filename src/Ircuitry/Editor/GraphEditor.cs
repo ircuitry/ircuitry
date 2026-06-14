@@ -1,0 +1,1050 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Input;
+using Ircuitry.Core;
+using Ircuitry.Graph;
+using Ircuitry.Input;
+using Ircuitry.Render;
+
+namespace Ircuitry.Editor;
+
+/// <summary>
+/// The node-graph canvas: pan/zoom camera, node dragging, wire routing,
+/// selection and all rendering. Hit-testing is screen-space for ports (forgiving
+/// at any zoom) and world-space for node bodies.
+/// </summary>
+public sealed class GraphEditor
+{
+    public readonly Camera Cam = new();
+    public NodeGraph Graph;
+    public readonly HashSet<string> Selection = new();
+    private bool _camInit;
+
+    /// <summary>Set by the host: returns 0..1 glow for a node that just executed.</summary>
+    public Func<string, float>? FireGlow;
+    /// <summary>Set by the host: lifetime fire count for a node (badge), and whether a bot is live.</summary>
+    public Func<string, int>? FireCount;
+    public bool Running;
+    public bool ShowMinimap = true;
+
+    // undo / redo (graph-JSON snapshots) + node clipboard (shared across bots)
+    private readonly List<string> _undo = new();
+    private readonly List<string> _redo = new();
+    private string? _preDrag;
+    private bool _wireUndo;
+    private static List<Node>? _clipNodes;
+    private static List<Connection>? _clipConns;
+
+    public bool CanUndo => _undo.Count > 0;
+    public bool CanRedo => _redo.Count > 0;
+    public bool CanPaste => _clipNodes is { Count: > 0 };
+
+    private enum Mode { Idle, Panning, DragNodes, DragWire, Box }
+    private Mode _mode;
+
+    // drag-nodes
+    private Vector2 _dragStartWorld;
+    private readonly Dictionary<string, Vector2> _dragOrigin = new();
+    public bool Dragged { get; private set; }   // moved meaningfully (suppresses click)
+    private string? _collapseNode;              // collapse multi-select to this on a click (no drag)
+
+    // drag-wire
+    private string _wireNode = "";
+    private int _wirePin;
+    private PinKind _wireKind;
+    private bool _wireFromOutput;
+
+    // box select
+    private Vector2 _boxStart;
+
+    // hover
+    private (string node, int pin, bool input)? _hoverPort;
+
+    public GraphEditor(NodeGraph graph) => Graph = graph;
+
+    public Node? SelectedSingle => Selection.Count == 1 ? Graph.Find(Selection.First()) : null;
+
+    public void FocusContent(RectF canvas)
+    {
+        if (Graph.Nodes.Count == 0) { Cam.CenterOn(Vector2.Zero, canvas.Center); return; }
+        var min = new Vector2(float.MaxValue); var max = new Vector2(float.MinValue);
+        foreach (var n in Graph.Nodes)
+        {
+            var l = NodeLayout.For(n);
+            min = Vector2.Min(min, l.Card.Pos); max = Vector2.Max(max, new Vector2(l.Card.Right, l.Card.Bottom));
+        }
+        var center = (min + max) / 2f;
+        Cam.Zoom = 1f;
+        Cam.CenterOn(center, canvas.Center);
+    }
+
+    public Node Spawn(NodeDef def, Vector2 worldPos)
+    {
+        PushUndo();
+        var n = Graph.Add(def, worldPos - new Vector2(NodeLayout.Width / 2f, NodeLayout.Header / 2f));
+        Selection.Clear(); Selection.Add(n.Id);
+        BringToFront(n);
+        return n;
+    }
+
+    // ---- undo / redo ----
+    private string Serialize() => GraphSerializer.Save(Graph, "undo");
+    public void PushUndo() { _undo.Add(Serialize()); if (_undo.Count > 60) _undo.RemoveAt(0); _redo.Clear(); }
+    private void Restore(string snap) { Graph.ReplaceWith(GraphSerializer.Load(snap).graph); Selection.RemoveWhere(id => Graph.Find(id) == null); }
+    public void Undo() { if (_undo.Count == 0) return; _redo.Add(Serialize()); var s = _undo[^1]; _undo.RemoveAt(_undo.Count - 1); Restore(s); }
+    public void Redo() { if (_redo.Count == 0) return; _undo.Add(Serialize()); var s = _redo[^1]; _redo.RemoveAt(_redo.Count - 1); Restore(s); }
+
+    // ---- clipboard ----
+    private static Node CloneForClip(Node n) =>
+        new(n.Id, n.TypeId) { Def = n.Def, Pos = n.Pos, Muted = n.Muted, StreamAsTool = n.StreamAsTool, Title = n.Title, Params = new Dictionary<string, string>(n.Params) };
+
+    public void CopySelection()
+    {
+        if (Selection.Count == 0) return;
+        var sel = Selection.ToHashSet();
+        _clipNodes = Graph.Nodes.Where(n => sel.Contains(n.Id)).Select(CloneForClip).ToList();
+        _clipConns = Graph.Connections.Where(c => sel.Contains(c.FromNode) && sel.Contains(c.ToNode))
+                          .Select(c => new Connection(c.FromNode, c.FromPin, c.ToNode, c.ToPin)).ToList();
+
+        // also put the .ircbot JSON on the OS clipboard, so a selection can be pasted into another
+        // editor instance - or pasted into a chat to share/debug.
+        var sub = new NodeGraph();
+        sub.Nodes.AddRange(_clipNodes);
+        sub.Connections.AddRange(_clipConns);
+        try { Clipboard.SetText(GraphSerializer.Save(sub, "clip")); } catch { /* clipboard optional */ }
+    }
+
+    public void PasteAtCursor(Vector2 worldCursor)
+    {
+        // prefer graph JSON on the OS clipboard (lets you paste between editors / from shared JSON)
+        var ext = TryLoadClipboardGraph();
+        if (ext != null) { InsertAtCursor(ext.Nodes, ext.Connections, worldCursor); return; }
+        if (_clipNodes is { Count: > 0 }) InsertAtCursor(_clipNodes, _clipConns!, worldCursor);
+    }
+
+    public void DuplicateSelection() { CopySelection(); InsertNodes(_clipNodes!, _clipConns!, new Vector2(28, 28)); }
+
+    /// <summary>Copy the selection to the clipboard, then remove it.</summary>
+    public void CutSelection() { if (Selection.Count == 0) return; CopySelection(); DeleteSelection(); }
+
+    /// <summary>Select every node in the graph.</summary>
+    public void SelectAll() { Selection.Clear(); foreach (var n in Graph.Nodes) Selection.Add(n.Id); }
+
+    /// <summary>Remove every wire touching the current selection (snip a node loose).</summary>
+    public void DisconnectSelection()
+    {
+        if (Selection.Count == 0) return;
+        PushUndo();
+        Graph.Connections.RemoveAll(c => Selection.Contains(c.FromNode) || Selection.Contains(c.ToNode));
+    }
+
+    /// <summary>True if there are nodes to paste - locally copied, or graph JSON on the OS clipboard.</summary>
+    public bool ClipboardHasNodes() => (_clipNodes is { Count: > 0 }) || TryLoadClipboardGraph() != null;
+
+    /// <summary>True if the selection can be saved as a reusable subflow node (contains a Subflow Start).</summary>
+    public bool SelectionIsSubflow => Selection.Count > 0 && Graph.Nodes.Any(n => Selection.Contains(n.Id) && n.TypeId == "flow.in");
+
+    /// <summary>Serialize the selection into a reusable-subflow node manifest (.ircnode JSON). Pins are derived
+    /// from the Subflow Input/Output nodes inside it. Returns null if there's no Subflow Start (flow.in) entry.</summary>
+    public string? SaveSelectionAsNode(string title)
+    {
+        var sel = Selection.ToHashSet();
+        var nodes = Graph.Nodes.Where(n => sel.Contains(n.Id)).ToList();
+        if (!nodes.Any(n => n.TypeId == "flow.in")) return null;
+
+        var sub = new NodeGraph();
+        foreach (var n in nodes) sub.Nodes.Add(CloneForClip(n));
+        foreach (var c in Graph.Connections)
+            if (sel.Contains(c.FromNode) && sel.Contains(c.ToNode))
+                sub.Connections.Add(new Connection(c.FromNode, c.FromPin, c.ToNode, c.ToPin));
+
+        static string J(string s) => System.Text.Json.JsonSerializer.Serialize(s);
+        var inputs = new List<string> { "{\"name\":\"\",\"kind\":\"Exec\"}" };
+        foreach (var a in nodes.Where(n => n.TypeId == "flow.arg").Select(n => n.GetParam("name")).Where(s => s.Length > 0).Distinct())
+            inputs.Add("{\"name\":" + J(a) + ",\"kind\":\"Text\"}");
+        var outputs = new List<string> { "{\"name\":\"then\",\"kind\":\"Exec\"}" };
+        foreach (var rr in nodes.Where(n => n.TypeId == "flow.return").Select(n => n.GetParam("name")).Where(s => s.Length > 0).Distinct())
+            outputs.Add("{\"name\":" + J(rr) + ",\"kind\":\"Text\"}");
+
+        var slug = new string(title.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
+        if (slug.Length == 0) slug = "node";
+        return "{\"typeId\":" + J("subflow." + slug) + ",\"title\":" + J(title)
+            + ",\"subtitle\":\"subflow\",\"icon\":\"🧩\",\"category\":\"Logic\","
+            + "\"inputs\":[" + string.Join(",", inputs) + "],\"outputs\":[" + string.Join(",", outputs) + "],"
+            + "\"subgraph\":" + GraphSerializer.Save(sub, title) + "}";
+    }
+
+    /// <summary>Load a whole graph (e.g. a dropped .ircbot) into the current workflow at a screen point.</summary>
+    public void InsertGraphAt(NodeGraph g, Vector2 screen) => InsertAtCursor(g.Nodes, g.Connections, Cam.ScreenToWorld(screen));
+
+    private static NodeGraph? TryLoadClipboardGraph()
+    {
+        try
+        {
+            var t = Clipboard.GetText();
+            if (t.Length == 0 || t.IndexOf("\"nodes\"", StringComparison.Ordinal) < 0) return null;
+            var (g, _) = GraphSerializer.Load(t);
+            return g.Nodes.Count > 0 ? g : null;
+        }
+        catch { return null; }
+    }
+
+    private void InsertAtCursor(IReadOnlyList<Node> nodes, IReadOnlyList<Connection> conns, Vector2 worldCursor)
+    {
+        if (nodes.Count == 0) return;
+        var min = new Vector2(float.MaxValue);
+        foreach (var n in nodes) min = Vector2.Min(min, n.Pos);
+        InsertNodes(nodes, conns, worldCursor - min);
+    }
+
+    private void InsertNodes(IReadOnlyList<Node> nodes, IReadOnlyList<Connection> conns, Vector2 off)
+    {
+        if (nodes.Count == 0) return;
+        PushUndo();
+        var map = new Dictionary<string, string>();
+        Selection.Clear();
+        foreach (var src in nodes)
+        {
+            var n = Graph.Add(src.Def, src.Pos + off);
+            foreach (var kv in src.Params) n.Params[kv.Key] = kv.Value;
+            n.Muted = src.Muted;
+            n.StreamAsTool = src.StreamAsTool;
+            n.Title = src.Title;
+            map[src.Id] = n.Id;
+            Selection.Add(n.Id);
+        }
+        foreach (var c in conns)
+            if (map.TryGetValue(c.FromNode, out var f) && map.TryGetValue(c.ToNode, out var t))
+                Graph.Connect(f, c.FromPin, t, c.ToPin);
+        BringSelectionToFront();
+    }
+
+    private void BringSelectionToFront()
+    {
+        var sel = Graph.Nodes.Where(n => Selection.Contains(n.Id)).ToList();
+        foreach (var n in sel) { Graph.Nodes.Remove(n); Graph.Nodes.Add(n); }
+    }
+
+    /// <summary>Tidy the graph into clean left→right layers (longest-path layering), undoable.</summary>
+    public void AutoLayout()
+    {
+        if (Graph.Nodes.Count == 0) return;
+        PushUndo();
+
+        var depth = new Dictionary<string, int>();
+        foreach (var n in Graph.Nodes) depth[n.Id] = 0;
+        for (int iter = 0; iter < Graph.Nodes.Count; iter++)   // longest-path; capped so cycles can't spin
+        {
+            bool changed = false;
+            foreach (var c in Graph.Connections)
+                if (depth.TryGetValue(c.FromNode, out var df) && depth.TryGetValue(c.ToNode, out var dt) && df + 1 > dt)
+                { depth[c.ToNode] = df + 1; changed = true; }
+            if (!changed) break;
+        }
+
+        var layers = new Dictionary<int, List<Node>>();
+        foreach (var n in Graph.Nodes)
+        {
+            if (!layers.TryGetValue(depth[n.Id], out var list)) layers[depth[n.Id]] = list = new();
+            list.Add(n);
+        }
+
+        const float colGap = 90f, rowGap = 46f;
+        float x = 0;
+        foreach (var layer in layers.Keys.OrderBy(k => k))
+        {
+            var nodes = layers[layer];
+            nodes.Sort((a, b) => a.Pos.Y.CompareTo(b.Pos.Y));   // keep the author's vertical ordering
+            float colW = 0, y = 0;
+            foreach (var n in nodes) colW = MathF.Max(colW, NodeLayout.For(n).Card.W);
+            foreach (var n in nodes) { n.Pos = new Vector2(x, y); y += NodeLayout.For(n).Card.H + rowGap; }
+            x += colW + colGap;
+        }
+        Selection.Clear();
+    }
+
+    public void ToggleMuteSelection()
+    {
+        if (Selection.Count == 0) return;
+        PushUndo();
+        bool anyOn = Selection.Select(Graph.Find).Any(n => n is { Muted: false });
+        foreach (var id in Selection) { var n = Graph.Find(id); if (n != null) n.Muted = anyOn; }
+    }
+
+    /// <summary>True when nothing (node or port) sits under the given screen point - used for quick-add.</summary>
+    public bool IsEmptyAt(Vector2 screen) => HitPort(screen) == null && HitNode(Cam.ScreenToWorld(screen)) == null;
+
+    /// <summary>The node under a screen point, or null - used for drag-and-drop onto a node.</summary>
+    public Node? NodeAt(Vector2 screen) => HitNode(Cam.ScreenToWorld(screen));
+
+    /// <summary>The on-screen rectangle of a node's card (for tutorial spotlights).</summary>
+    public RectF NodeScreenRect(Node n) => ScreenRect(NodeLayout.For(n).Card);
+
+    // ===================================================================
+    public void Update(InputState input, RectF canvas, bool uiCapturing)
+    {
+        if (!_camInit) { Cam.CenterOn(Vector2.Zero, canvas.Center); _camInit = true; }
+
+        bool inCanvas = canvas.Contains(input.Mouse);
+        Vector2 mw = Cam.ScreenToWorld(input.Mouse);
+
+        if (inCanvas && input.ScrollDelta != 0) Cam.ZoomAt(input.Mouse, input.ScrollDelta / 120f);
+
+        _hoverPort = inCanvas ? HitPort(input.Mouse) : null;
+
+        switch (_mode)
+        {
+            case Mode.Idle:
+                // pan with middle-drag, or left-drag while holding Space / Shift / Alt / Ctrl
+                bool panMod = input.KeyDown(Keys.Space) || input.Shift || input.Alt || input.Ctrl;
+                bool panBtn = input.MiddleDown || (input.LeftDown && panMod);
+                if (inCanvas && panBtn) { _mode = Mode.Panning; break; }
+                if (inCanvas && input.LeftPressed) BeginLeftPress(input, mw);
+                break;
+
+            case Mode.Panning:
+                Cam.PanBy(input.MouseDelta);
+                if (!input.MiddleDown && !input.LeftDown) _mode = Mode.Idle;
+                break;
+
+            case Mode.DragNodes:
+                var delta = mw - _dragStartWorld;
+                if (delta.LengthSquared() > 4) Dragged = true;
+                foreach (var kv in _dragOrigin) { var n = Graph.Find(kv.Key); if (n != null) n.Pos = kv.Value + delta; }
+                if (input.LeftReleased)
+                {
+                    if (Dragged && _preDrag != null) { _undo.Add(_preDrag); if (_undo.Count > 60) _undo.RemoveAt(0); _redo.Clear(); }
+                    _preDrag = null;
+                    if (!Dragged && _collapseNode != null) { Selection.Clear(); Selection.Add(_collapseNode); }
+                    _collapseNode = null;
+                    _mode = Mode.Idle;
+                }
+                break;
+
+            case Mode.DragWire:
+                if (input.LeftReleased) { CommitWire(input.Mouse); _mode = Mode.Idle; }
+                break;
+
+            case Mode.Box:
+                if (input.LeftReleased) { CommitBox(mw, input.Shift); _mode = Mode.Idle; }
+                break;
+        }
+
+        if (!uiCapturing && _mode == Mode.Idle && (input.KeyPressed(Keys.Delete) || input.KeyPressed(Keys.Back)))
+            DeleteSelection();
+        if (!uiCapturing && input.Ctrl)
+        {
+            if (input.KeyPressed(Keys.A)) { Selection.Clear(); foreach (var n in Graph.Nodes) Selection.Add(n.Id); }
+            else if (input.KeyPressed(Keys.Z)) { if (input.Shift) Redo(); else Undo(); }
+            else if (input.KeyPressed(Keys.Y)) Redo();
+            else if (input.KeyPressed(Keys.C)) CopySelection();
+            else if (input.KeyPressed(Keys.V)) PasteAtCursor(mw);
+            else if (input.KeyPressed(Keys.D)) DuplicateSelection();
+        }
+        if (!uiCapturing && !input.Ctrl && _mode == Mode.Idle && input.KeyPressed(Keys.M))
+            ToggleMuteSelection();
+    }
+
+    private void BeginLeftPress(InputState input, Vector2 mw)
+    {
+        Dragged = false;
+        _wireUndo = false;
+        var port = HitPort(input.Mouse);
+        if (port.HasValue)
+        {
+            var (node, pin, isInput) = port.Value;
+            var def = Graph.Find(node)!.Def;
+            if (!isInput) StartWire(node, pin, def.Outputs[pin].Kind, true);
+            else
+            {
+                var existing = Graph.IntoPin(node, pin);
+                if (existing != null)
+                {
+                    PushUndo(); _wireUndo = true;
+                    Graph.Disconnect(existing);
+                    var src = Graph.Find(existing.FromNode);
+                    var kind = src != null && existing.FromPin < src.Def.Outputs.Length
+                        ? src.Def.Outputs[existing.FromPin].Kind : def.Inputs[pin].Kind;
+                    StartWire(existing.FromNode, existing.FromPin, kind, true);   // colour by source output
+                }
+                else StartWire(node, pin, def.Inputs[pin].Kind, false);
+            }
+            return;
+        }
+
+        var hit = HitNode(mw);
+        if (hit != null)
+        {
+            bool already = Selection.Contains(hit.Id);
+            if (input.Shift) { if (!Selection.Add(hit.Id)) Selection.Remove(hit.Id); }
+            else if (!already) { Selection.Clear(); Selection.Add(hit.Id); }
+            // clicking (not dragging) an already-selected node in a multi-selection collapses to just it
+            _collapseNode = (!input.Shift && already && Selection.Count > 1) ? hit.Id : null;
+            BringToFront(hit);
+            _mode = Mode.DragNodes;
+            _preDrag = Serialize();
+            _dragStartWorld = mw;
+            _dragOrigin.Clear();
+            foreach (var id in Selection) { var n = Graph.Find(id); if (n != null) _dragOrigin[id] = n.Pos; }
+        }
+        else
+        {
+            if (!input.Shift) Selection.Clear();
+            _mode = Mode.Box; _boxStart = mw;
+        }
+    }
+
+    private void StartWire(string node, int pin, PinKind kind, bool fromOutput)
+    { _mode = Mode.DragWire; _wireNode = node; _wirePin = pin; _wireKind = kind; _wireFromOutput = fromOutput; }
+
+    private void CommitWire(Vector2 screenMouse)
+    {
+        var port = HitPort(screenMouse);
+        if (port == null) return;
+        var (tn, tp, tInput) = port.Value;
+        bool willConnect = (_wireFromOutput && tInput) || (!_wireFromOutput && !tInput);
+        if (willConnect && !_wireUndo) PushUndo();
+        if (_wireFromOutput && tInput) Graph.Connect(_wireNode, _wirePin, tn, tp);
+        else if (!_wireFromOutput && !tInput) Graph.Connect(tn, tp, _wireNode, _wirePin);
+    }
+
+    private void CommitBox(Vector2 mw, bool additive)
+    {
+        var box = RectF.FromCorners(_boxStart, mw);
+        if (!additive) Selection.Clear();
+        foreach (var n in Graph.Nodes)
+            if (NodeLayout.For(n).Card.Overlaps(box)) Selection.Add(n.Id);
+    }
+
+    public void DeleteSelection()
+    {
+        if (Selection.Count == 0) return;
+        PushUndo();
+        foreach (var id in Selection.ToList()) { var n = Graph.Find(id); if (n != null) Graph.Remove(n); }
+        Selection.Clear();
+    }
+
+    private void BringToFront(Node n) { Graph.Nodes.Remove(n); Graph.Nodes.Add(n); }
+
+    // ---- hit testing ----
+    private Node? HitNode(Vector2 mw)
+    {
+        for (int i = Graph.Nodes.Count - 1; i >= 0; i--)
+            if (NodeLayout.For(Graph.Nodes[i]).Card.Contains(mw)) return Graph.Nodes[i];
+        return null;
+    }
+
+    private (string node, int pin, bool input)? HitPort(Vector2 screen)
+    {
+        const float R = 11f;
+        for (int i = Graph.Nodes.Count - 1; i >= 0; i--)
+        {
+            var n = Graph.Nodes[i];
+            var l = NodeLayout.For(n);
+            for (int p = 0; p < n.Def.Inputs.Length; p++)
+                if (Vector2.Distance(screen, Cam.WorldToScreen(l.InPin(p))) <= R) return (n.Id, p, true);
+            for (int p = 0; p < n.Def.Outputs.Length; p++)
+                if (Vector2.Distance(screen, Cam.WorldToScreen(l.OutPin(p))) <= R) return (n.Id, p, false);
+        }
+        return null;
+    }
+
+    // ===================================================================
+    public void Draw(Renderer r, RectF canvas, InputState input, Clock clock)
+    {
+        var scissor = canvas.ToRectangle();
+
+        r.Begin(BlendMode.Alpha, scissor);
+        DrawGrid(r, canvas);
+        RefreshRouteCache();
+        foreach (var c in Graph.Connections) DrawWire(r, c, clock);
+        if (_mode == Mode.DragWire) DrawDragWire(r, input);
+        foreach (var n in Graph.Nodes) DrawNode(r, n, clock);
+        // node-fired shockwave (alpha so the rings read on the cream canvas): a white-hot flash
+        // outline at the instant of firing, then two rings rippling outward as it fades.
+        if (FireGlow != null)
+            foreach (var n in Graph.Nodes)
+            {
+                float g = FireGlow(n.Id);
+                if (g <= 0.01f) continue;
+                var card = ScreenRect(NodeLayout.For(n).Card);
+                var cat = Theme.Category(n.Def.Category);
+                float baseRad = 14f * Cam.Zoom;
+                r.RoundOutline(card.Inflate(2f, 2f), Theme.WithAlpha(Theme.Mix(cat, Color.White, 0.55f), g), baseRad + 2f);
+                for (int k = 0; k < 2; k++)
+                {
+                    float p = g - k * 0.22f;
+                    if (p <= 0.01f) continue;
+                    float spread = (1f - p) * (26f + 30f * Cam.Zoom);
+                    r.RoundOutline(card.Inflate(3f + spread, 3f + spread), Theme.WithAlpha(cat, p * p * 0.75f), baseRad + 3f + spread);
+                }
+            }
+        if (_mode == Mode.Box) DrawBox(r, input);
+        if (_hoverPort.HasValue) DrawPortHover(r, _hoverPort.Value);
+        if (ShowMinimap) DrawMinimap(r, canvas);
+        r.End();
+
+        // additive bloom pass: a soft glow burst around each fired node, and a luminous packet
+        // that rides outward along every wire leaving a node the moment it fires.
+        if (FireGlow != null)
+        {
+            r.Begin(BlendMode.Add, scissor);
+            foreach (var n in Graph.Nodes)
+            {
+                float g = FireGlow(n.Id);
+                if (g <= 0.01f) continue;
+                var card = ScreenRect(NodeLayout.For(n).Card);
+                var cat = Theme.Category(n.Def.Category);
+                float ease = g * g;
+                r.Glow(card.Center, MathF.Max(card.W, card.H) * (0.65f + 0.45f * (1f - g)), Theme.WithAlpha(cat, 0.45f * ease));
+            }
+            foreach (var c in Graph.Connections)
+            {
+                float hot = FireGlow(c.FromNode);
+                if (hot <= 0.02f) continue;
+                var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
+                if (a == null || b == null || a.Muted || b.Muted) continue;
+                if (c.FromPin >= a.Def.Outputs.Length || c.ToPin >= b.Def.Inputs.Length) continue;
+                var col = Pins.Color(a.Def.Outputs[c.FromPin].Kind);
+                var world = WorldRoute(c);
+                var pts = new List<Vector2>(world.Count);
+                foreach (var wp in world) pts.Add(Cam.WorldToScreen(wp));
+                var pos = PointAlong(pts, 1f - hot);   // sits at the node when it fires, glides to the next as it fades
+                r.Glow(pos, MathF.Max(7f, 9f * Cam.Zoom), Theme.WithAlpha(col, 0.8f * hot));
+                r.Disc(pos, MathF.Max(2.5f, 3.2f * Cam.Zoom), Theme.WithAlpha(Theme.Mix(col, Color.White, 0.5f), hot));
+            }
+            r.End();
+        }
+    }
+
+    private void DrawMinimap(Renderer r, RectF canvas)
+    {
+        if (Graph.Nodes.Count < 2 || canvas.W < 360 || canvas.H < 300) return;
+
+        var min = new Vector2(float.MaxValue); var max = new Vector2(float.MinValue);
+        foreach (var n in Graph.Nodes)
+        {
+            var l = NodeLayout.For(n);
+            min = Vector2.Min(min, l.Card.Pos); max = Vector2.Max(max, new Vector2(l.Card.Right, l.Card.Bottom));
+        }
+        var vtl = Cam.ScreenToWorld(new Vector2(canvas.Left, canvas.Top));
+        var vbr = Cam.ScreenToWorld(new Vector2(canvas.Right, canvas.Bottom));
+        min = Vector2.Min(min, vtl); max = Vector2.Max(max, vbr);
+        var pad = (max - min) * 0.05f + new Vector2(24);
+        min -= pad; max += pad;
+
+        const float mmW = 158, mmH = 112, marg = 12;
+        var box = new RectF(canvas.Right - mmW - marg, canvas.Bottom - mmH - marg, mmW, mmH);
+        r.RoundFill(box.Offset(0, 3), Theme.WithAlpha(Color.Black, 0.12f), 9);
+        r.RoundFill(box, Theme.WithAlpha(Theme.Panel, 0.93f), 9);
+        r.RoundOutline(box, Theme.Edge, 9);
+
+        var span = Vector2.Max(max - min, new Vector2(1));
+        float sc = MathF.Min((box.W - 8) / span.X, (box.H - 8) / span.Y);
+        var origin = new Vector2(box.X + (box.W - span.X * sc) / 2f, box.Y + (box.H - span.Y * sc) / 2f);
+        Vector2 Map(Vector2 w) => origin + (w - min) * sc;
+
+        foreach (var n in Graph.Nodes)
+        {
+            var l = NodeLayout.For(n);
+            var a = Map(l.Card.Pos); var b = Map(new Vector2(l.Card.Right, l.Card.Bottom));
+            var cat = Theme.Category(n.Def.Category);
+            var col = Selection.Contains(n.Id) ? cat : Theme.WithAlpha(cat, n.Muted ? 0.35f : 0.8f);
+            r.Fill(new RectF(a.X, a.Y, MathF.Max(2.5f, b.X - a.X), MathF.Max(2.5f, b.Y - a.Y)), col);
+        }
+        var va = Map(vtl); var vb = Map(vbr);
+        r.RectOutline(new RectF(va.X, va.Y, vb.X - va.X, vb.Y - va.Y), Theme.WithAlpha(Theme.CyanDim, 0.95f), 1.5f);
+    }
+
+    private void DrawGrid(Renderer r, RectF c)
+    {
+        const float baseStep = 28f; const int major = 4;
+        float step = baseStep;
+        while (step * Cam.Zoom < 13f) step *= major;
+        while (step * Cam.Zoom > 96f) step /= major;
+
+        Vector2 tl = Cam.ScreenToWorld(new Vector2(c.Left, c.Top));
+        Vector2 br = Cam.ScreenToWorld(new Vector2(c.Right, c.Bottom));
+        float x0 = MathF.Floor(tl.X / step) * step;
+        for (float x = x0; x <= br.X; x += step)
+        {
+            int idx = (int)MathF.Round(x / step);
+            float sx = MathF.Round(Cam.WorldToScreen(new Vector2(x, 0)).X);
+            r.VLine(sx, c.Top, c.Bottom, idx % major == 0 ? Theme.GridMajor : Theme.GridMinor, 1f);
+        }
+        float y0 = MathF.Floor(tl.Y / step) * step;
+        for (float y = y0; y <= br.Y; y += step)
+        {
+            int idx = (int)MathF.Round(y / step);
+            float sy = MathF.Round(Cam.WorldToScreen(new Vector2(0, y)).Y);
+            r.HLine(c.Left, c.Right, sy, idx % major == 0 ? Theme.GridMajor : Theme.GridMinor, 1f);
+        }
+        Vector2 o = Cam.WorldToScreen(Vector2.Zero);
+        if (o.X >= c.Left && o.X <= c.Right) r.VLine(MathF.Round(o.X), c.Top, c.Bottom, Theme.GridAxis, 1.5f);
+        if (o.Y >= c.Top && o.Y <= c.Bottom) r.HLine(c.Left, c.Right, MathF.Round(o.Y), Theme.GridAxis, 1.5f);
+    }
+
+    private void DrawWire(Renderer r, Connection c, Clock clock)
+    {
+        var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
+        if (a == null || b == null) return;
+        if (c.FromPin >= a.Def.Outputs.Length || c.ToPin >= b.Def.Inputs.Length) return;
+        var col = Pins.Color(a.Def.Outputs[c.FromPin].Kind);
+        bool muted = a.Muted || b.Muted;
+        // grid-snapped, obstacle-avoiding route (cached in world space; project to screen for drawing)
+        var world = WorldRoute(c);
+        var pts = new List<Vector2>(world.Count);
+        foreach (var wp in world) pts.Add(Cam.WorldToScreen(wp));
+        DrawTrace(r, pts, muted ? Theme.WithAlpha(col, 0.28f) : col);
+
+        // travelling data-flow dots while a bot is live (brighter on a freshly-fired source)
+        if (Running && !muted)
+        {
+            float hot = FireGlow?.Invoke(c.FromNode) ?? 0f;
+            float speed = 0.30f + 0.9f * hot;
+            float dotR = MathF.Max(2f, 2.6f * Cam.Zoom);
+            for (int d = 0; d < 2; d++)
+            {
+                float t = (clock.Time * speed + d * 0.5f) % 1f;
+                r.Disc(PointAlong(pts, t), dotR, Theme.WithAlpha(col, 0.22f + 0.55f * hot));
+            }
+        }
+    }
+
+    private void DrawDragWire(Renderer r, InputState input)
+    {
+        var n = Graph.Find(_wireNode); if (n == null) return;
+        var l = NodeLayout.For(n);
+        var anchor = Cam.WorldToScreen(_wireFromOutput ? l.OutPin(_wirePin) : l.InPin(_wirePin));
+        var col = Pins.Color(_wireKind);
+        var pts = _wireFromOutput ? RouteWire(anchor, input.Mouse, 0) : RouteWire(input.Mouse, anchor, 0);
+        DrawTrace(r, pts, col);
+        r.Disc(input.Mouse, 4f, col);
+    }
+
+    // ---- simple screen-space orthogonal route (used by the in-progress drag wire) ----
+    /// <summary>Route output→input as right-angle segments (out the right, in the left), the vertical run snapped to the grid.</summary>
+    private List<Vector2> RouteWire(Vector2 p0, Vector2 p1, float jog)
+    {
+        float z = Cam.Zoom;
+        float stub = MathF.Max(12f, 20f * z);
+        var a = new Vector2(p0.X + stub, p0.Y);     // leave the output going right
+        var b = new Vector2(p1.X - stub, p1.Y);     // arrive at the input from the left
+        var pts = new List<Vector2> { p0, a };
+
+        if (MathF.Abs(a.Y - b.Y) <= 1.5f)           // same row → straight across
+        {
+            pts.Add(b); pts.Add(p1);
+            return pts;
+        }
+
+        float midX = (a.X + b.X) * 0.5f + jog;
+        if (b.X - a.X < stub * 2) midX = MathF.Max(a.X, b.X) + stub + jog;   // backward edge: route clear to the right
+        midX = SnapX(midX);
+        pts.Add(new Vector2(midX, a.Y));
+        pts.Add(new Vector2(midX, b.Y));
+        pts.Add(b); pts.Add(p1);
+        return pts;
+    }
+
+    // snap a screen-space X to the nearest minor grid column, so vertical runs sit on the grid
+    private float SnapX(float screenX)
+    {
+        float step = GridStepScreen();
+        float originX = Cam.WorldToScreen(Vector2.Zero).X;
+        return originX + MathF.Round((screenX - originX) / step) * step;
+    }
+
+    private float GridStepScreen()
+    {
+        const float baseStep = 28f, major = 4;
+        float step = baseStep;
+        while (step * Cam.Zoom < 13f) step *= major;
+        while (step * Cam.Zoom > 96f) step /= major;
+        return step * Cam.Zoom;
+    }
+
+    private void DrawTrace(Renderer r, List<Vector2> pts, Color col)
+    {
+        float w = MathF.Max(1.7f, 2.4f * Cam.Zoom);
+        for (int i = 0; i + 1 < pts.Count; i++)
+        {
+            r.Line(pts[i], pts[i + 1], col, w);
+            if (i + 1 < pts.Count - 1) r.Disc(pts[i + 1], w * 0.9f, col);   // round the bend
+        }
+        r.Disc(pts[0], w * 0.85f, col);                                     // solder pads at both ends
+        r.Disc(pts[^1], w * 0.85f, col);
+    }
+
+    private static Vector2 PointAlong(List<Vector2> pts, float t)
+    {
+        float total = 0;
+        for (int i = 0; i + 1 < pts.Count; i++) total += Vector2.Distance(pts[i], pts[i + 1]);
+        float want = total * Math.Clamp(t, 0f, 1f), acc = 0;
+        for (int i = 0; i + 1 < pts.Count; i++)
+        {
+            float seg = Vector2.Distance(pts[i], pts[i + 1]);
+            if (acc + seg >= want) return Vector2.Lerp(pts[i], pts[i + 1], seg <= 0.001f ? 0 : (want - acc) / seg);
+            acc += seg;
+        }
+        return pts[^1];
+    }
+
+    // ===================================================================
+    //  Obstacle-avoiding orthogonal routing (A* on a world grid) - circuit traces that
+    //  snap to the grid, route around node bodies, and never double back. Cached per wire
+    //  and rebuilt only when the node layout changes (so pan/zoom is free).
+    // ===================================================================
+    private const float RouteStep = 22f;
+    private readonly Dictionary<string, List<Vector2>> _routeCache = new();
+    private long _routeSig = long.MinValue;
+
+    private void RefreshRouteCache()
+    {
+        long sig = LayoutSignature();
+        if (sig != _routeSig) { _routeSig = sig; _routeCache.Clear(); }
+    }
+
+    private long LayoutSignature()
+    {
+        unchecked
+        {
+            long h = 1469598103934665603;
+            void Mix(long v) { h = (h ^ v) * 1099511628211; }
+            Mix(Graph.Nodes.Count); Mix(Graph.Connections.Count);
+            foreach (var n in Graph.Nodes) { Mix(n.Id.GetHashCode()); Mix((long)MathF.Round(n.Pos.X)); Mix((long)MathF.Round(n.Pos.Y)); }
+            foreach (var c in Graph.Connections) { Mix(c.FromNode.GetHashCode()); Mix(c.FromPin); Mix(c.ToNode.GetHashCode()); Mix(c.ToPin); }
+            return h;
+        }
+    }
+
+    private List<Vector2> WorldRoute(Connection c)
+    {
+        string key = c.FromNode + ":" + c.FromPin + ">" + c.ToNode + ":" + c.ToPin;
+        if (_routeCache.TryGetValue(key, out var cached)) return cached;
+        var route = Simplify(ComputeRoute(c) ?? FallbackRoute(c));
+        _routeCache[key] = route;
+        return route;
+    }
+
+    /// <summary>Collapse collinear runs so a straight stretch is one segment (corner discs only at real bends).</summary>
+    private static List<Vector2> Simplify(List<Vector2> p)
+    {
+        if (p.Count <= 2) return p;
+        var o = new List<Vector2> { p[0] };
+        for (int i = 1; i < p.Count - 1; i++)
+        {
+            var a = o[^1]; var b = p[i]; var c = p[i + 1];
+            bool collinear = (MathF.Abs(a.X - b.X) < 0.5f && MathF.Abs(b.X - c.X) < 0.5f)
+                          || (MathF.Abs(a.Y - b.Y) < 0.5f && MathF.Abs(b.Y - c.Y) < 0.5f);
+            if (!collinear) o.Add(b);
+        }
+        o.Add(p[^1]);
+        return o;
+    }
+
+    /// <summary>Straight right-angle fallback (out the right, vertical channel, in the left) in world space.</summary>
+    private List<Vector2> FallbackRoute(Connection c)
+    {
+        var a = Graph.Find(c.FromNode)!; var b = Graph.Find(c.ToNode)!;
+        var p0 = NodeLayout.For(a).OutPin(c.FromPin);
+        var p1 = NodeLayout.For(b).InPin(c.ToPin);
+        var aOut = new Vector2(p0.X + RouteStep, p0.Y);
+        var bIn = new Vector2(p1.X - RouteStep, p1.Y);
+        var pts = new List<Vector2> { p0, aOut };
+        if (MathF.Abs(aOut.Y - bIn.Y) > 1.5f)
+        {
+            float midX = bIn.X - aOut.X < RouteStep * 2 ? MathF.Max(aOut.X, bIn.X) + RouteStep : (aOut.X + bIn.X) * 0.5f;
+            pts.Add(new Vector2(midX, aOut.Y));
+            pts.Add(new Vector2(midX, bIn.Y));
+        }
+        pts.Add(bIn); pts.Add(p1);
+        return pts;
+    }
+
+    private List<Vector2>? ComputeRoute(Connection c)
+    {
+        var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
+        if (a == null || b == null || c.FromPin >= a.Def.Outputs.Length || c.ToPin >= b.Def.Inputs.Length) return null;
+        Vector2 outP = NodeLayout.For(a).OutPin(c.FromPin);
+        Vector2 inP = NodeLayout.For(b).InPin(c.ToPin);
+        float step = RouteStep;
+        Vector2 startW = new(outP.X + step * 1.5f, outP.Y);
+        Vector2 endW = new(inP.X - step * 1.5f, inP.Y);
+
+        // grid bounds = the two endpoints plus any node within reach, padded
+        float minX = MathF.Min(startW.X, endW.X), maxX = MathF.Max(startW.X, endW.X);
+        float minY = MathF.Min(startW.Y, endW.Y), maxY = MathF.Max(startW.Y, endW.Y);
+        foreach (var n in Graph.Nodes)
+        {
+            var card = NodeLayout.For(n).Card;
+            if (card.Right < minX - 240 || card.X > maxX + 240 || card.Bottom < minY - 240 || card.Y > maxY + 240) continue;
+            minX = MathF.Min(minX, card.X); maxX = MathF.Max(maxX, card.Right);
+            minY = MathF.Min(minY, card.Y); maxY = MathF.Max(maxY, card.Bottom);
+        }
+        float pad = step * 4;
+        minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+        int cols = (int)MathF.Ceiling((maxX - minX) / step) + 1;
+        int rows = (int)MathF.Ceiling((maxY - minY) / step) + 1;
+        if (cols < 2 || rows < 2 || (long)cols * rows > 30000) return null;   // too large → fallback
+
+        int Cx(float x) => Math.Clamp((int)MathF.Round((x - minX) / step), 0, cols - 1);
+        int Cy(float y) => Math.Clamp((int)MathF.Round((y - minY) / step), 0, rows - 1);
+        Vector2 CenterOf(int gx, int gy) => new(minX + gx * step, minY + gy * step);
+
+        var blocked = new bool[cols * rows];
+        float clr = step * 0.55f;   // keep traces a little clear of node bodies
+        foreach (var n in Graph.Nodes)
+        {
+            var card = NodeLayout.For(n).Card;
+            int x0 = Cx(card.X - clr), x1 = Cx(card.Right + clr);
+            int y0 = Cy(card.Y - clr), y1 = Cy(card.Bottom + clr);
+            for (int gy = y0; gy <= y1; gy++) for (int gx = x0; gx <= x1; gx++) blocked[gy * cols + gx] = true;
+        }
+        int sCell = Cy(startW.Y) * cols + Cx(startW.X);
+        int eCell = Cy(endW.Y) * cols + Cx(endW.X);
+        blocked[sCell] = false; blocked[eCell] = false;   // the approach cells must be enterable
+
+        var path = AStar(blocked, cols, rows, sCell, eCell);
+        if (path == null) return null;
+
+        // build the world polyline with clean horizontal stubs into the ports
+        var pts = new List<Vector2>(path.Count + 4) { outP };
+        var first = CenterOf(path[0] % cols, path[0] / cols);
+        pts.Add(new Vector2(first.X, outP.Y));
+        foreach (int cell in path) pts.Add(CenterOf(cell % cols, cell / cols));
+        var last = CenterOf(path[^1] % cols, path[^1] / cols);
+        pts.Add(new Vector2(last.X, inP.Y));
+        pts.Add(inP);
+        return pts;
+    }
+
+    private static readonly int[] Dx = { 1, -1, 0, 0 };
+    private static readonly int[] Dy = { 0, 0, 1, -1 };
+
+    private static List<int>? AStar(bool[] blocked, int cols, int rows, int start, int goal)
+    {
+        const float turn = 2.0f;
+        int sx = start % cols, sy = start / cols, gx = goal % cols, gy = goal / cols;
+        // state = cell * 4 + dir (dir of the move that arrived). seed facing east so wires leave rightward.
+        var g = new Dictionary<int, float>();
+        var came = new Dictionary<int, int>();
+        var pq = new PriorityQueue<int, float>();
+        int seed = start * 4 + 0;
+        g[seed] = 0;
+        pq.Enqueue(seed, MathF.Abs(gx - sx) + MathF.Abs(gy - sy));
+        int pops = 0;
+        while (pq.TryDequeue(out int cur, out _))
+        {
+            if (++pops > 40000) break;
+            int cell = cur / 4, dir = cur % 4;
+            if (cell == goal) return Reconstruct(came, cur, cols);
+            float gc = g[cur];
+            int cxp = cell % cols, cyp = cell / cols;
+            for (int nd = 0; nd < 4; nd++)
+            {
+                if ((dir == 0 && nd == 1) || (dir == 1 && nd == 0) || (dir == 2 && nd == 3) || (dir == 3 && nd == 2)) continue; // no U-turn
+                int nx = cxp + Dx[nd], ny = cyp + Dy[nd];
+                if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+                int ncell = ny * cols + nx;
+                if (blocked[ncell] && ncell != goal) continue;
+                float ng = gc + 1f + (nd != dir ? turn : 0f);
+                int ns = ncell * 4 + nd;
+                if (!g.TryGetValue(ns, out var old) || ng < old)
+                {
+                    g[ns] = ng; came[ns] = cur;
+                    pq.Enqueue(ns, ng + MathF.Abs(gx - nx) + MathF.Abs(gy - ny));
+                }
+            }
+        }
+        return null;
+    }
+
+    private static List<int> Reconstruct(Dictionary<int, int> came, int state, int cols)
+    {
+        var cells = new List<int>();
+        int cur = state;
+        while (true)
+        {
+            cells.Add(cur / 4);
+            if (!came.TryGetValue(cur, out var prev)) break;
+            cur = prev;
+        }
+        cells.Reverse();
+        // collapse consecutive duplicate cells (same cell, different dir)
+        var outp = new List<int>(cells.Count);
+        foreach (int cell in cells) if (outp.Count == 0 || outp[^1] != cell) outp.Add(cell);
+        return outp;
+    }
+
+    private void DrawBox(Renderer r, InputState input)
+    {
+        var box = RectF.FromCorners(Cam.WorldToScreen(_boxStart), input.Mouse);
+        r.Fill(box, Theme.WithAlpha(Theme.Cyan, 0.08f));
+        r.RectOutline(box, Theme.WithAlpha(Theme.Cyan, 0.6f), 1f);
+    }
+
+    // ---- node drawing ----
+    private void DrawNode(Renderer r, Node n, Clock clock)
+    {
+        var l = NodeLayout.For(n);
+        float z = Cam.Zoom;
+        var card = ScreenRect(l.Card);
+        float rad = MathF.Max(7f, 13f * z);
+        var cat = Theme.Category(n.Def.Category);
+        bool selected = Selection.Contains(n.Id);
+        float fire = FireGlow?.Invoke(n.Id) ?? 0f;   // 0..1 just-fired flash
+
+        // soft drop shadow
+        r.RoundFill(card.Offset(0, 5f), Theme.WithAlpha(Color.Black, 0.13f), rad);
+        // creamy body, faintly category-tinted
+        var bg = Theme.Mix(Theme.Panel, cat, 0.05f);
+        r.RoundFill(card, bg, rad);
+
+        // pastel header band (rounded top)
+        float hh = NodeLayout.Header * z;
+        r.RoundFill(new RectF(card.X, card.Y, card.W, hh + rad), Theme.Mix(Theme.PanelHi, cat, 0.30f), rad);
+        r.Fill(new RectF(card.X, card.Y + hh, card.W, rad), bg);
+        r.HLine(card.X + 2, card.Right - 2, card.Y + hh, Theme.WithAlpha(cat, 0.55f), 1.5f);
+
+        // firing flash - the header lights up category-bright-to-white under the icon/title
+        if (fire > 0.01f)
+        {
+            float ff = fire * fire;
+            r.RoundFill(new RectF(card.X, card.Y, card.W, hh + rad), Theme.WithAlpha(Theme.Mix(cat, Color.White, 0.6f), 0.5f * ff), rad);
+            r.Fill(new RectF(card.X, card.Y + hh, card.W, rad), Theme.WithAlpha(Theme.Mix(cat, Color.White, 0.5f), 0.45f * ff));
+        }
+
+        var edge = selected ? cat : Theme.Edge;
+        if (fire > 0.01f) edge = Theme.Mix(edge, Color.White, fire * 0.8f);
+        r.RoundOutline(card, edge, rad);
+        if (selected) r.RoundOutline(card.Inflate(2f, 2f), Theme.WithAlpha(cat, 0.55f), rad + 2f);
+
+        // cute icon + title (display face)
+        if (z > 0.42f)
+        {
+            int ts = Math.Clamp((int)MathF.Round(13 * z), 9, 22);
+            var tf = r.Fonts.Get(FontKind.Display, ts);
+            float ix = card.X + 11 * z;
+            float tx;
+            var img = n.Def.IconImage != null ? r.IconTexture(n.TypeId, n.Def.IconImage) : null;
+            if (img != null)
+            {
+                float sz = ts + 3f;
+                r.Image(img, new RectF(ix, card.Y + (hh - sz) / 2f, sz, sz));
+                tx = ix + sz + 6 * z;
+            }
+            else
+            {
+                var isz = tf.MeasureString(n.Def.Icon);
+                r.Text(tf, n.Def.Icon, new Vector2(ix, card.Y + (hh - isz.Y) / 2f), cat);
+                tx = ix + isz.X + 6 * z;
+            }
+            string title = r.Ellipsize(tf, n.DisplayTitle, card.Right - tx - 10 * z);
+            r.Text(tf, title, new Vector2(tx, card.Y + (hh - tf.MeasureString(title).Y) / 2f), Theme.Text);
+        }
+
+        // pins + labels
+        var lf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(10.5f * z), 7, 15));
+        for (int p = 0; p < n.Def.Inputs.Length; p++)
+        {
+            var ps = Cam.WorldToScreen(l.InPin(p));
+            var pd = n.Def.Inputs[p];
+            DrawPort(r, ps, pd.Kind, Graph.InputConnected(n.Id, p), z);
+            if (z > 0.55f && pd.Name.Length > 0)
+                r.Text(lf, pd.Name, new Vector2(ps.X + 10 * z, ps.Y - lf.MeasureString(pd.Name).Y / 2f), Theme.TextDim);
+        }
+        for (int p = 0; p < n.Def.Outputs.Length; p++)
+        {
+            var ps = Cam.WorldToScreen(l.OutPin(p));
+            var pd = n.Def.Outputs[p];
+            DrawPort(r, ps, pd.Kind, Graph.OutputConnected(n.Id, p), z);
+            if (z > 0.55f && pd.Name.Length > 0)
+            {
+                var m = lf.MeasureString(pd.Name);
+                r.Text(lf, pd.Name, new Vector2(ps.X - 10 * z - m.X, ps.Y - m.Y / 2f), Theme.TextDim);
+            }
+        }
+
+        // summary
+        if (l.HasSummary && z > 0.5f)
+        {
+            var sy = Cam.WorldToScreen(new Vector2(l.Card.Left, l.SummaryTop)).Y;
+            var sumRect = new RectF(card.X + 8 * z, sy + 3 * z, card.W - 16 * z, NodeLayout.SummaryH * z - 6 * z);
+            r.RoundFill(sumRect, Theme.PanelLo, 5f);
+            var sf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(11 * z), 8, 16));
+            string val = n.GetParam(n.Def.SummaryParam!);
+            val = val.Length == 0 ? "-" : val.Replace("\n", " ⏎ ");
+            val = r.Ellipsize(sf, val, sumRect.W - 14 * z);
+            r.Text(sf, val, new Vector2(sumRect.X + 7 * z, sumRect.Center.Y - sf.MeasureString(val).Y / 2f), Theme.Mix(Theme.TextDim, cat, 0.3f));
+        }
+
+        // lifetime fire-count badge (top-right) while/after a run
+        if (FireCount != null && z > 0.5f)
+        {
+            int fc = FireCount(n.Id);
+            if (fc > 0)
+            {
+                var bf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(10 * z), 8, 14));
+                string s = fc > 999 ? "999+" : fc.ToString();
+                var m = bf.MeasureString(s);
+                float bw = m.X + 12 * z, bh = m.Y + 4 * z;
+                var pill = new RectF(card.Right - bw - 5 * z, card.Y - bh * 0.45f, bw, bh);
+                r.RoundFill(pill, Theme.Mix(Theme.PanelHi, cat, 0.5f), bh / 2f);
+                r.RoundOutline(pill, Theme.WithAlpha(cat, 0.8f), bh / 2f);
+                r.Text(bf, s, new Vector2(pill.Center.X - m.X / 2f, pill.Center.Y - m.Y / 2f), Theme.Text);
+            }
+        }
+
+        // muted nodes fade out and show a tag
+        if (n.Muted)
+        {
+            r.RoundFill(card, Theme.WithAlpha(Theme.Panel, 0.5f), rad);
+            if (z > 0.45f)
+            {
+                var mf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(10 * z), 8, 14));
+                const string tag = "muted";
+                var m = mf.MeasureString(tag);
+                var pill = new RectF(card.Center.X - m.X / 2f - 7 * z, card.Center.Y - m.Y / 2f - 2 * z, m.X + 14 * z, m.Y + 4 * z);
+                r.RoundFill(pill, Theme.WithAlpha(Theme.TextDim, 0.85f), pill.H / 2f);
+                r.Text(mf, tag, new Vector2(pill.Center.X - m.X / 2f, pill.Center.Y - m.Y / 2f), Theme.TextInk);
+            }
+        }
+    }
+
+    private void DrawPort(Renderer r, Vector2 s, PinKind kind, bool connected, float z)
+    {
+        float rad = Math.Clamp(NodeLayout.PortR * z, 3.5f, 7.5f);
+        var col = Pins.Color(kind);
+        if (kind == PinKind.Exec)
+        {
+            // square port
+            var box = new RectF(s.X - rad, s.Y - rad, rad * 2, rad * 2);
+            if (connected) r.RoundFill(box, col, rad * 0.4f);
+            else { r.RoundFill(box, Theme.PanelLo, rad * 0.4f); r.RoundOutline(box, col, rad * 0.4f); }
+        }
+        else
+        {
+            if (connected) r.Disc(s, rad, col);
+            else { r.Disc(s, rad, Theme.PanelLo); r.Ring(s, rad, col); }
+        }
+    }
+
+    private void DrawPortHover(Renderer r, (string node, int pin, bool input) p)
+    {
+        var n = Graph.Find(p.node); if (n == null) return;
+        var l = NodeLayout.For(n);
+        var s = Cam.WorldToScreen(p.input ? l.InPin(p.pin) : l.OutPin(p.pin));
+        var kind = p.input ? n.Def.Inputs[p.pin].Kind : n.Def.Outputs[p.pin].Kind;
+        // soft halo behind the hovered port
+        r.Disc(s, 11f, Theme.WithAlpha(Pins.Color(kind), 0.22f));
+    }
+
+    private RectF ScreenRect(RectF world)
+    {
+        var p = Cam.WorldToScreen(world.Pos);
+        return new RectF(p.X, p.Y, world.W * Cam.Zoom, world.H * Cam.Zoom);
+    }
+}

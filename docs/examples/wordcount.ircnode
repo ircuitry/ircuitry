@@ -1,0 +1,13 @@
+{
+  "typeId": "community.wordcount",
+  "title": "Word Count",
+  "subtitle": "community",
+  "icon": "🔢",
+  "category": "Data",
+  "description": "Counts the words and characters in the input text. Demonstrates JSON output → named pins.",
+  "inputs":  [{ "name": "", "kind": "Exec" }, { "name": "text", "kind": "Text" }],
+  "outputs": [{ "name": "then", "kind": "Exec" }, { "name": "words", "kind": "Number" }, { "name": "chars", "kind": "Number" }],
+  "params":  [],
+  "language": "python",
+  "code": "import os, json\nt = os.environ.get('TEXT', '')\nprint(json.dumps({'words': len(t.split()), 'chars': len(t)}))"
+}

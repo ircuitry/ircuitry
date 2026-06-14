@@ -1,0 +1,32 @@
+{
+  "typeId": "irc.rainbow",
+  "title": "Rainbow Text",
+  "subtitle": "community",
+  "icon": "🌈",
+  "category": "Data",
+  "description": "Colours each character with mIRC colour codes.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os\ns=(os.environ.get('TEXT') or os.environ.get('ARGS') or '')\ncols=['04','07','08','09','03','11','12','13','06']\no=[];i=0\nC=chr(3)\nfor c in s:\n    if c==' ': o.append(' ')\n    else: o.append(C+cols[i%len(cols)]+c); i+=1\nprint(''.join(o)+chr(15))\n"
+}

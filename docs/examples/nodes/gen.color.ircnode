@@ -1,0 +1,28 @@
+{
+  "typeId": "gen.color",
+  "title": "Random Color",
+  "subtitle": "community",
+  "icon": "🎨",
+  "category": "Data",
+  "description": "A random colour as hex + RGB.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "hex",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport random\nr,g,b=(random.randint(0,255) for _ in range(3))\nprint('#%02X%02X%02X  rgb(%d, %d, %d)'%(r,g,b,r,g,b))\n"
+}

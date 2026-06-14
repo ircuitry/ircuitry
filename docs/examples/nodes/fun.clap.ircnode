@@ -1,0 +1,32 @@
+{
+  "typeId": "fun.clap",
+  "title": "Clap Emojify",
+  "subtitle": "community",
+  "icon": "👏",
+  "category": "Data",
+  "description": "Puts 👏 between 👏 every 👏 word.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os\ns=(os.environ.get('TEXT') or os.environ.get('ARGS') or '').split()\nprint(' 👏 '.join(s) if s else 'give 👏 me 👏 words')\n"
+}

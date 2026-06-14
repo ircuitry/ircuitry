@@ -1,0 +1,32 @@
+{
+  "typeId": "text.leet",
+  "title": "Leetspeak",
+  "subtitle": "community",
+  "icon": "🅻",
+  "category": "Data",
+  "description": "Converts text to l33t sp34k.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os\ns=(os.environ.get('TEXT') or os.environ.get('ARGS') or '')\nm={'a':'4','e':'3','i':'1','o':'0','t':'7','s':'5','l':'1','b':'8','g':'9'}\nprint(''.join(m.get(c.lower(),c) for c in s))\n"
+}

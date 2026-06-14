@@ -1,0 +1,32 @@
+{
+  "typeId": "calc.temp",
+  "title": "Temperature Convert",
+  "subtitle": "community",
+  "icon": "🌡️",
+  "category": "Data",
+  "description": "Converts temperature, e.g. '100C', '212F', '300K'.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "value",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,re\ns=(os.environ.get('VALUE') or os.environ.get('ARGS') or '').strip().upper().replace('°','')\nm=re.match(r'^(-?\\d+(?:\\.\\d+)?)\\s*([CFK])$',s)\nif not m: print('e.g. 100C, 212F, 300K'); raise SystemExit\nv=float(m.group(1));u=m.group(2)\nc = v if u=='C' else (v-32)*5/9 if u=='F' else v-273.15\nprint('%.1f°C · %.1f°F · %.1fK'%(c, c*9/5+32, c+273.15))\n"
+}

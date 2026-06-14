@@ -1,0 +1,34 @@
+# ---- build output ----
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+
+# ---- IDE / editor ----
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- ircuitry runtime data & secrets - NEVER commit ----
+secrets.json
+workspace.ircuitry
+workspace.obbie
+*.bak
+/data/
+/tutorial-done
+
+# ---- personal scratch bot exports at the repo root ----
+# (curated examples live in docs/examples/)
+/*.ircbot
+
+# ---- dev screenshots: keep only the README hero ----
+/shots/*
+!/shots/cute.png
+
+# ---- scratch research ----
+/docs/research-raw.json

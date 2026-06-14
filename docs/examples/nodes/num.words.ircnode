@@ -1,0 +1,32 @@
+{
+  "typeId": "num.words",
+  "title": "Number to Words",
+  "subtitle": "community",
+  "icon": "🔤",
+  "category": "Data",
+  "description": "Spells an integer in English, e.g. 42 -> forty-two.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "number",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os\nones='zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split()\ntens='_ _ twenty thirty forty fifty sixty seventy eighty ninety'.split()\ndef w(n):\n    if n<0: return 'negative '+w(-n)\n    if n<20: return ones[n]\n    if n<100: return tens[n//10]+('-'+ones[n%10] if n%10 else '')\n    if n<1000: return ones[n//100]+' hundred'+(' '+w(n%100) if n%100 else '')\n    if n<1000000: return w(n//1000)+' thousand'+(' '+w(n%1000) if n%1000 else '')\n    if n<1000000000: return w(n//1000000)+' million'+(' '+w(n%1000000) if n%1000000 else '')\n    return str(n)\ns=(os.environ.get('NUMBER') or os.environ.get('ARGS') or '').strip()\ntry: print(w(int(s)))\nexcept Exception: print('give an integer')\n"
+}

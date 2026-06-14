@@ -1,0 +1,32 @@
+{
+  "typeId": "text.mock",
+  "title": "Mock Case",
+  "subtitle": "community",
+  "icon": "🤪",
+  "category": "Data",
+  "description": "mOcKiNg SpOnGeBoB alternating caps.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "text",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os\ns=(os.environ.get('TEXT') or os.environ.get('ARGS') or '')\no=[];u=False\nfor c in s:\n    if c.isalpha(): o.append(c.upper() if u else c.lower()); u=not u\n    else: o.append(c)\nprint(''.join(o))\n"
+}

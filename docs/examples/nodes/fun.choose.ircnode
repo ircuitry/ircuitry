@@ -1,0 +1,32 @@
+{
+  "typeId": "fun.choose",
+  "title": "Choose One",
+  "subtitle": "community",
+  "icon": "🎯",
+  "category": "Data",
+  "description": "Picks one option at random from a list (comma or 'or' separated).",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "options",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,re,random\ns=(os.environ.get('OPTIONS') or os.environ.get('ARGS') or '')\nparts=[p.strip() for p in re.split(r',| or ',s) if p.strip()]\nprint('🎯 '+random.choice(parts) if parts else 'give me some options (a, b, c)')\n"
+}

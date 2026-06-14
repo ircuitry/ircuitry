@@ -1,0 +1,13 @@
+{
+  "typeId": "community.coinflip",
+  "title": "Coin Flip",
+  "subtitle": "community",
+  "icon": "🪙",
+  "category": "Data",
+  "description": "Flips a coin and outputs 'heads' or 'tails'. A minimal community node - raw stdout fills the first data output.",
+  "inputs":  [{ "name": "", "kind": "Exec" }],
+  "outputs": [{ "name": "then", "kind": "Exec" }, { "name": "result", "kind": "Text" }],
+  "params":  [],
+  "language": "python",
+  "code": "import random\nprint(random.choice(['heads','tails']))"
+}

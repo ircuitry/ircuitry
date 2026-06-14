@@ -1,0 +1,32 @@
+{
+  "typeId": "web.define",
+  "title": "Dictionary",
+  "subtitle": "community",
+  "icon": "📖",
+  "category": "Action",
+  "description": "Defines a word (dictionaryapi.dev, no key).",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "word",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 15,
+  "code": "\nimport os,urllib.request,urllib.parse,json\ndef get(url,headers=None,timeout=9):\n    req=urllib.request.Request(url,headers=headers or {'User-Agent':'ircuitry-bot'})\n    return urllib.request.urlopen(req,timeout=timeout).read().decode('utf-8','replace')\n\nw=(os.environ.get('WORD') or os.environ.get('ARGS') or '').strip()\ntry:\n    d=json.loads(get('https://api.dictionaryapi.dev/api/v2/entries/en/'+urllib.parse.quote(w)))\n    m=d[0]['meanings'][0]; defn=m['definitions'][0]['definition']\n    print(f\"{w} ({m['partOfSpeech']}): {defn}\")\nexcept Exception: print('no definition for: '+w)\n"
+}

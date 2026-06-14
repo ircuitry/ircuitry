@@ -1,0 +1,133 @@
+using System.Collections.Generic;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.Xna.Framework;
+using Ircuitry.Graph;
+using Ircuitry.Irc;
+
+namespace Ircuitry.App;
+
+/// <summary>
+/// Persists the whole workspace - every bot's workflow AND its connection
+/// settings - to a single .ircuitry JSON file.
+/// </summary>
+public static class WorkspaceSerializer
+{
+    private static readonly JsonSerializerOptions Opts = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    private sealed class Doc
+    {
+        public string format { get; set; } = "ircuitry.workspace.v1";
+        public int active { get; set; }
+        public List<BotDoc> bots { get; set; } = new();
+    }
+
+    private sealed class BotDoc
+    {
+        public string name { get; set; } = "bot";
+        public ConnDoc connection { get; set; } = new();
+        public Dictionary<string, string> state { get; set; } = new();
+        public List<NodeDoc> nodes { get; set; } = new();
+        public List<WireDoc> wires { get; set; } = new();
+    }
+
+    private sealed class ConnDoc
+    {
+        public string host { get; set; } = "";
+        public int port { get; set; } = 6697;
+        public bool tls { get; set; } = true;
+        public bool acceptInvalidCerts { get; set; } = true;
+        public bool autoReconnect { get; set; } = true;
+        public bool botMode { get; set; } = true;
+        public bool advertiseCommands { get; set; } = true;
+        public bool streamWorkflows { get; set; } = true;
+        public string nick { get; set; } = "";
+        public string user { get; set; } = "";
+        public string realName { get; set; } = "";
+        public string serverPass { get; set; } = "";
+        public string saslUser { get; set; } = "";
+        public string saslPass { get; set; } = "";
+        public string channels { get; set; } = "";
+    }
+
+    private sealed class NodeDoc
+    {
+        public string id { get; set; } = "";
+        public string type { get; set; } = "";
+        public float x { get; set; }
+        public float y { get; set; }
+        public bool muted { get; set; }
+        public bool? streamAsTool { get; set; }
+        public string title { get; set; } = "";
+        public Dictionary<string, string> @params { get; set; } = new();
+    }
+
+    private sealed class WireDoc
+    {
+        public string from { get; set; } = "";
+        public int fromPin { get; set; }
+        public string to { get; set; } = "";
+        public int toPin { get; set; }
+    }
+
+    public static string Save(IReadOnlyList<Bot> bots, int active)
+    {
+        var doc = new Doc { active = active };
+        foreach (var b in bots)
+        {
+            var bd = new BotDoc { name = b.Name, connection = FromSettings(b.Settings), state = new(b.State) };
+            foreach (var n in b.Graph.Nodes)
+                bd.nodes.Add(new NodeDoc { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, @params = new(n.Params) });
+            foreach (var c in b.Graph.Connections)
+                bd.wires.Add(new WireDoc { from = c.FromNode, fromPin = c.FromPin, to = c.ToNode, toPin = c.ToPin });
+            doc.bots.Add(bd);
+        }
+        return JsonSerializer.Serialize(doc, Opts);
+    }
+
+    public static (List<Bot> bots, int active) Load(string json)
+    {
+        var doc = JsonSerializer.Deserialize<Doc>(json, Opts) ?? new Doc();
+        var bots = new List<Bot>();
+        foreach (var bd in doc.bots)
+        {
+            var bot = new Bot(bd.name) { Settings = ToSettings(bd.connection) };
+            foreach (var kv in bd.state) bot.State[kv.Key] = kv.Value;
+            var live = new HashSet<string>();
+            foreach (var rec in bd.nodes)
+            {
+                if (!NodeCatalog.TryGet(rec.type, out var def)) continue;
+                var n = new Node(rec.id, rec.type) { Def = def, Pos = new Vector2(rec.x, rec.y), Muted = rec.muted, StreamAsTool = rec.streamAsTool ?? def.StreamByDefault, Title = rec.title ?? "" };
+                foreach (var p in def.Params) n.Params[p.Key] = rec.@params.TryGetValue(p.Key, out var v) ? v : p.Default;
+                bot.Graph.Nodes.Add(n);
+                live.Add(n.Id);
+            }
+            foreach (var w in bd.wires)
+                if (live.Contains(w.from) && live.Contains(w.to))
+                    bot.Graph.Connect(w.from, w.fromPin, w.to, w.toPin);
+            bots.Add(bot);
+        }
+        int active = doc.active >= 0 && doc.active < bots.Count ? doc.active : 0;
+        return (bots, active);
+    }
+
+    private static ConnDoc FromSettings(IrcSettings s) => new()
+    {
+        host = s.Host, port = s.Port, tls = s.UseTls, acceptInvalidCerts = s.AcceptInvalidCerts, autoReconnect = s.AutoReconnect,
+        botMode = s.BotMode, advertiseCommands = s.AdvertiseCommands, streamWorkflows = s.StreamWorkflows,
+        nick = s.Nick, user = s.User, realName = s.RealName, serverPass = s.ServerPass,
+        saslUser = s.SaslUser, saslPass = s.SaslPass, channels = s.Channels,
+    };
+
+    private static IrcSettings ToSettings(ConnDoc c) => new()
+    {
+        Host = c.host, Port = c.port, UseTls = c.tls, AcceptInvalidCerts = c.acceptInvalidCerts, AutoReconnect = c.autoReconnect,
+        BotMode = c.botMode, AdvertiseCommands = c.advertiseCommands, StreamWorkflows = c.streamWorkflows,
+        Nick = c.nick, User = c.user, RealName = c.realName, ServerPass = c.serverPass,
+        SaslUser = c.saslUser, SaslPass = c.saslPass, Channels = c.channels,
+    };
+}

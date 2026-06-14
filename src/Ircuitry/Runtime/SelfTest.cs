@@ -1,0 +1,1314 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading;
+using Microsoft.Xna.Framework;
+using Ircuitry.Core;
+using Ircuitry.Graph;
+using Ircuitry.Irc;
+
+namespace Ircuitry.Runtime;
+
+/// <summary>Headless checks for the executor - run with `Ircuitry --selftest`.</summary>
+public static class SelfTest
+{
+    private sealed class FakeSink : IRuntimeSink
+    {
+        public readonly List<(string target, string text)> Sent = new();
+        public readonly List<string> SentTags = new();   // client tags parallel to Sent (for +reply etc.)
+        public readonly List<string> Logs = new();
+        public readonly Dictionary<string, string> State = new();
+        public string GetState(string key) => State.TryGetValue(key, out var v) ? v : "";
+        public void SetState(string key, string value) => State[key] = value;
+        public void Privmsg(string t, string x) { Sent.Add((t, x)); SentTags.Add(""); }
+        public void Notice(string t, string x) { Sent.Add((t, x)); SentTags.Add(""); }
+        public void React(string t, string m, string e) { Sent.Add((t, "react:" + e)); SentTags.Add(""); }
+        public void PrivmsgTagged(string t, string x, string tags) { Sent.Add((t, x)); SentTags.Add(tags); }
+        public void NoticeTagged(string t, string x, string tags) { Sent.Add((t, x)); SentTags.Add(tags); }
+        public void Join(string c) => Logs.Add("JOIN " + c);
+        public void Part(string c, string r) => Logs.Add("PART " + c + (r.Length > 0 ? " :" + r : ""));
+        public void Raw(string l) => Logs.Add("RAW " + l);
+        public void StartTyping(string t) => Logs.Add("TYPING start " + t);
+        public void StopTyping(string t) => Logs.Add("TYPING stop " + t);
+        public void Log(string m, LogLevel lvl) => Logs.Add(m);
+        public void NodeFired(string id) { }
+    }
+
+    private static Node N(NodeGraph g, string type, float x, float y)
+    {
+        var n = g.Add(NodeCatalog.Get(type), new Vector2(x, y));
+        return n;
+    }
+
+    private static Dictionary<string, string> Vars(string msg, string nick, string chan) => new()
+    {
+        ["message"] = msg, ["nick"] = nick, ["channel"] = chan, ["target"] = chan,
+        ["replyto"] = chan, ["args"] = "", ["command"] = "", ["botnick"] = "ircuitry",
+    };
+
+    public static int RunAll()
+    {
+        int fails = 0;
+
+        // --- Test 1: On Command(ping) -> Send Reply(pong) ---
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "ping");
+            var reply = N(g, "action.reply", 300, 0); reply.SetParam("message", "pong");
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+
+            var sink = new FakeSink();
+            GraphExecutor.Fire(g, sink, cmd, Vars("!ping", "alice", "#test"));
+            fails += Expect("cmd-match", sink.Sent.Count == 1 && sink.Sent[0] == ("#test", "pong"), Dump(sink));
+
+            var sink2 = new FakeSink();
+            GraphExecutor.Fire(g, sink2, cmd, Vars("!nope", "alice", "#test"));
+            fails += Expect("cmd-nomatch", sink2.Sent.Count == 0, Dump(sink2));
+        }
+
+        // --- Test 2: On Message -> Text Contains(hi) -> Reply(hey {nick}) ---
+        {
+            var g = new NodeGraph();
+            var msg = N(g, "event.message", 0, 0);
+            var flt = N(g, "filter.contains", 250, 0); flt.SetParam("needle", "hi");
+            var reply = N(g, "action.reply", 500, 0); reply.SetParam("message", "hey {nick}");
+            g.Connect(msg.Id, 0, flt.Id, 0);     // exec
+            g.Connect(flt.Id, 0, reply.Id, 0);   // match -> reply
+
+            var hit = new FakeSink();
+            GraphExecutor.Fire(g, hit, msg, Vars("hi there", "bob", "#dev"));
+            fails += Expect("contains-hit", hit.Sent.Count == 1 && hit.Sent[0] == ("#dev", "hey bob"), Dump(hit));
+
+            var miss = new FakeSink();
+            GraphExecutor.Fire(g, miss, msg, Vars("goodbye", "bob", "#dev"));
+            fails += Expect("contains-miss", miss.Sent.Count == 0, Dump(miss));
+        }
+
+        // --- Test 3: pure data node pull (Random Reply -> Send Reply) ---
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "hi");
+            var rnd = N(g, "data.random", 250, 120); rnd.SetParam("options", "only-one");
+            var reply = N(g, "action.reply", 500, 0);
+            g.Connect(cmd.Id, 0, reply.Id, 0);     // exec
+            g.Connect(rnd.Id, 0, reply.Id, 1);     // data: random text -> reply message
+
+            var sink = new FakeSink();
+            GraphExecutor.Fire(g, sink, cmd, Vars("!hi", "cat", "#x"));
+            fails += Expect("pure-pull", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "only-one"), Dump(sink));
+        }
+
+        fails += NewNodesTest();
+        fails += Ircv3AndHistoryTest();
+        fails += ScheduleTest();
+        fails += FileAndIcalTest();
+        fails += MoreNodesTest();
+        fails += SqlAndCodeTest();
+        fails += ParserTests();
+        fails += BotToolsTest();
+        fails += StreamAndPasteTest();
+        fails += SecretsTest();
+        fails += IrcLoopTest();
+        fails += IrcRestartTest();
+        fails += LiveApplyTest();
+        fails += BotCmdInvokeTest();
+        fails += BotCmdBadContextTest();
+        fails += LiveStreamTest();
+        fails += AiLoopTest();
+        fails += AiToolsTest();
+        fails += IoTest();
+        fails += WorkspaceTest();
+
+        Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
+        return fails;
+    }
+
+    /// <summary>End-to-end AI path against a mock OpenAI-compatible server: On Command → Ask AI → Send Reply.</summary>
+    private static int AiLoopTest()
+    {
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("ai-loop (skipped: " + ex.Message + ")", true, ""); }
+
+        bool stop = false;
+        var server = new Thread(() =>
+        {
+            try
+            {
+                while (!stop)
+                {
+                    var ctx = listener.GetContext();
+                    var b = Encoding.UTF8.GetBytes("{\"choices\":[{\"message\":{\"content\":\"beep boop\"}}]}");
+                    ctx.Response.ContentType = "application/json";
+                    ctx.Response.OutputStream.Write(b, 0, b.Length);
+                    ctx.Response.Close();
+                }
+            }
+            catch { /* listener stopped */ }
+        }) { IsBackground = true };
+        server.Start();
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ai");
+        var ai = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+        ai.SetParam("baseUrl", $"http://localhost:{port}/v1");
+        ai.SetParam("apiKey", "test"); ai.SetParam("model", "mock");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(600, 0));
+        g.Connect(cmd.Id, 0, ai.Id, 0);     // exec
+        g.Connect(ai.Id, 0, reply.Id, 0);   // exec
+        g.Connect(ai.Id, 1, reply.Id, 1);   // data: AI reply -> message
+
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, cmd, Vars("!ai hello", "zoe", "#x"));
+
+        stop = true; try { listener.Stop(); } catch { }
+        bool ok = sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "beep boop");
+        return Expect("ai-loop-openai-compatible", ok, Dump(sink));
+    }
+
+    /// <summary>AI tool-calling end-to-end: model asks for a tool, tool sub-flow runs with the model's args, result feeds back.</summary>
+    private static int AiToolsTest()
+    {
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("ai-tools (skipped: " + ex.Message + ")", true, ""); }
+
+        int reqs = 0;
+        bool stop = false;
+        string toolJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_x","arguments":"{\"q\":\"hi\"}"}}]}}]}""";
+        string finalJson = """{"choices":[{"message":{"content":"final answer"}}]}""";
+        var server = new Thread(() =>
+        {
+            try
+            {
+                while (!stop)
+                {
+                    var ctx = listener.GetContext();
+                    int n = Interlocked.Increment(ref reqs);
+                    var b = Encoding.UTF8.GetBytes(n == 1 ? toolJson : finalJson);
+                    ctx.Response.ContentType = "application/json";
+                    ctx.Response.OutputStream.Write(b, 0, b.Length);
+                    ctx.Response.Close();
+                }
+            }
+            catch { }
+        }) { IsBackground = true };
+        server.Start();
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ai");
+        var ai = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+        ai.SetParam("baseUrl", $"http://localhost:{port}/v1"); ai.SetParam("apiKey", "test"); ai.SetParam("model", "mock");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(600, 0));
+        var tool = g.Add(NodeCatalog.Get("ai.tool"), new Vector2(100, 150)); tool.SetParam("name", "get_x"); tool.SetParam("arg1name", "q");
+        var log = g.Add(NodeCatalog.Get("action.log"), new Vector2(350, 150));
+        var treply = g.Add(NodeCatalog.Get("tool.reply"), new Vector2(600, 150)); treply.SetParam("result", "TOOLVAL");
+
+        g.Connect(cmd.Id, 0, ai.Id, 0);    // exec
+        g.Connect(ai.Id, 0, reply.Id, 0);  // ai.then -> reply
+        g.Connect(ai.Id, 1, reply.Id, 1);  // ai.reply -> reply.message
+        g.Connect(tool.Id, 0, ai.Id, 2);   // tool def -> ai 'tools'
+        g.Connect(tool.Id, 1, log.Id, 0);  // tool.call -> log.exec
+        g.Connect(tool.Id, 2, log.Id, 1);  // tool.arg1 (q) -> log.text
+        g.Connect(log.Id, 0, treply.Id, 0); // log.then -> tool reply
+
+        var s = new FakeSink();
+        GraphExecutor.Fire(g, s, cmd, Vars("!ai weather", "u", "#c"));
+        stop = true; try { listener.Stop(); } catch { }
+
+        bool ranToolWithArg = s.Logs.Contains("hi");
+        bool finalOk = s.Sent.Count == 1 && s.Sent[0].text == "final answer";
+        return Expect("ai-tools-call-loop", ranToolWithArg && finalOk && reqs >= 2,
+            $"logs=[{string.Join(",", s.Logs)}] {Dump(s)} reqs={reqs}");
+    }
+
+    /// <summary>Exercises the new programmable nodes: If, Switch, counter (Get/Set/Math), Cooldown, For-Each.</summary>
+    private static int NewNodesTest()
+    {
+        int fails = 0;
+
+        // If / Compare: args == "yes" -> true branch
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+            var iff = N(g, "logic.if", 250, 0); iff.SetParam("op", "="); iff.SetParam("b", "yes");
+            var t = N(g, "action.reply", 500, -40); t.SetParam("message", "T");
+            var f = N(g, "action.reply", 500, 40); f.SetParam("message", "F");
+            g.Connect(cmd.Id, 0, iff.Id, 0); g.Connect(cmd.Id, 1, iff.Id, 1); // args -> A
+            g.Connect(iff.Id, 0, t.Id, 0); g.Connect(iff.Id, 1, f.Id, 0);
+            var s1 = new FakeSink(); GraphExecutor.Fire(g, s1, cmd, Vars("!x yes", "u", "#c"));
+            fails += Expect("if-true", s1.Sent.Count == 1 && s1.Sent[0].text == "T", Dump(s1));
+            var s2 = new FakeSink(); GraphExecutor.Fire(g, s2, cmd, Vars("!x no", "u", "#c"));
+            fails += Expect("if-false", s2.Sent.Count == 1 && s2.Sent[0].text == "F", Dump(s2));
+        }
+
+        // Switch on message value
+        {
+            var g = new NodeGraph();
+            var msg = N(g, "event.message", 0, 0);
+            var sw = N(g, "logic.switch", 250, 0); sw.SetParam("case1", "red"); sw.SetParam("case2", "blue");
+            var r = N(g, "action.reply", 500, -60); r.SetParam("message", "R");
+            var b = N(g, "action.reply", 500, 0); b.SetParam("message", "B");
+            var d = N(g, "action.reply", 500, 60); d.SetParam("message", "D");
+            g.Connect(msg.Id, 0, sw.Id, 0); g.Connect(msg.Id, 1, sw.Id, 1);
+            g.Connect(sw.Id, 0, r.Id, 0); g.Connect(sw.Id, 1, b.Id, 0); g.Connect(sw.Id, 4, d.Id, 0);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, msg, Vars("blue", "u", "#c"));
+            fails += Expect("switch-case", s.Sent.Count == 1 && s.Sent[0].text == "B", Dump(s));
+            var s2 = new FakeSink(); GraphExecutor.Fire(g, s2, msg, Vars("green", "u", "#c"));
+            fails += Expect("switch-default", s2.Sent.Count == 1 && s2.Sent[0].text == "D", Dump(s2));
+        }
+
+        // Counter: Get -> Math(+1) -> Set, reply with new value (persists across fires)
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "count");
+            var get = N(g, "data.getvar", 150, 120); get.SetParam("name", "n"); get.SetParam("default", "0");
+            var math = N(g, "data.math", 350, 120); math.SetParam("op", "+"); math.SetParam("b", "1");
+            var set = N(g, "data.setvar", 350, 0); set.SetParam("name", "n");
+            var reply = N(g, "action.reply", 600, 0);
+            g.Connect(cmd.Id, 0, set.Id, 0);       // exec
+            g.Connect(get.Id, 0, math.Id, 0);      // n -> a
+            g.Connect(math.Id, 0, set.Id, 1);      // a+1 -> value
+            g.Connect(set.Id, 0, reply.Id, 0);     // then -> reply
+            g.Connect(math.Id, 0, reply.Id, 1);    // a+1 -> message
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!count", "u", "#c"));
+            GraphExecutor.Fire(g, s, cmd, Vars("!count", "u", "#c"));
+            fails += Expect("counter-increments", s.Sent.Count == 2 && s.Sent[0].text == "1" && s.Sent[1].text == "2", Dump(s));
+        }
+
+        // Cooldown blocks the second hit
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "cd");
+            var cd = N(g, "logic.cooldown", 250, 0); cd.SetParam("seconds", "3600"); cd.SetParam("perUser", "false");
+            var reply = N(g, "action.reply", 500, 0); reply.SetParam("message", "ok");
+            g.Connect(cmd.Id, 0, cd.Id, 0); g.Connect(cd.Id, 0, reply.Id, 0);
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!cd", "u", "#c"));
+            GraphExecutor.Fire(g, s, cmd, Vars("!cd", "u", "#c"));
+            fails += Expect("cooldown-blocks", s.Sent.Count == 1 && s.Sent[0].text == "ok", Dump(s));
+        }
+
+        // Format Text: {a}/{b} splice the inputs, {var} uses the event (regression: Resolve used to eat {a}/{b})
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "f");
+            var fmt = N(g, "data.format", 200, 80); fmt.SetParam("template", "{nick}: {a} {b}");
+            var ra = N(g, "data.random", 60, 160); ra.SetParam("options", "AA");
+            var rb = N(g, "data.random", 60, 220); rb.SetParam("options", "BB");
+            var reply = N(g, "action.reply", 440, 0);
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+            g.Connect(ra.Id, 0, fmt.Id, 0);     // AA -> {a}
+            g.Connect(rb.Id, 0, fmt.Id, 1);     // BB -> {b}
+            g.Connect(fmt.Id, 0, reply.Id, 1);  // formatted -> reply message
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!f", "zoe", "#c"));
+            fails += Expect("format-inputs", s.Sent.Count == 1 && s.Sent[0].text == "zoe: AA BB", Dump(s));
+        }
+
+        // templating leaves literal JSON/code braces intact while still resolving real {tokens}
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "j");
+            var fmt = N(g, "data.format", 200, 80); fmt.SetParam("template", "{\"hi\":\"{nick}\",\"raw\":{}}");
+            var reply = N(g, "action.reply", 440, 0);
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+            g.Connect(fmt.Id, 0, reply.Id, 1);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!j", "zoe", "#c"));
+            fails += Expect("brace-safe-format", s.Sent.Count == 1 && s.Sent[0].text == "{\"hi\":\"zoe\",\"raw\":{}}", Dump(s));
+
+            var g2 = new NodeGraph();
+            var cmd2 = N(g2, "event.command", 0, 0); cmd2.SetParam("command", "j");
+            var rep2 = N(g2, "action.reply", 200, 0); rep2.SetParam("message", "{\"x\":\"{nick}\"}");
+            g2.Connect(cmd2.Id, 0, rep2.Id, 0);
+            var s2 = new FakeSink(); GraphExecutor.Fire(g2, s2, cmd2, Vars("!j", "zoe", "#c"));
+            fails += Expect("brace-safe-resolve", s2.Sent.Count == 1 && s2.Sent[0].text == "{\"x\":\"zoe\"}", Dump(s2));
+        }
+
+        // new IRC nodes: Part, Raw IRC (composed client-tags), Start Typing (blank target = triggering channel)
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+            var part = N(g, "action.part", 200, 0); part.SetParam("channel", "#old"); part.SetParam("reason", "bye");
+            var raw = N(g, "irc.raw", 400, 0); raw.SetParam("tag1key", "typing"); raw.SetParam("tag1val", "active"); raw.SetParam("line", "PRIVMSG #lobby :hi {nick}");
+            var typ = N(g, "irc.typing.start", 600, 0);
+            g.Connect(cmd.Id, 0, part.Id, 0);
+            g.Connect(part.Id, 0, raw.Id, 0);
+            g.Connect(raw.Id, 0, typ.Id, 0);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!x", "zoe", "#c"));
+            bool ok = s.Logs.Contains("PART #old :bye")
+                   && s.Logs.Contains("RAW @+typing=active PRIVMSG #lobby :hi zoe")   // '+' auto-added, {nick} resolved
+                   && s.Logs.Contains("TYPING start #c");
+            fails += Expect("irc-new-nodes", ok, string.Join(" | ", s.Logs));
+        }
+
+        // community .ircnode loader: a python script-node from a manifest, fired end-to-end
+        {
+            string manifest = "{\"typeId\":\"test.shout\",\"title\":\"Shout\",\"category\":\"Data\","
+                + "\"inputs\":[{\"name\":\"\",\"kind\":\"Exec\"},{\"name\":\"text\",\"kind\":\"Text\"}],"
+                + "\"outputs\":[{\"name\":\"then\",\"kind\":\"Exec\"},{\"name\":\"out\",\"kind\":\"Text\"}],"
+                + "\"language\":\"python\",\"code\":\"import os\\nprint(os.environ.get('TEXT','').upper())\"}";
+            var cdef = Ircuitry.Graph.CustomNode.Load(manifest);
+            fails += Expect("customnode-load", cdef != null && cdef.TypeId == "test.shout" && cdef.Inputs.Length == 2 && cdef.Outputs.Length == 2, cdef?.TypeId ?? "<null>");
+            if (cdef != null)
+            {
+                var g = new NodeGraph();
+                var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+                var src = N(g, "data.random", 150, 150); src.SetParam("options", "hello");
+                var cn = g.Add(cdef, new Vector2(300, 0));
+                var rep = N(g, "action.reply", 500, 0);
+                g.Connect(cmd.Id, 0, cn.Id, 0);    // exec
+                g.Connect(src.Id, 0, cn.Id, 1);    // "hello" -> input "text"
+                g.Connect(cn.Id, 0, rep.Id, 0);    // exec "then" -> reply
+                g.Connect(cn.Id, 1, rep.Id, 1);    // data "out" -> reply message
+                var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!x", "zoe", "#c"));
+                fails += Expect("customnode-run", s.Sent.Count == 1 && s.Sent[0].text == "HELLO", Dump(s));
+            }
+
+            // a .ircnode placed in CustomDir is discovered by LoadCustom (self-cleaning)
+            var dir = NodeCatalog.CustomDir;
+            var path = System.IO.Path.Combine(dir, "test-selftest-node.ircnode");
+            try
+            {
+                System.IO.Directory.CreateDirectory(dir);
+                System.IO.File.WriteAllText(path, "{\"typeId\":\"test.selftestnode\",\"title\":\"ST\",\"category\":\"Data\",\"outputs\":[{\"name\":\"v\",\"kind\":\"Text\"}],\"language\":\"python\",\"code\":\"print('ok')\"}");
+                NodeCatalog.LoadCustom();
+                fails += Expect("customnode-disk", NodeCatalog.TryGet("test.selftestnode", out _), "should load from CustomDir");
+            }
+            finally
+            {
+                try { System.IO.File.Delete(path); } catch { }
+                NodeCatalog.LoadCustom();   // restore the catalog to built-ins + any real custom nodes
+            }
+        }
+
+        // reusable subflow: a saved subgraph (in -> return out = UPPER(arg x)) run as a single node
+        {
+            var sub = new NodeGraph();
+            var fin = sub.Add(NodeCatalog.Get("flow.in"), Vector2.Zero);
+            var arg = sub.Add(NodeCatalog.Get("flow.arg"), new Vector2(0, 150)); arg.SetParam("name", "x");
+            var up = sub.Add(NodeCatalog.Get("data.transform"), new Vector2(200, 150)); up.SetParam("op", "upper");
+            var ret = sub.Add(NodeCatalog.Get("flow.return"), new Vector2(400, 0)); ret.SetParam("name", "out");
+            sub.Connect(fin.Id, 0, ret.Id, 0);   // exec: in -> return
+            sub.Connect(arg.Id, 0, up.Id, 0);    // arg value -> transform text
+            sub.Connect(up.Id, 0, ret.Id, 1);    // UPPER -> return value
+            string manifest = "{\"typeId\":\"test.subupper\",\"title\":\"Upper\",\"category\":\"Logic\","
+                + "\"inputs\":[{\"name\":\"\",\"kind\":\"Exec\"},{\"name\":\"x\",\"kind\":\"Text\"}],"
+                + "\"outputs\":[{\"name\":\"then\",\"kind\":\"Exec\"},{\"name\":\"out\",\"kind\":\"Text\"}],"
+                + "\"subgraph\":" + GraphSerializer.Save(sub, "sub") + "}";
+            var sdef = Ircuitry.Graph.CustomNode.Load(manifest);
+            fails += Expect("subflow-load", sdef != null && sdef.Inputs.Length == 2 && sdef.Outputs.Length == 2, sdef?.TypeId ?? "<null>");
+            if (sdef != null)
+            {
+                var g = new NodeGraph();
+                var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+                var srcv = N(g, "data.random", 100, 150); srcv.SetParam("options", "hello");
+                var sn = g.Add(sdef, new Vector2(300, 0));
+                var rep = N(g, "action.reply", 500, 0);
+                g.Connect(cmd.Id, 0, sn.Id, 0);     // exec -> subflow
+                g.Connect(srcv.Id, 0, sn.Id, 1);    // "hello" -> subflow input "x"
+                g.Connect(sn.Id, 0, rep.Id, 0);     // subflow exec -> reply
+                g.Connect(sn.Id, 1, rep.Id, 1);     // subflow output "out" -> reply message
+                var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!x", "zoe", "#c"));
+                fails += Expect("subflow-run", s.Sent.Count == 1 && s.Sent[0].text == "HELLO", Dump(s));
+            }
+        }
+
+        // For Each over a comma list
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "list");
+            var fe = N(g, "logic.forEach", 250, 0); fe.SetParam("sep", "comma");
+            var reply = N(g, "action.reply", 500, 0);
+            g.Connect(cmd.Id, 0, fe.Id, 0); g.Connect(cmd.Id, 1, fe.Id, 1); // args -> list
+            g.Connect(fe.Id, 0, reply.Id, 0); g.Connect(fe.Id, 2, reply.Id, 1); // each -> reply, item -> message
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!list a,b,c", "u", "#c"));
+            fails += Expect("foreach-items", s.Sent.Count == 3 && s.Sent[0].text == "a" && s.Sent[2].text == "c", Dump(s));
+        }
+
+        return fails;
+    }
+
+    /// <summary>IRCv3 tag nodes (react / from-account / is-bot / get-tag), node muting, and run-history I/O capture.</summary>
+    private static int Ircv3AndHistoryTest()
+    {
+        int fails = 0;
+
+        // Add Reaction -> sink.React on the triggering message
+        {
+            var g = new NodeGraph();
+            var msg = N(g, "event.message", 0, 0);
+            var react = N(g, "action.react", 250, 0); react.SetParam("emoji", "🎉");
+            g.Connect(msg.Id, 0, react.Id, 0);
+            var v = Vars("hi", "alice", "#c"); v["msgid"] = "abc";
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, msg, v);
+            fails += Expect("react-node", s.Sent.Count == 1 && s.Sent[0] == ("#c", "react:🎉"), Dump(s));
+        }
+
+        // From Account: branches on the account tag
+        {
+            var g = new NodeGraph();
+            var msg = N(g, "event.message", 0, 0);
+            var fa = N(g, "filter.fromAccount", 250, 0); fa.SetParam("account", "alice");
+            var t = N(g, "action.reply", 500, -40); t.SetParam("message", "yes");
+            var f = N(g, "action.reply", 500, 40); f.SetParam("message", "no");
+            g.Connect(msg.Id, 0, fa.Id, 0); g.Connect(fa.Id, 0, t.Id, 0); g.Connect(fa.Id, 1, f.Id, 0);
+            var v = Vars("hi", "alice", "#c"); v["account"] = "alice";
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, msg, v);
+            fails += Expect("fromaccount-match", s.Sent.Count == 1 && s.Sent[0].text == "yes", Dump(s));
+            var v2 = Vars("hi", "bob", "#c"); v2["account"] = "bob";
+            var s2 = new FakeSink(); GraphExecutor.Fire(g, s2, msg, v2);
+            fails += Expect("fromaccount-else", s2.Sent.Count == 1 && s2.Sent[0].text == "no", Dump(s2));
+        }
+
+        // Is Bot: branches on the bot flag
+        {
+            var g = new NodeGraph();
+            var msg = N(g, "event.message", 0, 0);
+            var ib = N(g, "filter.isBot", 250, 0);
+            var b = N(g, "action.reply", 500, -40); b.SetParam("message", "bot");
+            var h = N(g, "action.reply", 500, 40); h.SetParam("message", "human");
+            g.Connect(msg.Id, 0, ib.Id, 0); g.Connect(ib.Id, 0, b.Id, 0); g.Connect(ib.Id, 1, h.Id, 0);
+            var v = Vars("hi", "x", "#c"); v["isbot"] = "true";
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, msg, v);
+            fails += Expect("isbot-branch", s.Sent.Count == 1 && s.Sent[0].text == "bot", Dump(s));
+        }
+
+        // Get Tag: reads an arbitrary message tag into a reply
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+            var gt = N(g, "data.gettag", 150, 120); gt.SetParam("name", "account");
+            var reply = N(g, "action.reply", 400, 0);
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+            g.Connect(gt.Id, 0, reply.Id, 1);
+            var v = Vars("!x", "u", "#c"); v["tag.account"] = "myacct";
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, v);
+            fails += Expect("gettag-value", s.Sent.Count == 1 && s.Sent[0].text == "myacct", Dump(s));
+        }
+
+        // Muted node is skipped entirely
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+            var reply = N(g, "action.reply", 300, 0); reply.SetParam("message", "hi"); reply.Muted = true;
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!x", "u", "#c"));
+            fails += Expect("muted-skips", s.Sent.Count == 0, Dump(s));
+        }
+
+        // Custom node title: display fallback + survives a .ircbot round-trip; history uses it
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "hi");
+            var reply = N(g, "action.reply", 300, 0); reply.SetParam("message", "yo"); reply.Title = "greeting";
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+
+            // fallback: blank title shows the catalog title; set title overrides
+            fails += Expect("title-fallback", cmd.DisplayTitle == cmd.Def.Title && reply.DisplayTitle == "greeting", $"{cmd.DisplayTitle}/{reply.DisplayTitle}");
+
+            var (g2, _) = GraphSerializer.Load(GraphSerializer.Save(g, "t"));
+            fails += Expect("title-roundtrip", g2.Find(reply.Id)?.Title == "greeting", g2.Find(reply.Id)?.Title ?? "<null>");
+
+            var rec = new RunRecord();
+            GraphExecutor.Fire(g, new FakeSink(), cmd, Vars("!hi", "u", "#c"), rec);
+            var rt = rec.Nodes.Find(t => t.NodeId == reply.Id);
+            fails += Expect("title-in-history", rt != null && rt.Title == "greeting", rt?.Title ?? "<none>");
+
+            // copy/paste must preserve the custom title (regression)
+            var ed = new Ircuitry.Editor.GraphEditor(g);
+            ed.Selection.Add(reply.Id);
+            ed.CopySelection();
+            ed.PasteAtCursor(new Vector2(600, 600));
+            var pasted = g.Nodes.Find(nn => nn.Id != reply.Id && nn.TypeId == "action.reply");
+            fails += Expect("title-survives-paste", pasted != null && pasted.Title == "greeting", pasted?.Title ?? "<none>");
+        }
+
+        // Run history captures node-by-node inputs/outputs
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "hi");
+            var rnd = N(g, "data.random", 150, 120); rnd.SetParam("options", "only");
+            var reply = N(g, "action.reply", 400, 0);
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+            g.Connect(rnd.Id, 0, reply.Id, 1);    // data: random -> reply.message
+            var rec = new RunRecord();
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!hi", "u", "#c"), rec);
+            var rt = rec.Nodes.Find(t => t.NodeId == reply.Id);
+            bool ok = rec.Nodes.Count >= 2
+                && rec.Nodes[0].NodeId == cmd.Id && rec.Nodes[0].Pulsed.Count > 0
+                && rt != null && rt.Inputs.Exists(p => p.value == "only");
+            fails += Expect("history-captures-io", ok, $"nodes={rec.Nodes.Count}");
+        }
+
+        return fails;
+    }
+
+    /// <summary>SQLite SQL Query node + parser, and the JS/Python Code node (runs real node/python3).</summary>
+    private static int SqlAndCodeTest()
+    {
+        int fails = 0;
+
+        // ---- SQLite (advanced DB) ----
+        {
+            string db = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-selftest-" + System.Environment.TickCount + ".sqlite");
+            try
+            {
+                var (_, _, e1) = Ircuitry.Net.Sql.Run(db, "CREATE TABLE t(n INTEGER);");
+                var (_, aff, e2) = Ircuitry.Net.Sql.Run(db, "INSERT INTO t VALUES (5),(9);");
+                var (res, rows, e3) = Ircuitry.Net.Sql.Run(db, "SELECT n FROM t ORDER BY n;");
+                fails += Expect("sql-run", e1 == null && e2 == null && e3 == null && aff == 2 && rows == 2 && res == "5\n9",
+                    $"e=[{e1}|{e2}|{e3}] aff={aff} rows={rows} res={res.Replace("\n", "/")}");
+
+                // node path: SELECT via db.sql → reply
+                var g = new NodeGraph();
+                var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "q");
+                var sql = N(g, "db.sql", 200, 0); sql.SetParam("file", db); sql.SetParam("sql", "SELECT count(*) FROM t;");
+                var reply = N(g, "action.reply", 440, 0);
+                g.Connect(cmd.Id, 0, sql.Id, 0); g.Connect(sql.Id, 0, reply.Id, 0); g.Connect(sql.Id, 1, reply.Id, 1);
+                var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!q", "u", "#c"));
+                fails += Expect("sql-node", s.Sent.Count == 1 && s.Sent[0].text == "2", Dump(s));
+            }
+            finally { try { System.IO.File.Delete(db); } catch { } }
+        }
+
+        // ---- Code node: JavaScript (node) ----
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "js");
+            var code = N(g, "code.run", 200, 0); code.SetParam("language", "javascript"); code.SetParam("code", "console.log('hi ' + process.env.NICK)");
+            var reply = N(g, "action.reply", 440, 0);
+            g.Connect(cmd.Id, 0, code.Id, 0); g.Connect(code.Id, 0, reply.Id, 0); g.Connect(code.Id, 1, reply.Id, 1);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!js", "alice", "#c"));
+            fails += Expect("code-js", s.Sent.Count == 1 && s.Sent[0].text == "hi alice", Dump(s));
+        }
+
+        // ---- Code node: Python (python3) ----
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "py");
+            var code = N(g, "code.run", 200, 0); code.SetParam("language", "python"); code.SetParam("code", "import os\nprint('py ' + os.environ.get('NICK',''))");
+            var reply = N(g, "action.reply", 440, 0);
+            g.Connect(cmd.Id, 0, code.Id, 0); g.Connect(code.Id, 0, reply.Id, 0); g.Connect(code.Id, 1, reply.Id, 1);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!py", "bob", "#c"));
+            fails += Expect("code-python", s.Sent.Count == 1 && s.Sent[0].text == "py bob", Dump(s));
+        }
+
+        return fails;
+    }
+
+    /// <summary>The 10 added nodes: IRCv3 moderation/emote, Delay, DB (KV), AI Memory, Calendar add+search.</summary>
+    private static int MoreNodesTest()
+    {
+        int fails = 0;
+
+        // ---- IRCv3 moderation + emote (assert raw/sent output) ----
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "t");
+            var topic = N(g, "irc.topic", 200, -60); topic.SetParam("topic", "hello {nick}");
+            var kick = N(g, "irc.kick", 200, 0); kick.SetParam("nick", "bob"); kick.SetParam("reason", "bye");
+            var mode = N(g, "irc.mode", 200, 60); mode.SetParam("modes", "+o"); mode.SetParam("target", "bob");
+            var act = N(g, "irc.action", 200, 120); act.SetParam("text", "waves");
+            g.Connect(cmd.Id, 0, topic.Id, 0); g.Connect(topic.Id, 0, kick.Id, 0);
+            g.Connect(kick.Id, 0, mode.Id, 0); g.Connect(mode.Id, 0, act.Id, 0);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!t", "alice", "#c"));
+            bool ok = s.Logs.Contains("RAW TOPIC #c :hello alice")
+                   && s.Logs.Contains("RAW KICK #c bob :bye")
+                   && s.Logs.Contains("RAW MODE #c +o bob")
+                   && s.Sent.Exists(x => x.target == "#c" && x.text == "ACTION waves");
+            fails += Expect("irc-moderation-nodes", ok, "logs=[" + string.Join(",", s.Logs) + "] " + Dump(s));
+        }
+
+        // ---- Delay (seconds=0 must not hang) ----
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "d");
+            var delay = N(g, "flow.delay", 200, 0); delay.SetParam("seconds", "0");
+            var reply = N(g, "action.reply", 400, 0); reply.SetParam("message", "done");
+            g.Connect(cmd.Id, 0, delay.Id, 0); g.Connect(delay.Id, 0, reply.Id, 0);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!d", "u", "#c"));
+            fails += Expect("flow-delay", s.Sent.Count == 1 && s.Sent[0].text == "done", Dump(s));
+        }
+
+        // ---- Database (file-backed KV) ----
+        {
+            string table = "ircuitry-selftest-" + System.Environment.TickCount;
+            try
+            {
+                var g = new NodeGraph();
+                var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "s");
+                var set = N(g, "db.set", 200, 0); set.SetParam("table", table); set.SetParam("key", "alice"); set.SetParam("value", "42");
+                g.Connect(cmd.Id, 0, set.Id, 0);
+                GraphExecutor.Fire(g, new FakeSink(), cmd, Vars("!s", "u", "#c"));
+                fails += Expect("db-set", Ircuitry.Net.KvStore.Get(table, "alice") == "42", "");
+
+                var g2 = new NodeGraph();
+                var cmd2 = N(g2, "event.command", 0, 0); cmd2.SetParam("command", "g");
+                var get = N(g2, "db.get", 200, 80); get.SetParam("table", table); get.SetParam("mode", "value"); get.SetParam("key", "alice");
+                var reply = N(g2, "action.reply", 420, 0);
+                g2.Connect(cmd2.Id, 0, reply.Id, 0); g2.Connect(get.Id, 0, reply.Id, 1);
+                var s = new FakeSink(); GraphExecutor.Fire(g2, s, cmd2, Vars("!g", "u", "#c"));
+                fails += Expect("db-get", s.Sent.Count == 1 && s.Sent[0].text == "42", Dump(s));
+
+                var hit = Ircuitry.Net.KvStore.Find(table, "4");
+                fails += Expect("db-find", hit is { value: "42" }, hit?.value ?? "<null>");
+            }
+            finally { try { System.IO.File.Delete(System.IO.Path.Combine(Ircuitry.Net.KvStore.Dir, table + ".json")); } catch { } }
+        }
+
+        // ---- AI Memory (recall / remember / clear) ----
+        {
+            var s = new FakeSink();
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "m");
+            var mem = N(g, "ai.memory", 200, 80); mem.SetParam("session", "{channel}"); mem.SetParam("mode", "remember"); mem.SetParam("role", "user"); mem.SetParam("text", "hi there");
+            g.Connect(cmd.Id, 0, mem.Id, 0);                       // remember only (no reply)
+            GraphExecutor.Fire(g, s, cmd, Vars("!m", "u", "#c"));
+            fails += Expect("aimem-remember", s.State.TryGetValue("aimem/#c", out var h1) && h1 == "user: hi there", h1 ?? "<none>");
+
+            // a recall node reads it back
+            var g2 = new NodeGraph();
+            var cmd2 = N(g2, "event.command", 0, 0); cmd2.SetParam("command", "r");
+            var rec = N(g2, "ai.memory", 200, 80); rec.SetParam("session", "{channel}"); rec.SetParam("mode", "recall");
+            var reply2 = N(g2, "action.reply", 420, 0);
+            g2.Connect(cmd2.Id, 0, rec.Id, 0); g2.Connect(rec.Id, 0, reply2.Id, 0); g2.Connect(rec.Id, 1, reply2.Id, 1);
+            GraphExecutor.Fire(g2, s, cmd2, Vars("!r", "u", "#c"));   // recall (shares sink state)
+            fails += Expect("aimem-recall", s.Sent.Count == 1 && s.Sent[0].text == "user: hi there", Dump(s));
+        }
+
+        // ---- Calendar add + search ----
+        {
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-selftest-cal-" + System.Environment.TickCount + ".ics");
+            try
+            {
+                var g = new NodeGraph();
+                var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "a");
+                var add = N(g, "cal.add", 200, 0);
+                add.SetParam("path", path); add.SetParam("summary", "Launch Party"); add.SetParam("start", "2026-06-20 18:00"); add.SetParam("duration", "90"); add.SetParam("location", "HQ");
+                g.Connect(cmd.Id, 0, add.Id, 0);
+                GraphExecutor.Fire(g, new FakeSink(), cmd, Vars("!a", "u", "#c"));
+                fails += Expect("cal-add", System.IO.File.Exists(path) && System.IO.File.ReadAllText(path).Contains("SUMMARY:Launch Party"), "");
+
+                var g2 = new NodeGraph();
+                var cmd2 = N(g2, "event.command", 0, 0); cmd2.SetParam("command", "f");
+                var search = N(g2, "cal.search", 200, 0); search.SetParam("source", path); search.SetParam("query", "Launch");
+                var ok = N(g2, "action.reply", 440, -40);
+                var none = N(g2, "action.reply", 440, 40); none.SetParam("message", "none");
+                g2.Connect(cmd2.Id, 0, search.Id, 0); g2.Connect(search.Id, 0, ok.Id, 0); g2.Connect(search.Id, 2, ok.Id, 1); g2.Connect(search.Id, 1, none.Id, 0);
+                var s = new FakeSink(); GraphExecutor.Fire(g2, s, cmd2, Vars("!f", "u", "#c"));
+                fails += Expect("cal-search", s.Sent.Count == 1 && s.Sent[0].text == "Launch Party", Dump(s));
+            }
+            finally { try { System.IO.File.Delete(path); } catch { } }
+        }
+
+        return fails;
+    }
+
+    /// <summary>File Read/Write nodes (round-trip, append, missing branch) and the iCal node (next/none + parser).</summary>
+    private static int FileAndIcalTest()
+    {
+        int fails = 0;
+        string dir = System.IO.Path.GetTempPath();
+        string path = System.IO.Path.Combine(dir, "ircuitry-selftest-file.txt");
+        try { System.IO.File.Delete(path); } catch { }
+
+        // path sandbox: relative traversal is blocked; absolute is honoured; plain relative stays in the sandbox
+        {
+            bool ok = NodeCatalog.ResolveFile("../../etc/passwd").Length == 0
+                   && NodeCatalog.ResolveFile("/tmp/x").Length > 0
+                   && NodeCatalog.ResolveFile("notes.txt").Replace('\\', '/').Contains("ircuitry/files");
+            fails += Expect("file-path-sandbox", ok, NodeCatalog.ResolveFile("../../etc/passwd") + " | " + NodeCatalog.ResolveFile("notes.txt"));
+        }
+
+        // write (overwrite) then read back
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "w");
+            var w = N(g, "file.write", 250, 0); w.SetParam("path", path); w.SetParam("mode", "overwrite"); w.SetParam("text", "hello world");
+            g.Connect(cmd.Id, 0, w.Id, 0);
+            GraphExecutor.Fire(g, new FakeSink(), cmd, Vars("!w", "u", "#c"));
+            fails += Expect("file-write", System.IO.File.Exists(path) && System.IO.File.ReadAllText(path) == "hello world", "");
+
+            var g2 = new NodeGraph();
+            var cmd2 = N(g2, "event.command", 0, 0); cmd2.SetParam("command", "r");
+            var rd = N(g2, "file.read", 250, 0); rd.SetParam("path", path);
+            var reply = N(g2, "action.reply", 500, 0);
+            g2.Connect(cmd2.Id, 0, rd.Id, 0); g2.Connect(rd.Id, 0, reply.Id, 0); g2.Connect(rd.Id, 2, reply.Id, 1);
+            var s = new FakeSink(); GraphExecutor.Fire(g2, s, cmd2, Vars("!r", "u", "#c"));
+            fails += Expect("file-read", s.Sent.Count == 1 && s.Sent[0].text == "hello world", Dump(s));
+        }
+
+        // append
+        {
+            try { System.IO.File.Delete(path); } catch { }
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "w");
+            var w = N(g, "file.write", 250, 0); w.SetParam("path", path); w.SetParam("mode", "append"); w.SetParam("text", "{args}");
+            g.Connect(cmd.Id, 0, w.Id, 0);
+            GraphExecutor.Fire(g, new FakeSink(), cmd, Vars("!w a", "u", "#c"));
+            GraphExecutor.Fire(g, new FakeSink(), cmd, Vars("!w b", "u", "#c"));
+            fails += Expect("file-append", System.IO.File.ReadAllText(path) == "a\nb\n", System.IO.File.ReadAllText(path).Replace("\n", "\\n"));
+        }
+
+        // read-missing branch
+        {
+            string gone = System.IO.Path.Combine(dir, "ircuitry-selftest-nope-" + System.Environment.TickCount + ".txt");
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "r");
+            var rd = N(g, "file.read", 250, 0); rd.SetParam("path", gone);
+            var ok = N(g, "action.reply", 500, -40); ok.SetParam("message", "found");
+            var miss = N(g, "action.reply", 500, 40); miss.SetParam("message", "missing");
+            g.Connect(cmd.Id, 0, rd.Id, 0); g.Connect(rd.Id, 0, ok.Id, 0); g.Connect(rd.Id, 1, miss.Id, 0);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!r", "u", "#c"));
+            fails += Expect("file-read-missing", s.Sent.Count == 1 && s.Sent[0].text == "missing", Dump(s));
+        }
+        try { System.IO.File.Delete(path); } catch { }
+
+        // iCal parser + node
+        {
+            string future = DateTime.Now.AddDays(1).ToString("yyyyMMdd'T'HHmmss");
+            string past = DateTime.Now.AddDays(-1).ToString("yyyyMMdd'T'HHmmss");
+            string ics =
+                "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n" +
+                $"BEGIN:VEVENT\r\nSUMMARY:Past Standup\r\nDTSTART:{past}\r\nEND:VEVENT\r\n" +
+                $"BEGIN:VEVENT\r\nSUMMARY:Future Launch\r\nLOCATION:HQ\r\nDTSTART:{future}\r\nEND:VEVENT\r\n" +
+                "END:VCALENDAR\r\n";
+
+            var parsed = Ircuitry.Net.Ical.Parse(ics);
+            fails += Expect("ical-parse", parsed.Count == 2, "count=" + parsed.Count);
+            var next = Ircuitry.Net.Ical.Next(parsed, DateTime.Now);
+            fails += Expect("ical-next", next != null && next.Summary == "Future Launch" && next.Location == "HQ", next?.Summary ?? "<null>");
+
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "cal");
+            var cal = N(g, "file.ical", 250, 0); cal.SetParam("source", ics); cal.SetParam("mode", "next");
+            var reply = N(g, "action.reply", 520, 0);
+            g.Connect(cmd.Id, 0, cal.Id, 0); g.Connect(cal.Id, 0, reply.Id, 0); g.Connect(cal.Id, 2, reply.Id, 1);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!cal", "u", "#c"));
+            fails += Expect("ical-node-next", s.Sent.Count == 1 && s.Sent[0].text == "Future Launch", Dump(s));
+
+            // 'none' branch on an empty calendar
+            var g2 = new NodeGraph();
+            var cmd2 = N(g2, "event.command", 0, 0); cmd2.SetParam("command", "cal");
+            var cal2 = N(g2, "file.ical", 250, 0); cal2.SetParam("source", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"); cal2.SetParam("mode", "next");
+            var none = N(g2, "action.reply", 520, 0); none.SetParam("message", "no events");
+            g2.Connect(cmd2.Id, 0, cal2.Id, 0); g2.Connect(cal2.Id, 1, none.Id, 0);
+            var s2 = new FakeSink(); GraphExecutor.Fire(g2, s2, cmd2, Vars("!cal", "u", "#c"));
+            fails += Expect("ical-node-none", s2.Sent.Count == 1 && s2.Sent[0].text == "no events", Dump(s2));
+        }
+
+        // a whole directory of .ics files merges (drag-a-folder-onto-the-node support)
+        {
+            string caldir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-selftest-caldir-" + System.Environment.TickCount);
+            System.IO.Directory.CreateDirectory(caldir);
+            try
+            {
+                System.IO.File.WriteAllText(System.IO.Path.Combine(caldir, "a.ics"), "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:A\r\nDTSTART:20260101T090000\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+                System.IO.File.WriteAllText(System.IO.Path.Combine(caldir, "b.ics"), "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:B\r\nDTSTART:20260202T090000\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+                var g = new NodeGraph();
+                var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "cd");
+                var cal = N(g, "file.ical", 250, 0); cal.SetParam("source", caldir); cal.SetParam("mode", "count");
+                var reply = N(g, "action.reply", 520, 0);
+                g.Connect(cmd.Id, 0, cal.Id, 0); g.Connect(cal.Id, 0, reply.Id, 0); g.Connect(cal.Id, 6, reply.Id, 1);
+                var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!cd", "u", "#c"));
+                fails += Expect("ical-directory", s.Sent.Count == 1 && s.Sent[0].text == "2", Dump(s));
+            }
+            finally { try { System.IO.Directory.Delete(caldir, true); } catch { } }
+        }
+
+        return fails;
+    }
+
+    /// <summary>The "On Schedule" trigger: interval / daily / weekly / once, with no startup back-fire and weekday filtering.</summary>
+    private static int ScheduleTest()
+    {
+        int fails = 0;
+        var last = new Dictionary<string, DateTime>();
+        var fired = new HashSet<string>();
+        Node Sched(params (string k, string v)[] ps)
+        {
+            var g = new NodeGraph();
+            var n = g.Add(NodeCatalog.Get("event.schedule"), Vector2.Zero);
+            foreach (var (k, v) in ps) n.SetParam(k, v);
+            return n;
+        }
+
+        // interval: every 2 minutes - baseline first, then fire after the interval, not again immediately
+        {
+            last.Clear(); fired.Clear();
+            var n = Sched(("mode", "interval"), ("every", "2"), ("unit", "minutes"));
+            var t0 = new DateTime(2026, 1, 1, 12, 0, 0);
+            bool baseline = BotRuntime.ScheduleDue(n, t0, last, fired);
+            bool early = BotRuntime.ScheduleDue(n, t0.AddSeconds(90), last, fired);
+            bool due = BotRuntime.ScheduleDue(n, t0.AddSeconds(125), last, fired);
+            bool again = BotRuntime.ScheduleDue(n, t0.AddSeconds(135), last, fired);
+            fails += Expect("sched-interval", !baseline && !early && due && !again, $"{baseline}{early}{due}{again}");
+        }
+
+        // daily at 09:00 - fires once when the time passes, repeats next day
+        {
+            last.Clear(); fired.Clear();
+            var n = Sched(("mode", "daily"), ("time", "09:00"));
+            var d = new DateTime(2026, 1, 1);
+            bool baseline = BotRuntime.ScheduleDue(n, d.AddHours(8), last, fired);
+            bool before = BotRuntime.ScheduleDue(n, d.AddHours(8).AddMinutes(59), last, fired);
+            bool at = BotRuntime.ScheduleDue(n, d.AddHours(9), last, fired);
+            bool later = BotRuntime.ScheduleDue(n, d.AddHours(9).AddMinutes(30), last, fired);
+            bool nextDay = BotRuntime.ScheduleDue(n, d.AddDays(1).AddHours(9), last, fired);
+            fails += Expect("sched-daily", !baseline && !before && at && !later && nextDay, $"{baseline}{before}{at}{later}{nextDay}");
+        }
+
+        // daily started AFTER today's time must not back-fire today
+        {
+            last.Clear(); fired.Clear();
+            var n = Sched(("mode", "daily"), ("time", "09:00"));
+            var d = new DateTime(2026, 1, 1);
+            bool baseline = BotRuntime.ScheduleDue(n, d.AddHours(14), last, fired);
+            bool sameDay = BotRuntime.ScheduleDue(n, d.AddHours(15), last, fired);
+            bool nextDay = BotRuntime.ScheduleDue(n, d.AddDays(1).AddHours(9), last, fired);
+            fails += Expect("sched-daily-no-backfire", !baseline && !sameDay && nextDay, $"{baseline}{sameDay}{nextDay}");
+        }
+
+        // weekly Mon-Fri at 09:00 - Saturday is skipped, Monday fires (2026-01-03=Sat, 2026-01-05=Mon)
+        {
+            last.Clear(); fired.Clear();
+            var n = Sched(("mode", "weekly"), ("time", "09:00"), ("days", "Mon-Fri"));
+            var sat = new DateTime(2026, 1, 3);
+            BotRuntime.ScheduleDue(n, sat.AddHours(8), last, fired);   // baseline
+            bool satFire = BotRuntime.ScheduleDue(n, sat.AddHours(9), last, fired);
+            bool monFire = BotRuntime.ScheduleDue(n, new DateTime(2026, 1, 5, 9, 0, 0), last, fired);
+            fails += Expect("sched-weekly-days", !satFire && monFire, $"sat={satFire} mon={monFire}");
+        }
+
+        // once: fires exactly once at/after the datetime
+        {
+            last.Clear(); fired.Clear();
+            var n = Sched(("mode", "once"), ("datetime", "2026-01-01 09:00"));
+            bool before = BotRuntime.ScheduleDue(n, new DateTime(2026, 1, 1, 8, 0, 0), last, fired);
+            bool at = BotRuntime.ScheduleDue(n, new DateTime(2026, 1, 1, 9, 0, 0), last, fired);
+            bool after = BotRuntime.ScheduleDue(n, new DateTime(2026, 1, 1, 9, 5, 0), last, fired);
+            fails += Expect("sched-once", !before && at && !after, $"{before}{at}{after}");
+        }
+
+        return fails;
+    }
+
+    /// <summary>IRCv3 bot-tools encoding + command-list build + invocation parsing.</summary>
+    private static int BotToolsTest()
+    {
+        int fails = 0;
+
+        // base64-JSON roundtrip
+        {
+            var b64 = BotTools.Encode(new Dictionary<string, object?> { ["msg"] = "workflow", ["id"] = "x1", ["state"] = "start" });
+            var e = BotTools.Decode(b64);
+            fails += Expect("bottools-roundtrip", e is { } el && BotTools.Str(el, "id") == "x1" && BotTools.Str(el, "state") == "start", b64);
+            fails += Expect("bottools-decode-garbage", BotTools.Decode("not!base64!") == null, "should be null");
+        }
+
+        // command list built from On Command nodes
+        {
+            var g = new NodeGraph();
+            var a = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); a.SetParam("command", "weather"); a.SetParam("prefix", "!");
+            var b = g.Add(NodeCatalog.Get("event.command"), new Vector2(0, 80)); b.SetParam("command", "ping");
+            var list = BotTools.Decode(BotTools.BuildCommandList(g));
+            bool ok = list is { } e && e.TryGetProperty("commands", out var cmds) && cmds.GetArrayLength() == 2
+                      && BotTools.Str(e, "prefix") == "!";
+            fails += Expect("bottools-cmdlist", ok, BotTools.BuildCommandList(g));
+        }
+
+        // invocation parse: good + malformed
+        {
+            var b64 = BotTools.Encode(new Dictionary<string, object?> { ["name"] = "weather", ["options"] = new Dictionary<string, object?> { ["city"] = "london" } });
+            var inv = BotTools.ParseInvocation(b64);
+            fails += Expect("bottools-invoke-parse", inv != null && inv.Name == "weather" && inv.OptionValues.Count == 1 && inv.OptionValues[0] == "london", inv?.Name ?? "<null>");
+            var bad = BotTools.ParseInvocation(BotTools.Encode(new Dictionary<string, object?> { ["options"] = new Dictionary<string, object?>() }));
+            fails += Expect("bottools-invoke-noname", bad == null, "should be null without name");
+        }
+
+        // per-command contexts parsing (defaults to all three; keeps only valid tokens)
+        {
+            bool ok = BotTools.Contexts("public, pm").Length == 2
+                   && Array.IndexOf(BotTools.Contexts("public"), "public") >= 0
+                   && BotTools.Contexts("garbage").Length == 3
+                   && BotTools.Contexts("").Length == 3;
+            fails += Expect("bottools-contexts", ok, "");
+        }
+
+        return fails;
+    }
+
+    /// <summary>A pm invocation of a public-only command is rejected with BAD_CONTEXT.</summary>
+    private static int BotCmdBadContextTest()
+    {
+        var b64 = BotTools.Encode(new Dictionary<string, object?> { ["name"] = "weather", ["options"] = new Dictionary<string, object?>() });
+        using var mock = new MockIrcServer(new[] { (120, $"@+draft/bot-cmd={b64};msgid=m1 :alice!a@h TAGMSG ircuitry-bot") });
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero);
+        cmd.SetParam("command", "weather"); cmd.SetParam("contexts", "public");   // public only
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "should not run");
+        g.Connect(cmd.Id, 0, reply.Id, 0);
+
+        rt.Start(g, new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "", AdvertiseCommands = true });
+        bool err = false, ran = false;
+        for (int i = 0; i < 140 && !err; i++)
+        {
+            Thread.Sleep(50);
+            foreach (var o in mock.Sent())
+            {
+                if (o.Contains("+draft/bot-cmd-error=BAD_CONTEXT")) err = true;
+                if (o.Contains("should not run")) ran = true;
+            }
+        }
+        rt.Stop(); Thread.Sleep(100);
+        return Expect("bot-cmd-bad-context", err && !ran, "err=" + err + " ran=" + ran);
+    }
+
+    /// <summary>Secrets vault: {{secret.x}} expands at runtime; references (not values) live in the graph.</summary>
+    private static int SecretsTest()
+    {
+        int fails = 0;
+        Ircuitry.Core.Secrets.UseForTesting(new() { ["openai"] = "sk-xyz", ["pw"] = "hunter2" });
+        try
+        {
+            fails += Expect("secret-expand", Ircuitry.Core.Secrets.Expand("Bearer {{secret.openai}}") == "Bearer sk-xyz", "");
+            fails += Expect("secret-missing", Ircuitry.Core.Secrets.Expand("{{secret.nope}}") == "", "missing → empty");
+            fails += Expect("secret-references", Ircuitry.Core.Secrets.References("x {{secret.pw}}") && !Ircuitry.Core.Secrets.References("plain"), "");
+            // forgiving lookup: a name-case mismatch and inner whitespace must still resolve
+            fails += Expect("secret-case-insensitive", Ircuitry.Core.Secrets.Expand("{{secret.OpenAI}}") == "sk-xyz", "case-insensitive name");
+            fails += Expect("secret-whitespace", Ircuitry.Core.Secrets.Expand("{{ secret.openai }}") == "sk-xyz", "tolerate inner spaces");
+            // a referenced-but-undefined secret is reported, not silently empty
+            var m = Ircuitry.Core.Secrets.Missing("a {{secret.openai}} b {{secret.ghost}}");
+            fails += Expect("secret-missing-reported", m.Count == 1 && m[0] == "ghost", string.Join(",", m));
+
+            // the graph stores the reference; the running bot resolves it
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "k");
+            var reply = N(g, "action.reply", 300, 0); reply.SetParam("message", "key={{secret.openai}}");
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!k", "u", "#c"));
+            fails += Expect("secret-resolved-at-runtime", s.Sent.Count == 1 && s.Sent[0].text == "key=sk-xyz", Dump(s));
+
+            // a .ircbot export keeps only the reference, never the value
+            var json = GraphSerializer.Save(g, "x");
+            fails += Expect("secret-not-in-export", json.Contains("{{secret.openai}}") && !json.Contains("sk-xyz"), "");
+        }
+        finally { Ircuitry.Core.Secrets.UseForTesting(new()); }
+        return fails;
+    }
+
+    /// <summary>Per-node "stream as tool" flag (defaults + persistence) and loading an .ircbot fragment into a graph.</summary>
+    private static int StreamAndPasteTest()
+    {
+        int fails = 0;
+
+        // stream-as-tool is opt-in (off by default for every node); the chosen state persists
+        {
+            fails += Expect("stream-default-off", !NodeCatalog.Get("net.http").StreamByDefault && !NodeCatalog.Get("action.reply").StreamByDefault, "streaming is opt-in");
+            var g = new NodeGraph();
+            var h = g.Add(NodeCatalog.Get("net.http"), Vector2.Zero);
+            fails += Expect("stream-node-default-off", !h.StreamAsTool, "new node doesn't stream by default");
+            h.StreamAsTool = true;                        // user opts in
+            var (g2, _) = GraphSerializer.Load(GraphSerializer.Save(g, "s"));
+            fails += Expect("stream-roundtrip", g2.Find(h.Id)?.StreamAsTool == true, "should persist the opted-in state");
+        }
+
+        // auto-layout lays nodes out left→right by dependency depth
+        {
+            var g = new NodeGraph();
+            var a = g.Add(NodeCatalog.Get("event.command"), new Vector2(100, 100));
+            var b = g.Add(NodeCatalog.Get("action.reply"), new Vector2(40, 40));   // deliberately left of / above a
+            g.Connect(a.Id, 0, b.Id, 0);
+            new Ircuitry.Editor.GraphEditor(g).AutoLayout();
+            fails += Expect("auto-layout", g.Find(b.Id)!.Pos.X > g.Find(a.Id)!.Pos.X, $"a.x={g.Find(a.Id)!.Pos.X} b.x={g.Find(b.Id)!.Pos.X}");
+        }
+
+        // load an .ircbot fragment into an existing graph (drag-drop) - fresh ids, internal wires kept
+        {
+            var src = new NodeGraph();
+            var c = src.Add(NodeCatalog.Get("event.command"), Vector2.Zero); c.SetParam("command", "x");
+            var rp = src.Add(NodeCatalog.Get("action.reply"), new Vector2(200, 0)); rp.SetParam("message", "hi");
+            src.Connect(c.Id, 0, rp.Id, 0);
+            var (loaded, _) = GraphSerializer.Load(GraphSerializer.Save(src, "frag"));
+
+            var target = new NodeGraph();
+            target.Add(NodeCatalog.Get("event.connect"), Vector2.Zero);   // a pre-existing node
+            var ed = new Ircuitry.Editor.GraphEditor(target);
+            ed.InsertGraphAt(loaded, new Vector2(500, 500));
+            bool ok = target.Nodes.Count == 3 && target.Connections.Count == 1
+                   && !target.Nodes.Any(n => n.Id == c.Id);   // inserted nodes got NEW ids
+            fails += Expect("ircbot-merge", ok, $"nodes={target.Nodes.Count} conns={target.Connections.Count}");
+        }
+
+        // context-menu editor ops: select-all, disconnect, delete, cut(+undo)
+        {
+            var g = new NodeGraph();
+            var a = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero);
+            var b = g.Add(NodeCatalog.Get("action.reply"), new Vector2(200, 0));
+            g.Connect(a.Id, 0, b.Id, 0);
+            var ed = new Ircuitry.Editor.GraphEditor(g);
+
+            ed.SelectAll();
+            fails += Expect("ctx-select-all", ed.Selection.Count == 2, $"{ed.Selection.Count}");
+
+            ed.DisconnectSelection();
+            fails += Expect("ctx-disconnect", g.Connections.Count == 0, $"conns={g.Connections.Count}");
+
+            ed.DeleteSelection();
+            fails += Expect("ctx-delete", g.Nodes.Count == 0, $"nodes={g.Nodes.Count}");
+
+            var c = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero);
+            ed.Selection.Clear(); ed.Selection.Add(c.Id);
+            ed.CutSelection();
+            fails += Expect("ctx-cut", g.Nodes.Count == 0, $"nodes={g.Nodes.Count}");
+            ed.Undo();
+            fails += Expect("ctx-cut-undo", g.Nodes.Count == 1, $"nodes={g.Nodes.Count}");
+        }
+
+        return fails;
+    }
+
+    /// <summary>End-to-end: a structured +draft/bot-cmd TAGMSG invocation fires the command and the reply carries +reply.</summary>
+    private static int BotCmdInvokeTest()
+    {
+        var b64 = BotTools.Encode(new Dictionary<string, object?> { ["name"] = "weather", ["options"] = new Dictionary<string, object?> { ["city"] = "london" } });
+        using var mock = new MockIrcServer(new[]
+        {
+            (120, $"@+draft/bot-cmd={b64};msgid=m99 :alice!a@h TAGMSG #ircuitry-test"),
+        });
+        var log = new ConsoleLog();
+        var rt = new BotRuntime(log, new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "weather");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "London: sunny");
+        g.Connect(cmd.Id, 0, reply.Id, 0);
+
+        var cfg = new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "", AdvertiseCommands = true };
+        rt.Start(g, cfg);
+
+        bool ok = false;
+        for (int i = 0; i < 160 && !ok; i++)
+        {
+            Thread.Sleep(50);
+            foreach (var o in mock.Sent())
+                if (o.Contains("PRIVMSG #ircuitry-test") && o.Contains("London: sunny") && o.Contains("+reply=m99")) ok = true;
+        }
+        rt.Stop();
+        Thread.Sleep(100);
+
+        string detail = ok ? "" : "sent: " + string.Join(" | ", mock.Sent());
+        return Expect("bot-cmd-invoke-reply", ok, detail);
+    }
+
+    /// <summary>Export a graph to a .ircbot file and import it back, asserting structure survives.</summary>
+    private static int IoTest()
+    {
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "hi");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "yo");
+        g.Connect(cmd.Id, 0, reply.Id, 0);
+
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-selftest.ircbot");
+        System.IO.File.WriteAllText(path, GraphSerializer.Save(g, "iobot"));
+        var (g2, name) = GraphSerializer.Load(System.IO.File.ReadAllText(path));
+        try { System.IO.File.Delete(path); } catch { }
+
+        bool ok = name == "iobot" && g2.Nodes.Count == 2 && g2.Connections.Count == 1
+            && g2.Find(cmd.Id)?.GetParam("command") == "hi";
+        return Expect("ircbot-export-import-roundtrip", ok, $"name={name} nodes={g2.Nodes.Count} wires={g2.Connections.Count}");
+    }
+
+    /// <summary>Round-trip the whole workspace (bots + connection settings + graph) through JSON.</summary>
+    private static int WorkspaceTest()
+    {
+        var bot = new Ircuitry.App.Bot("alpha");
+        var cmd = bot.Graph.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ping");
+        var reply = bot.Graph.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "pong");
+        bot.Graph.Connect(cmd.Id, 0, reply.Id, 0);
+        bot.Settings.Host = "irc.example.net"; bot.Settings.Nick = "zzz";
+        bot.Settings.Channels = "#a #b"; bot.Settings.SaslPass = "secret"; bot.Settings.UseTls = false;
+        bot.State["score"] = "42";   // persistent variable
+
+        string json = Ircuitry.App.WorkspaceSerializer.Save(new List<Ircuitry.App.Bot> { bot }, 0);
+        var (loaded, _) = Ircuitry.App.WorkspaceSerializer.Load(json);
+
+        bool ok = loaded.Count == 1 && loaded[0].Name == "alpha"
+            && loaded[0].Graph.Nodes.Count == 2 && loaded[0].Graph.Connections.Count == 1
+            && loaded[0].Settings.Host == "irc.example.net" && loaded[0].Settings.Nick == "zzz"
+            && loaded[0].Settings.Channels == "#a #b" && loaded[0].Settings.SaslPass == "secret"
+            && loaded[0].Settings.UseTls == false
+            && loaded[0].Graph.Find(reply.Id)?.GetParam("message") == "pong"
+            && loaded[0].State.TryGetValue("score", out var sc) && sc == "42";
+        return Expect("workspace-save-load", ok, $"bots={loaded.Count}");
+    }
+
+    private static int FreePort()
+    {
+        var l = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        l.Start();
+        int p = ((IPEndPoint)l.LocalEndpoint).Port;
+        l.Stop();
+        return p;
+    }
+
+    private static int ParserTests()
+    {
+        int fails = 0;
+        var m = IrcParser.Parse("@time=2020-01-01T00:00:00.000Z;+example/foo=bar\\swith\\sspaces :nick!user@host PRIVMSG #chan :hello :there");
+        fails += Expect("parse-tag-time", m.Tag("time") == "2020-01-01T00:00:00.000Z", m.Tag("time"));
+        fails += Expect("parse-tag-unescape", m.Tag("+example/foo") == "bar with spaces", m.Tag("+example/foo"));
+        fails += Expect("parse-nick", m.Nick == "nick" && m.User == "user" && m.Host == "host", $"{m.Nick}/{m.User}/{m.Host}");
+        fails += Expect("parse-cmd", m.Command == "PRIVMSG", m.Command);
+        fails += Expect("parse-target", m.P(0) == "#chan", m.P(0));
+        fails += Expect("parse-trailing", m.Trailing == "hello :there", m.Trailing);
+
+        var ping = IrcParser.Parse("PING :server.token");
+        fails += Expect("parse-ping", ping.Command == "PING" && ping.Trailing == "server.token", ping.Trailing);
+
+        var noTrail = IrcParser.Parse(":n!u@h JOIN #room");
+        fails += Expect("parse-join", noTrail.Command == "JOIN" && noTrail.P(0) == "#room", noTrail.P(0));
+        return fails;
+    }
+
+    /// <summary>End-to-end over a real loopback socket: connect → register → !ping → pong.</summary>
+    private static int IrcLoopTest()
+    {
+        using var mock = new MockIrcServer();
+        var log = new ConsoleLog();
+        var rt = new BotRuntime(log, new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ping");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "pong");
+        g.Connect(cmd.Id, 0, reply.Id, 0);
+
+        var cfg = new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "" };
+        rt.Start(g, cfg);
+
+        bool ok = false;
+        for (int i = 0; i < 120 && !ok; i++)
+        {
+            Thread.Sleep(50);
+            foreach (var o in mock.Sent())
+                if (o.StartsWith("PRIVMSG #ircuitry-test", StringComparison.Ordinal) && o.Contains("pong")) ok = true;
+        }
+        rt.Stop();
+        Thread.Sleep(100);
+
+        string detail = ok ? "" : "log: " + string.Join(" | ", log.Tail(20).Select(e => e.Text));
+        return Expect("irc-loop-ping-pong", ok, detail);
+    }
+
+    /// <summary>Editing a running bot via ApplyGraph changes its behaviour without a restart.</summary>
+    private static int LiveApplyTest()
+    {
+        using var mock = new MockIrcServer(new[]
+        {
+            (150, ":a!a@h PRIVMSG #ircuitry-test :!ping"),
+            (2500, ":a!a@h PRIVMSG #ircuitry-test :!ping"),
+        });
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ping");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "v1");
+        g.Connect(cmd.Id, 0, reply.Id, 0);
+        rt.Start(g, new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "" });
+
+        bool v1 = false, applied = false, v2 = false;
+        for (int i = 0; i < 200 && !v2; i++)
+        {
+            Thread.Sleep(50);
+            var sent = mock.Sent();
+            if (sent.Any(s => s.Contains("PRIVMSG #ircuitry-test") && s.EndsWith(":v1"))) v1 = true;
+            if (v1 && !applied) { reply.SetParam("message", "v2"); rt.ApplyGraph(g); applied = true; }  // edit live
+            if (applied && sent.Any(s => s.EndsWith(":v2"))) v2 = true;
+        }
+        rt.Stop(); Thread.Sleep(100);
+        return Expect("live-apply-no-restart", v1 && v2, $"v1={v1} v2={v2} sent=[{string.Join(",", mock.Sent())}]");
+    }
+
+    /// <summary>bot-tools steps must stream LIVE (interleaved with actions), not as a post-fire replay.</summary>
+    private static int LiveStreamTest()
+    {
+        using var mock = new MockIrcServer(new[] { (120, ":alice!a@h PRIVMSG #ircuitry-test :!go a,b,c") });
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "go");
+        var fe = g.Add(NodeCatalog.Get("logic.forEach"), new Vector2(200, 0)); fe.SetParam("sep", "comma");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(400, 0)); reply.StreamAsTool = true;   // stream each iteration
+        g.Connect(cmd.Id, 0, fe.Id, 0); g.Connect(cmd.Id, 1, fe.Id, 1);
+        g.Connect(fe.Id, 0, reply.Id, 0); g.Connect(fe.Id, 2, reply.Id, 1);
+
+        rt.Start(g, new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "", StreamWorkflows = true });
+
+        bool ok = false;
+        for (int i = 0; i < 200 && !ok; i++)
+        {
+            Thread.Sleep(50);
+            var sent = mock.Sent();
+            int ia = Array.FindIndex(sent, s => s.Contains("PRIVMSG #ircuitry-test") && s.EndsWith(":a"));
+            int ib = Array.FindIndex(sent, s => s.Contains("PRIVMSG #ircuitry-test") && s.EndsWith(":b"));
+            // a workflow step must appear BETWEEN reply "a" and reply "b" (post-fire replay would put them all after)
+            if (ia >= 0 && ib > ia)
+                for (int k = ia + 1; k < ib; k++) if (sent[k].Contains("+draft/bot-tools")) ok = true;
+        }
+        rt.Stop(); Thread.Sleep(100);
+        return Expect("bottools-live-interleaved", ok, "sent: " + string.Join(" | ", mock.Sent()));
+    }
+
+    /// <summary>Stop → restart the same runtime must reconnect, re-join the channel, and reply again
+    /// (regression: the throttle writer thread used to die on the first Stop, silently dropping all sends).</summary>
+    private static int IrcRestartTest()
+    {
+        using var mock = new MockIrcServer();
+        var log = new ConsoleLog();
+        var rt = new BotRuntime(log, new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ping");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "pong");
+        g.Connect(cmd.Id, 0, reply.Id, 0);
+
+        var cfg = new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "", AutoReconnect = false };
+
+        int Pongs() { int n = 0; foreach (var o in mock.Sent()) if (o.StartsWith("PRIVMSG #ircuitry-test", StringComparison.Ordinal) && o.Contains("pong")) n++; return n; }
+
+        rt.Start(g, cfg);
+        bool first = false;
+        for (int i = 0; i < 120 && !first; i++) { Thread.Sleep(50); first = Pongs() >= 1; }
+        rt.Stop();
+        Thread.Sleep(250);
+
+        rt.Start(g, cfg);                 // restart the SAME runtime/client
+        bool second = false;
+        for (int i = 0; i < 160 && !second; i++) { Thread.Sleep(50); second = Pongs() >= 2; }
+        rt.Stop();
+        Thread.Sleep(100);
+
+        int joins = 0; foreach (var o in mock.Sent()) if (o.StartsWith("JOIN", StringComparison.Ordinal) && o.Contains("#ircuitry-test")) joins++;
+        bool ok = first && second && joins >= 2;
+        string detail = ok ? "" : $"first={first} second={second} joins={joins} log: " + string.Join(" | ", log.Tail(12).Select(e => e.Text));
+        return Expect("irc-restart-rejoins-and-replies", ok, detail);
+    }
+
+    private static string Dump(FakeSink s) => "sent=[" + string.Join(", ", s.Sent.ConvertAll(t => $"{t.target}:{t.text}")) + "]";
+
+    private static int Expect(string name, bool ok, string detail)
+    {
+        Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
+        return ok ? 0 : 1;
+    }
+}

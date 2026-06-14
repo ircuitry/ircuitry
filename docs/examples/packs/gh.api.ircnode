@@ -1,0 +1,46 @@
+{
+  "typeId": "gh.api",
+  "title": "GitHub: API",
+  "subtitle": "community",
+  "icon": "🛰️",
+  "category": "Action",
+  "description": "Calls the GitHub REST/GraphQL API via gh api, e.g. endpoint = repos/owner/name.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "endpoint",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "json",
+      "kind": "Text"
+    }
+  ],
+  "params": [
+    {
+      "key": "method",
+      "label": "Method",
+      "type": "Choice",
+      "default": "GET",
+      "choices": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ]
+    }
+  ],
+  "language": "python",
+  "timeout": 20,
+  "code": "import os,subprocess\ncmd=['gh','api',os.environ.get('ENDPOINT',''),'-X',os.environ.get('METHOD','GET')]\ntry:\n    r=subprocess.run(cmd,capture_output=True,text=True,timeout=18)\n    print((r.stdout or r.stderr).strip()[:6000])\nexcept Exception as e:\n    print('ERROR: '+str(e))\n",
+  "iconImage": "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"
+}

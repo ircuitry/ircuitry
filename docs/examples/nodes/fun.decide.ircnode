@@ -1,0 +1,32 @@
+{
+  "typeId": "fun.decide",
+  "title": "Decide",
+  "subtitle": "community",
+  "icon": "🤔",
+  "category": "Data",
+  "description": "Yes / No / Maybe to anything.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "question",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,random\nprint('🤔 '+random.choice(['yes','no','maybe','definitely','absolutely not','ask me tomorrow','100%','nah']))\n"
+}

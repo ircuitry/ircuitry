@@ -1,0 +1,68 @@
+using Ircuitry.Core;
+
+namespace Ircuitry.Graph;
+
+/// <summary>
+/// The surface a node's behaviour uses at runtime: read params and data inputs,
+/// set data outputs, pulse exec outputs, touch context variables, and act on IRC.
+/// Implemented by the runtime executor.
+/// </summary>
+public interface INodeContext
+{
+    Node Node { get; }
+
+    // params & data
+    string Param(string key);
+    bool ParamBool(string key);
+    int ParamInt(string key, int fallback = 0);
+    string In(int inputIndex);                 // resolved upstream value, or ""
+    string InOr(int inputIndex, string fallback);
+    void SetOut(int outputIndex, string value);
+
+    // control flow
+    void Pulse(int execOutputIndex);
+
+    /// <summary>Synchronously run the subgraph wired to an exec output now (used by loops).</summary>
+    void Run(int execOutputIndex);
+
+    /// <summary>All source nodes wired into one of this node's input pins (for multi-connect pins like AI tools).</summary>
+    System.Collections.Generic.IReadOnlyList<Node> SourcesInto(int inputIndex);
+
+    /// <summary>Synchronously run another node's behaviour within the same execution (used to invoke AI tools).</summary>
+    void RunNode(Node node);
+
+    /// <summary>Run a saved subgraph as a reusable unit: seed it with named inputs and read back the named
+    /// outputs its flow.return nodes wrote (reusable subflows / community subflow nodes).</summary>
+    System.Collections.Generic.Dictionary<string, string> RunSubflow(NodeGraph sub, System.Collections.Generic.Dictionary<string, string> inputs);
+
+    // persistent per-bot state (survives across events, saved with the workspace)
+    string GetState(string key);
+    void SetState(string key, string value);
+
+    /// <summary>Seconds since the Unix epoch (for cooldowns/timers).</summary>
+    double NowSeconds();
+
+    // context variables (nick, channel, message, args, replytarget…)
+    string Var(string name);
+    void SetVar(string name, string value);
+
+    /// <summary>Expand {tokens} in <paramref name="template"/> from context vars.</summary>
+    string Resolve(string template);
+
+    /// <summary>Uniform random in [0,1).</summary>
+    double Rng();
+
+    // IRC effects
+    void Reply(string text);                   // to the triggering channel/user
+    void React(string emoji);                  // react to the triggering message (+draft/react)
+    void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
+    void Send(string target, string text);     // PRIVMSG target :text
+    void Notice(string target, string text);
+    void Join(string channel);
+    void Part(string channel, string reason);
+    void Raw(string line);
+    void StartTyping(string target);           // IRCv3 +typing indicator until stopped / workflow end
+    void StopTyping(string target);
+
+    void Log(string message, LogLevel level = LogLevel.Action);
+}

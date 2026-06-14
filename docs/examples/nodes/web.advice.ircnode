@@ -1,0 +1,28 @@
+{
+  "typeId": "web.advice",
+  "title": "Advice",
+  "subtitle": "community",
+  "icon": "💡",
+  "category": "Action",
+  "description": "A random piece of advice (adviceslip, no key).",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 15,
+  "code": "\nimport os,urllib.request,urllib.parse,json\ndef get(url,headers=None,timeout=9):\n    req=urllib.request.Request(url,headers=headers or {'User-Agent':'ircuitry-bot'})\n    return urllib.request.urlopen(req,timeout=timeout).read().decode('utf-8','replace')\n\ntry:\n    d=json.loads(get('https://api.adviceslip.com/advice'))\n    print('💡 '+d['slip']['advice'])\nexcept Exception as e: print('error: '+str(e)[:60])\n"
+}

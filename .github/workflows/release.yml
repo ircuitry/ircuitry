@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.1.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: publish ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-latest }
+          - { rid: win-x64,   os: windows-latest }
+          - { rid: osx-x64,   os: macos-13 }
+          - { rid: osx-arm64, os: macos-14 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish (self-contained)
+        run: >
+          dotnet publish src/Ircuitry/Ircuitry.csproj
+          -c Release -r ${{ matrix.rid }}
+          --self-contained true -p:PublishTrimmed=false
+          -o publish/ircuitry-${{ matrix.rid }}
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: cd publish && zip -r ../ircuitry-${{ matrix.rid }}.zip ircuitry-${{ matrix.rid }}
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path publish/ircuitry-${{ matrix.rid }} -DestinationPath ircuitry-${{ matrix.rid }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ircuitry-${{ matrix.rid }}
+          path: ircuitry-${{ matrix.rid }}.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ircuitry ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/*.zip
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ### Download & run
+            Grab the zip for your OS, unzip it, and run **ircuitry** (`Ircuitry.exe` on Windows). It's
+            fully self-contained - no .NET install needed.
+
+            - 🐧 Linux: `ircuitry-linux-x64.zip`
+            - 🪟 Windows: `ircuitry-win-x64.zip`
+            - 🍎 macOS Intel: `ircuitry-osx-x64.zip` · Apple Silicon: `ircuitry-osx-arm64.zip`
+
+            Optional: install `node` and/or `python3` to use the Code node and community/custom nodes.
+            On macOS, unsigned apps need `xattr -dr com.apple.quarantine ircuitry-osx-*/` (or right-click → Open).

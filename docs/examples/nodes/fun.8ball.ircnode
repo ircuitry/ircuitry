@@ -1,0 +1,32 @@
+{
+  "typeId": "fun.8ball",
+  "title": "Magic 8-Ball",
+  "subtitle": "community",
+  "icon": "🎱",
+  "category": "Data",
+  "description": "Answers a yes/no question.",
+  "inputs": [
+    {
+      "name": "",
+      "kind": "Exec"
+    },
+    {
+      "name": "question",
+      "kind": "Text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "then",
+      "kind": "Exec"
+    },
+    {
+      "name": "result",
+      "kind": "Text"
+    }
+  ],
+  "params": [],
+  "language": "python",
+  "timeout": 12,
+  "code": "\nimport os,random\na=['It is certain.','Without a doubt.','Yes definitely.','You may rely on it.','Most likely.','Outlook good.','Signs point to yes.','Reply hazy, try again.','Ask again later.','Cannot predict now.','Don\\'t count on it.','My reply is no.','Very doubtful.','Outlook not so good.']\nq=(os.environ.get('QUESTION') or os.environ.get('ARGS') or '').strip()\nprint('🎱 '+random.choice(a))\n"
+}
