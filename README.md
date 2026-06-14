@@ -18,6 +18,19 @@ fields - all procedural.
 
 ![ircuitry](shots/cute.png)
 
+## Download
+
+Grab a ready-to-run build from the [latest release](https://github.com/ircuitry/ircuitry/releases/latest):
+
+- **Linux:** the **AppImage** (`chmod +x ircuitry-*.AppImage`, then run it), a **`.deb`**
+  (`sudo apt install ./ircuitry-*-amd64.deb`, adds a menu entry and an `ircuitry` command),
+  or the portable zip (unzip, run `./Ircuitry`).
+- **Windows:** the zip; unzip and run `Ircuitry.exe`.
+- **macOS:** the zip; unzip, move `ircuitry.app` to Applications, then right-click and Open
+  (it is unsigned).
+
+Every build is self-contained, so no .NET install is needed. To build from source instead:
+
 ## Quick start
 
 ```bash

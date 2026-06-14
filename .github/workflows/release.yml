@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    name: publish ${{ matrix.rid }}
+    name: package ${{ matrix.rid }}
     # .NET cross-publishes self-contained binaries for any RID from any host, so we build
     # every target on Linux runners (fast, always available) instead of waiting on scarce
     # macOS runners. The per-RID native libs (SDL2/OpenAL) come from NuGet, not the host.
@@ -28,6 +28,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Version from tag
+        run: V='${{ github.event.inputs.tag || github.ref_name }}'; echo "VERSION=${V#v}" >> "$GITHUB_ENV"
       - name: Publish (self-contained)
         run: >
           dotnet publish src/Ircuitry/Ircuitry.csproj
@@ -37,12 +39,29 @@ jobs:
       - name: Keep unix launcher executable
         if: matrix.rid != 'win-x64'
         run: chmod +x publish/ircuitry-${{ matrix.rid }}/Ircuitry
-      - name: Package
-        run: cd publish && zip -r ../ircuitry-${{ matrix.rid }}.zip ircuitry-${{ matrix.rid }}
+      - run: mkdir -p out
+
+      # Linux: AppImage (easiest), .deb, and a portable zip
+      - name: Package Linux
+        if: matrix.rid == 'linux-x64'
+        run: |
+          (cd publish && zip -qr "$GITHUB_WORKSPACE/out/ircuitry-linux-x64.zip" ircuitry-linux-x64)
+          bash tools/package-linux.sh publish/ircuitry-linux-x64 "$VERSION" out assets/icons/icon-256.png
+
+      # Windows: portable zip containing Ircuitry.exe
+      - name: Package Windows
+        if: matrix.rid == 'win-x64'
+        run: (cd publish && zip -qr "$GITHUB_WORKSPACE/out/ircuitry-win-x64.zip" ircuitry-win-x64)
+
+      # macOS: double-clickable .app bundle, zipped
+      - name: Package macOS
+        if: startsWith(matrix.rid, 'osx')
+        run: bash tools/package-macos.sh publish/ircuitry-${{ matrix.rid }} "$VERSION" ${{ matrix.rid }} out assets/icons/icon-256.png
+
       - uses: actions/upload-artifact@v4
         with:
-          name: ircuitry-${{ matrix.rid }}
-          path: ircuitry-${{ matrix.rid }}.zip
+          name: pkg-${{ matrix.rid }}
+          path: out/*
           if-no-files-found: error
 
   release:
@@ -53,22 +72,28 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Version from tag
+        run: V='${{ github.event.inputs.tag || github.ref_name }}'; echo "VERSION=${V#v}" >> "$GITHUB_ENV"
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ircuitry ${{ github.event.inputs.tag || github.ref_name }}
-          files: dist/*.zip
+          files: dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
             ### Download & run
-            Grab the zip for your OS, unzip it, and run **ircuitry** (`Ircuitry.exe` on Windows). It's
-            fully self-contained, with no .NET install needed.
 
-            - 🐧 Linux: `ircuitry-linux-x64.zip`
-            - 🪟 Windows: `ircuitry-win-x64.zip`
-            - 🍎 macOS Intel: `ircuitry-osx-x64.zip` · Apple Silicon: `ircuitry-osx-arm64.zip`
+            **🐧 Linux**
+            - AppImage (easiest): grab `ircuitry-${{ env.VERSION }}-x86_64.AppImage`, then `chmod +x ircuitry-*.AppImage` and run it (double-click or `./ircuitry-*.AppImage`). No install.
+            - Debian / Ubuntu: `sudo apt install ./ircuitry-${{ env.VERSION }}-amd64.deb` (adds an app-menu entry and an `ircuitry` command). Remove with `sudo apt remove ircuitry`.
+            - Portable: `ircuitry-linux-x64.zip` (unzip, run `./Ircuitry`).
 
-            Optional: install `node` and/or `python3` to use the Code node and community/custom nodes.
-            On macOS, unsigned apps need `xattr -dr com.apple.quarantine ircuitry-osx-*/` (or right-click then Open).
+            **🪟 Windows**
+            - `ircuitry-win-x64.zip` (unzip, run `Ircuitry.exe`).
+
+            **🍎 macOS**
+            - `ircuitry-osx-arm64.zip` (Apple Silicon) or `ircuitry-osx-x64.zip` (Intel). Unzip, move `ircuitry.app` to Applications, open it. First launch: right-click then Open (or `xattr -dr com.apple.quarantine ircuitry.app`) since it is unsigned.
+
+            Everything is self-contained; no .NET install needed. Optional: install `node` and/or `python3` to use the Code node and community/custom nodes.
