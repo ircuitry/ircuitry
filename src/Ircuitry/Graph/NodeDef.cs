@@ -2,7 +2,7 @@ using Ircuitry.Core;
 
 namespace Ircuitry.Graph;
 
-public enum ParamType { Text, Multiline, Int, Bool, Choice }
+public enum ParamType { Text, Multiline, Int, Bool, Choice, List }
 
 public sealed class PinDef
 {
@@ -20,6 +20,16 @@ public sealed class ParamDef
     public string Default = "";
     public string Placeholder = "";
     public string[]? Choices;
+
+    // ---- ParamType.List: a repeatable list of rows the user grows with an "Add" button ----
+    /// <summary>List rows hold two fields (key + value) instead of one.</summary>
+    public bool Pair;
+    /// <summary>Caption for the list's add button, e.g. "Add tag".</summary>
+    public string AddLabel = "Add row";
+
+    /// <summary>A credential: not typed in the clear; the inspector offers a secret picker that stores
+    /// the value in secrets.json and writes a <c>{{secret.NAME}}</c> reference here.</summary>
+    public bool Secret;
 
     /// <summary>Optional: hide this field in the inspector unless the predicate (over the node) is true.</summary>
     public System.Func<Node, bool>? VisibleWhen;

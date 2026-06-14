@@ -67,6 +67,10 @@ public sealed partial class MainScreen : IScreen
 
     // secrets vault editor
     private bool _secretsOpen, _secretsJustOpened;
+    private bool _secretPickOpen, _secretPickJustOpened;
+    private Action<string>? _secretPickApply;
+    private string _secretPickTitle = "", _secretPickName = "", _secretPickNewVal = "";
+    private float _secretPickScroll;
     private string _secretName = "", _secretValue = "";
 
     // "Obby" - advanced bot-tools controls, collapsed by default in the inspector
@@ -122,7 +126,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -308,6 +312,7 @@ public sealed partial class MainScreen : IScreen
     }
 
     public void DebugOpenNodeManager() => OpenNodeManager();
+    public void DebugOpenSecretPick() { _l = Layout.Compute(_vw, _vh); OpenSecretPicker("", "API key", _ => { }); }
 
     private bool _demoShotFit;
     // Build a clean, credential-free showcase graph for marketing screenshots.
@@ -358,7 +363,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -554,6 +559,11 @@ public sealed partial class MainScreen : IScreen
         {
             _ui.Enabled = true;
             DrawUpdatePrompt(r);
+        }
+        else if (_secretPickOpen)
+        {
+            _ui.Enabled = true;
+            DrawSecretPicker(r);
         }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
@@ -1576,6 +1586,11 @@ public sealed partial class MainScreen : IScreen
             y += 18;
             string cur = n.GetParam(pdef.Key);
             string id = $"p.{n.Id}.{pdef.Key}";
+            if (pdef.Secret)   // credentials are picked, never typed
+            {
+                SecretButton(r, id, ref y, x, w, cur, pdef.Label, v => { n.SetParam(pdef.Key, v); _app.MarkDirty(); });
+                continue;
+            }
             string next = cur;
             switch (pdef.Type)
             {
@@ -1588,6 +1603,8 @@ public sealed partial class MainScreen : IScreen
                     next = _ui.Toggle(id, new RectF(x, y, w, 26), b, b ? "enabled" : "disabled") ? "true" : "false"; y += 36; break;
                 case ParamType.Choice:
                     next = _ui.Choice(id, new RectF(x, y, w, 30), pdef.Choices ?? Array.Empty<string>(), cur); y += 40; break;
+                case ParamType.List:
+                    next = DrawListParam(r, id, ref y, x, w, cur, pdef.Pair, pdef.AddLabel); break;
                 default:
                     next = _ui.TextField(id, new RectF(x, y, w, 30), cur, pdef.Placeholder); y += 40; break;
             }
@@ -1597,6 +1614,37 @@ public sealed partial class MainScreen : IScreen
         y += 8;
         if (!_tut.Active && _ui.Button("insp.del", new RectF(x, y, w, 32), "✕  DELETE NODE", Theme.Alert))
         { Bot.Graph.Remove(n); _editor.Selection.Clear(); _app.MarkDirty(); }
+    }
+
+    // A growable list param: one row to start, an "Add" button to add more, and a per-row remove.
+    private string DrawListParam(Renderer r, string idBase, ref float y, float x, float w, string cur, bool pair, string addLabel)
+    {
+        var rows = Ircuitry.Core.ParamList.Parse(cur);
+        if (rows.Count == 0) rows.Add(pair ? new[] { "", "" } : new[] { "" });
+        int remove = -1;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            float rx = x;
+            float btnX = x + w - 26;
+            if (pair)
+            {
+                float kw = (btnX - x - 6) * 0.42f, vw = (btnX - x - 6) - kw - 6;
+                string k = _ui.TextField($"{idBase}.k{i}", new RectF(rx, y, kw, 28), rows[i].ElementAtOrDefault(0) ?? "", "key");
+                string v = _ui.TextField($"{idBase}.v{i}", new RectF(rx + kw + 6, y, vw, 28), rows[i].ElementAtOrDefault(1) ?? "", "value");
+                rows[i] = new[] { k, v };
+            }
+            else
+            {
+                string v = _ui.TextField($"{idBase}.v{i}", new RectF(rx, y, btnX - x - 6, 28), rows[i].ElementAtOrDefault(0) ?? "", "value");
+                rows[i] = new[] { v };
+            }
+            if (_ui.Button($"{idBase}.x{i}", new RectF(btnX, y, 26, 28), "✕", Theme.Idle)) remove = i;
+            y += 34;
+        }
+        if (remove >= 0 && remove < rows.Count) rows.RemoveAt(remove);
+        if (_ui.Button($"{idBase}.add", new RectF(x, y, w, 26), "＋  " + addLabel, Theme.Cyan)) rows.Add(pair ? new[] { "", "" } : new[] { "" });
+        y += 36;
+        return Ircuitry.Core.ParamList.Encode(rows, pair);
     }
 
     private void DrawConnectionInspector(Renderer r, RectF c)
@@ -1634,7 +1682,7 @@ public sealed partial class MainScreen : IScreen
         y = Labeled(r, "NICK", x, y); s.Nick = Edit("c.nick", new RectF(x, y, w, 30), s.Nick, "ircuitry-bot"); y += 40;
         y = Labeled(r, "CHANNELS", x, y); s.Channels = Edit("c.chan", new RectF(x, y, w, 30), s.Channels, "#chan1 #chan2"); y += 40;
         y = Labeled(r, "SASL ACCOUNT (optional)", x, y); s.SaslUser = Edit("c.sasluser", new RectF(x, y, w, 30), s.SaslUser, "account"); y += 40;
-        y = Labeled(r, "SASL PASSWORD", x, y); s.SaslPass = Edit("c.saslpass", new RectF(x, y, w, 30), s.SaslPass, "", password: true); y += 44;
+        y = Labeled(r, "SASL PASSWORD", x, y); SecretButton(r, "c.saslpass", ref y, x, w, s.SaslPass, "SASL password", v => { s.SaslPass = v; _app.MarkDirty(); }); y += 4;
 
         _obbyConn = ObbyHeader(r, ref y, x, w, _obbyConn);
         if (_obbyConn)
@@ -1654,6 +1702,87 @@ public sealed partial class MainScreen : IScreen
         var next = _ui.TextField(id, rect, value, ph, password: password);
         if (next != value) _app.MarkDirty();
         return next;
+    }
+
+    // ====================== secret picker (credentials) ======================
+    private static readonly System.Text.RegularExpressions.Regex SecretRef =
+        new(@"^\{\{\s*secret\.([^}\s]+)\s*\}\}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // A password field is never typed in the clear: it shows the chosen key and opens the picker.
+    private void SecretButton(Renderer r, string id, ref float y, float x, float w, string cur, string label, Action<string> apply)
+    {
+        var m = SecretRef.Match(cur ?? "");
+        string disp = m.Success ? "🔑  " + m.Groups[1].Value
+            : string.IsNullOrEmpty(cur) ? "🔑  Choose a key…"
+            : "🔑  •••• (tap to secure)";
+        if (_ui.Button(id + ".sec", new RectF(x, y, w, 30), disp, m.Success ? Theme.Lime : Theme.Idle))
+            OpenSecretPicker(cur ?? "", label, apply);
+        y += 40;
+    }
+
+    private void OpenSecretPicker(string current, string title, Action<string> apply)
+    {
+        _secretPickApply = apply; _secretPickTitle = title;
+        _secretPickOpen = true; _secretPickJustOpened = true;
+        _secretPickName = ""; _secretPickNewVal = ""; _secretPickScroll = 0;
+    }
+
+    private void DrawSecretPicker(Renderer r)
+    {
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = 480, ph = MathF.Min(560, _vh * 0.9f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Choose a secret · " + _secretPickTitle, Theme.Violet);
+        float x = panel.X + 20, w = panel.W - 40, y = panel.Y + Hud.HeaderH + 14;
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), "Credentials live in your separate secrets file, never in the workspace or in shared flows. Pick an existing key or add one now.", w))
+        { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 16; }
+        y += 6;
+
+        var names = Ircuitry.Core.Secrets.Names();
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), names.Count > 0 ? "YOUR KEYS" : "NO KEYS YET", new Vector2(x, y), Theme.TextFaint); y += 20;
+        float listH = MathF.Min(names.Count * 34f, 170f);
+        var listRect = new RectF(x, y, w, MathF.Max(0, listH));
+        r.End();
+        if (listH > 0)
+        {
+            if (listRect.Contains(In.Mouse) && In.ScrollDelta != 0) _secretPickScroll -= In.ScrollDelta;
+            _secretPickScroll = Math.Clamp(_secretPickScroll, 0, MathF.Max(0, names.Count * 34f - listH));
+            r.Begin(BlendMode.Alpha, listRect.ToRectangle());
+            float ly = listRect.Y - _secretPickScroll;
+            foreach (var name in names)
+            {
+                if (ly + 30 >= listRect.Y && ly <= listRect.Bottom)
+                    if (_ui.Button("sp.k." + name, new RectF(listRect.X, ly, w, 30), "🔑  " + name, Theme.Lime))
+                    { _secretPickApply?.Invoke("{{secret." + name + "}}"); _secretPickOpen = false; }
+                ly += 34;
+            }
+            r.End();
+        }
+        y = listRect.Bottom + 12;
+
+        r.Begin();
+        r.HLine(x, panel.Right - 20, y, Theme.Hairline, 1f); y += 12;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "ADD A NEW KEY", new Vector2(x, y), Theme.TextFaint); y += 20;
+        _secretPickName = _ui.TextField("sp.name", new RectF(x, y, w, 28), _secretPickName, "name e.g. openai"); y += 34;
+        _secretPickNewVal = _ui.TextField("sp.val", new RectF(x, y, w, 28), _secretPickNewVal, "value (key/password)", password: true); y += 36;
+        bool canAdd = _secretPickName.Trim().Length > 0;
+        if (_ui.Button("sp.add", new RectF(x, y, w, 30), "＋  Add & use this key", canAdd ? Theme.Lime : Theme.Idle, primary: canAdd) && canAdd)
+        {
+            var nm = _secretPickName.Trim();
+            Ircuitry.Core.Secrets.Set(nm, _secretPickNewVal);
+            _secretPickApply?.Invoke("{{secret." + nm + "}}");
+            _secretPickOpen = false;
+        }
+        y += 38;
+
+        var clearR = new RectF(x, panel.Bottom - 46, 110, 32);
+        var cancelR = new RectF(panel.Right - 20 - 100, panel.Bottom - 46, 100, 32);
+        if (_ui.Button("sp.clear", clearR, "Use none", Theme.Idle)) { _secretPickApply?.Invoke(""); _secretPickOpen = false; }
+        if (_ui.Button("sp.cancel", cancelR, "CANCEL", Theme.Cyan)) _secretPickOpen = false;
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_secretPickJustOpened) _secretPickOpen = false;
+        _secretPickJustOpened = false;
+        r.End();
     }
 
     private float Labeled(Renderer r, string label, float x, float y)

@@ -403,7 +403,7 @@ public static class SelfTest
             var g = new NodeGraph();
             var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
             var part = N(g, "action.part", 200, 0); part.SetParam("channel", "#old"); part.SetParam("reason", "bye");
-            var raw = N(g, "irc.raw", 400, 0); raw.SetParam("tag1key", "typing"); raw.SetParam("tag1val", "active"); raw.SetParam("line", "PRIVMSG #lobby :hi {nick}");
+            var raw = N(g, "irc.raw", 400, 0); raw.SetParam("tags", "[[\"typing\",\"active\"]]"); raw.SetParam("line", "PRIVMSG #lobby :hi {nick}");
             var typ = N(g, "irc.typing.start", 600, 0);
             g.Connect(cmd.Id, 0, part.Id, 0);
             g.Connect(part.Id, 0, raw.Id, 0);

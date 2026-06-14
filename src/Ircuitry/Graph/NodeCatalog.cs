@@ -92,8 +92,12 @@ public static class NodeCatalog
     private static PinDef Nm(string n) => new(n, PinKind.Number);
     private static PinDef To(string n, bool multi = false) => new(n, PinKind.Tool, multi);
 
-    private static ParamDef P(string key, string label, ParamType t = ParamType.Text, string def = "", string ph = "", string[]? choices = null, Func<Node, bool>? visibleWhen = null)
-        => new() { Key = key, Label = label, Type = t, Default = def, Placeholder = ph, Choices = choices, VisibleWhen = visibleWhen };
+    private static ParamDef P(string key, string label, ParamType t = ParamType.Text, string def = "", string ph = "", string[]? choices = null, Func<Node, bool>? visibleWhen = null, bool secret = false)
+        => new() { Key = key, Label = label, Type = t, Default = def, Placeholder = ph, Choices = choices, VisibleWhen = visibleWhen, Secret = secret };
+
+    /// <summary>A growable list param: rows the user adds with an "Add" button (pair = key+value rows).</summary>
+    private static ParamDef PL(string key, string label, bool pair, string addLabel)
+        => new() { Key = key, Label = label, Type = ParamType.List, Pair = pair, AddLabel = addLabel };
 
     /// <summary>Where the file nodes read/write relative paths (absolute paths are honoured as-is).</summary>
     public static readonly string FilesDir = Path.Combine(
@@ -465,22 +469,19 @@ public static class NodeCatalog
                 Outputs = new[] { Ex("then") },
                 Params = new[]
                 {
-                    P("tag1key", "Tag 1", ParamType.Text, "", "+typing"), P("tag1val", "= value", ParamType.Text, "", "active"),
-                    P("tag2key", "Tag 2", ParamType.Text, "", "+draft/reply"), P("tag2val", "= value", ParamType.Text, "", "{msgid}"),
-                    P("tag3key", "Tag 3", ParamType.Text, "", ""), P("tag3val", "= value", ParamType.Text, "", ""),
-                    P("tag4key", "Tag 4", ParamType.Text, "", ""), P("tag4val", "= value", ParamType.Text, "", ""),
+                    PL("tags", "IRCv3 client tags", true, "Add tag"),
                     P("line", "Raw line", ParamType.Multiline, "", "PRIVMSG #lobby :lmao"),
                 },
                 SummaryParam = "line",
                 Exec = c =>
                 {
                     var tags = new System.Text.StringBuilder();
-                    for (int i = 1; i <= 4; i++)
+                    foreach (var (rk, rv) in Ircuitry.Core.ParamList.Pairs(c.Param("tags")))
                     {
-                        var k = c.Resolve(c.Param("tag" + i + "key")).Trim();
+                        var k = c.Resolve(rk).Trim();
                         if (k.Length == 0) continue;
                         if (k[0] != '+') k = "+" + k;            // client tags carry a leading '+'
-                        var v = c.Resolve(c.Param("tag" + i + "val"));
+                        var v = c.Resolve(rv);
                         if (tags.Length > 0) tags.Append(';');
                         tags.Append(k);
                         if (v.Length > 0) tags.Append('=').Append(v);
@@ -580,7 +581,7 @@ public static class NodeCatalog
                 {
                     P("baseUrl", "Base URL", ParamType.Text, "https://api.openai.com/v1", "http://localhost:11434/v1 · openrouter · groq …"),
                     P("model", "Model", ParamType.Text, "gpt-4o-mini", "gpt-4o-mini · llama3 · mistral · …"),
-                    P("apiKey", "API key", ParamType.Text, "", "blank = $OPENAI_API_KEY (or none for local)"),
+                    P("apiKey", "API key", ParamType.Text, "", "blank = $OPENAI_API_KEY (or none for local)", secret: true),
                     P("system", "System prompt", ParamType.Multiline, "You are a witty IRC bot named ircuitry. Reply in one short sentence.", ""),
                     P("prompt", "Prompt", ParamType.Multiline, "{nick} said: {message}", "supports {nick} {message} {args}"),
                     P("maxTokens", "Max tokens", ParamType.Int, "300", "300"),
