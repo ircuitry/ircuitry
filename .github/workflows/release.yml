@@ -15,15 +15,14 @@ permissions:
 jobs:
   build:
     name: publish ${{ matrix.rid }}
+    # .NET cross-publishes self-contained binaries for any RID from any host, so we build
+    # every target on Linux runners (fast, always available) instead of waiting on scarce
+    # macOS runners. The per-RID native libs (SDL2/OpenAL) come from NuGet, not the host.
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { rid: linux-x64, os: ubuntu-latest }
-          - { rid: win-x64,   os: windows-latest }
-          - { rid: osx-x64,   os: macos-13 }
-          - { rid: osx-arm64, os: macos-14 }
-    runs-on: ${{ matrix.os }}
+        rid: [linux-x64, win-x64, osx-x64, osx-arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -35,13 +34,11 @@ jobs:
           -c Release -r ${{ matrix.rid }}
           --self-contained true -p:PublishTrimmed=false
           -o publish/ircuitry-${{ matrix.rid }}
-      - name: Package (unix)
-        if: runner.os != 'Windows'
+      - name: Keep unix launcher executable
+        if: matrix.rid != 'win-x64'
+        run: chmod +x publish/ircuitry-${{ matrix.rid }}/Ircuitry
+      - name: Package
         run: cd publish && zip -r ../ircuitry-${{ matrix.rid }}.zip ircuitry-${{ matrix.rid }}
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Compress-Archive -Path publish/ircuitry-${{ matrix.rid }} -DestinationPath ircuitry-${{ matrix.rid }}.zip
       - uses: actions/upload-artifact@v4
         with:
           name: ircuitry-${{ matrix.rid }}
@@ -67,11 +64,11 @@ jobs:
           body: |
             ### Download & run
             Grab the zip for your OS, unzip it, and run **ircuitry** (`Ircuitry.exe` on Windows). It's
-            fully self-contained - no .NET install needed.
+            fully self-contained, with no .NET install needed.
 
             - 🐧 Linux: `ircuitry-linux-x64.zip`
             - 🪟 Windows: `ircuitry-win-x64.zip`
             - 🍎 macOS Intel: `ircuitry-osx-x64.zip` · Apple Silicon: `ircuitry-osx-arm64.zip`
 
             Optional: install `node` and/or `python3` to use the Code node and community/custom nodes.
-            On macOS, unsigned apps need `xattr -dr com.apple.quarantine ircuitry-osx-*/` (or right-click → Open).
+            On macOS, unsigned apps need `xattr -dr com.apple.quarantine ircuitry-osx-*/` (or right-click then Open).
