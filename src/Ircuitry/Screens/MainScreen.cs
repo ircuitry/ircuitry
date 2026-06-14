@@ -1645,7 +1645,9 @@ public sealed partial class MainScreen : IScreen
         var brand = r.Fonts.Get(FontKind.Display, 30);
         var bsz = brand.MeasureString("ircuitry");
         r.Text(brand, "ircuitry", new Vector2(bx, (bar.H - bsz.Y) / 2f - 1), Theme.Mix(Theme.Cyan, Theme.Text, 0.3f));
-        r.Text(r.Fonts.Get(FontKind.Sans, 13), "· IRCv3 Bot Bakery", new Vector2(bx + bsz.X + 14, bar.H / 2f - 8), Theme.Mix(Theme.Amber, Theme.Text, 0.25f));
+        float tagX = bx + bsz.X + 14;
+        r.Text(r.Fonts.Get(FontKind.Sans, 13), "· IRCv3 Bot Bakery", new Vector2(tagX, bar.H / 2f - 9), Theme.Mix(Theme.Amber, Theme.Text, 0.25f));
+        r.Text(r.Fonts.Get(FontKind.Sans, 11), "v" + Ircuitry.App.AppInfo.Version, new Vector2(tagX, bar.H / 2f + 8), Theme.TextFaint);
 
         var pf = r.Fonts.Get(FontKind.SansBold, 14);
         r.TextCenteredX(pf, _app.ProjectName + (_app.Dirty ? " *" : ""), bar.W / 2f, bar.H / 2f - 8, Theme.Text);
