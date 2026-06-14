@@ -7,7 +7,7 @@ using System.Text;
 namespace Ircuitry.Net;
 
 /// <summary>
-/// Runs a snippet of JavaScript (node) or Python (python3) in a child process - like n8n's Code node.
+/// Runs a snippet of JavaScript (node) or Python (python3) in a child process.
 /// Context values are passed as environment variables (NICK, CHANNEL, MESSAGE, ARGS, INPUT, …) and as a
 /// JSON object on stdin; whatever the script prints to stdout becomes the node's output.
 /// </summary>

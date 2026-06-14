@@ -806,7 +806,7 @@ public static class NodeCatalog
             {
                 TypeId = "event.schedule", Icon = "📅", Title = "On Schedule", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "schedule",
-                Description = "Fires on a schedule (like n8n): an interval, every day at a time, on chosen weekdays, or once at a date/time. Uses your computer's local time. Outputs {time} and {date}; pair with Send to Channel.",
+                Description = "Fires on a schedule: an interval, every day at a time, on chosen weekdays, or once at a date/time. Uses your computer's local time. Outputs {time} and {date}; pair with Send to Channel.",
                 Outputs = new[] { Ex("then"), Tx("time"), Tx("date") },
                 Params = new[]
                 {
@@ -1107,7 +1107,7 @@ public static class NodeCatalog
                 },
             },
 
-            // ===================== FLOW (n8n-style) =========================
+            // ===================== FLOW =========================
             new()
             {
                 TypeId = "flow.delay", Icon = "⏳", Title = "Delay", Subtitle = "flow",
@@ -1366,7 +1366,7 @@ public static class NodeCatalog
             {
                 TypeId = "code.run", Icon = "📜", Title = "Code", Subtitle = "js / python",
                 Category = NodeCategory.Logic,
-                Description = "Runs JavaScript (node) or Python (python3), like n8n. Reads context from env vars (NICK, CHANNEL, MESSAGE, ARGS, INPUT) or JSON on stdin; whatever it prints to stdout becomes 'output'.",
+                Description = "Runs JavaScript (node) or Python (python3). Reads context from env vars (NICK, CHANNEL, MESSAGE, ARGS, INPUT) or JSON on stdin; whatever it prints to stdout becomes 'output'.",
                 Inputs = new[] { Ex(), Tx("input") },
                 Outputs = new[] { Ex("then"), Tx("output") },
                 Params = new[]

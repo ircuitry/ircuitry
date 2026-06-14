@@ -1,16 +1,16 @@
 # ircuitry - IRCv3 Bot Bakery
 
 A polished, game-feel desktop app for building **IRCv3 bots** with a visual,
-node-graph workflow editor - think *n8n meets a cozy Animal-Crossing menu*. Drag
-trigger / filter / action nodes onto a canvas, wire them together, point ircuitry at
-a server, and press **RUN BOT**. The bot connects over real IRCv3 (TLS, CAP
-negotiation, SASL) and reacts to live traffic - all rendered in a warm, hand-built
-UI (cream paper, leaf-green canvas, rounded pastel node cards, soft shadows).
+node-graph workflow editor - a cozy, hand-drawn take on flow-based automation.
+Drag trigger / filter / action nodes onto a canvas, wire them together, point
+ircuitry at a server, and press **RUN BOT**. The bot connects over real IRCv3
+(TLS, CAP negotiation, SASL) and reacts to live traffic - all rendered in a warm,
+hand-built UI (cream paper, leaf-green canvas, rounded pastel node cards, soft
+shadows).
 
 Run **multiple bots** side by side (each its own connection + runtime), reach any
-**OpenAI-compatible LLM** (OpenAI, Ollama, LM Studio, OpenRouter, Groq, vLLM…)
-and any **HTTP API**, and **save** the whole workspace - flows *and* connection
-settings - to one file.
+**OpenAI-compatible LLM endpoint** (hosted or local) and any **HTTP API**, and
+**save** the whole workspace - flows *and* connection settings - to one file.
 
 Everything you see is drawn from scratch in **MonoGame** (no OS widgets): the
 panels, the node cards, the bezier wires, the glow, the scanlines, the text
@@ -33,7 +33,7 @@ dotnet run --project src/Ircuitry -- --demo
 # headless / daemon - run the saved workspace's bots with no window (Ctrl+C to stop)
 dotnet run --project src/Ircuitry -- --run [bot-name]
 
-# MCP server - let an AI (Claude Desktop/Code, or any MCP client) build & test bots
+# MCP server - let an MCP-capable AI assistant build & test bots
 dotnet run --project src/Ircuitry -- --mcp
 ```
 
@@ -70,7 +70,8 @@ usual SDL2/OpenAL native libs (bundled by `MonoGame.Framework.DesktopGL`).
 
 ## How a bot works
 
-ircuitry uses an **exec-flow + data-pin** model (like Unreal Blueprints):
+ircuitry uses an **exec-flow + data-pin** model (control-flow wires plus pulled
+data wires):
 
 - **Exec wires** (cyan squares) are the control-flow pulse. A trigger fires,
   the pulse follows the wires, and each node runs in turn.
@@ -86,9 +87,9 @@ single wire.
 
 | Category | Nodes |
 |---|---|
-| **Events** (triggers) | On Connect · On Message · On Command · On Join · On Timer · **On Schedule** (interval / daily / weekly / once - n8n-style) |
+| **Events** (triggers) | On Connect · On Message · On Command · On Join · On Timer · **On Schedule** (interval / daily / weekly / once) |
 | **Conditions** (branch) | If / Compare · Text Contains · From User · From Account (IRCv3 account-tag) · Is Bot (IRCv3 bot flag) · Random Chance · Regex Match |
-| **Logic & Flow** | Switch · Cooldown · For Each · Set Variable · Delay (capped wait) · **Code** (run JavaScript / Python, n8n-style) |
+| **Logic & Flow** | Switch · Cooldown · For Each · Set Variable · Delay (capped wait) · **Code** (run JavaScript / Python) |
 | **Text & Values** | Get Variable · Math · Text Transform · Random Reply · Random Number · Format Text · JSON Field · Get Tag |
 | **AI** | Ask AI · AI Tool · Tool Reply · AI Memory (conversation continuity) |
 | **Files & Database** | Read File · Write File · **DB Set / DB Get** (newbie-friendly file-backed key/value) · **SQL Query** (advanced: raw SQLite) · Calendar (iCal) · Add Calendar Event · Search Calendar |
@@ -132,10 +133,9 @@ up; **Add Calendar Event** appends a VEVENT; **Search Calendar** finds events by
 text within an optional date range.
 
 **Code (JS / Python).** The **Code** node runs JavaScript (`node`) or Python
-(`python3`) just like n8n - context arrives as env vars (`NICK`, `CHANNEL`,
-`MESSAGE`, `ARGS`, `INPUT`) and as JSON on stdin, and whatever you print to stdout
-becomes the node's output. (Runs locally with a timeout; it's your machine and
-your code, like any self-hosted automation tool.)
+(`python3`) - context arrives as env vars (`NICK`, `CHANNEL`, `MESSAGE`, `ARGS`,
+`INPUT`) and as JSON on stdin, and whatever you print to stdout becomes the node's
+output. (Runs locally with a timeout; it's your machine and your code.)
 
 **Conversation memory.** **AI Memory** keeps a rolling, persisted transcript per
 session (default the channel) - `recall` it into Ask AI's prompt, `remember` each
@@ -152,20 +152,20 @@ exactly what data flowed **in and out** of each pin (the **HISTORY** button, or
 server. Live runs animate data along the wires and stamp each node with a
 fire-count badge.
 
-**Ask AI** is provider-agnostic - it speaks the OpenAI-compatible
+**Ask AI** is provider-agnostic - it speaks the widely-used OpenAI-compatible
 `/chat/completions` protocol, so you set a **Base URL**, **model**, and **key**
-and point it at whatever you run: OpenAI (`https://api.openai.com/v1`), a local
-Ollama (`http://localhost:11434/v1`, no key), LM Studio, OpenRouter, Groq, vLLM,
-etc. The key falls back to `$OPENAI_API_KEY`. Wire its `reply` output into a Send
-Reply for an AI bot, or chain **HTTP Request → JSON Field → Send Reply** to surface
-any web API in a channel.
+and point it at whatever you run, hosted or local (most local runners expose such
+an endpoint, commonly under `/v1`, e.g. `http://localhost:11434/v1`). The key
+falls back to the `$OPENAI_API_KEY` environment variable. Wire its `reply` output
+into a Send Reply for an AI bot, or chain **HTTP Request → JSON Field → Send
+Reply** to surface any web API in a channel.
 
 **AI tools (function calling).** Wire **AI Tool** nodes into Ask AI's `tools` input
 to let the model *call* them mid-thought. Each AI Tool defines a name + args and a
 `call` sub-flow (e.g. HTTP Request → JSON Field → **Tool Reply**); the model's
 arguments arrive on the tool's arg outputs, the sub-flow runs, and whatever you
 feed Tool Reply goes back to the model - which then writes the final answer. Uses
-the standard OpenAI tool-calling protocol, so it works with any tool-capable
+the standard function-calling protocol, so it works with any tool-capable
 endpoint.
 
 ### Multiple bots & persistence
@@ -184,7 +184,7 @@ AI assistant can introspect, build, validate and dry-run bots for you. It speaks
 stdio - point any MCP client at it:
 
 ```jsonc
-// e.g. Claude Desktop / Claude Code mcp config
+// e.g. an MCP client's server config
 { "mcpServers": {
     "ircuitry": { "command": "dotnet", "args": ["/abs/path/src/Ircuitry/bin/Debug/net8.0/Ircuitry.dll", "--mcp"] }
 } }
@@ -217,7 +217,7 @@ Screens/              MainScreen (the dock), Hud helpers, Layout
 Editor/               GraphEditor (canvas), Camera, NodeLayout
 Graph/                NodeGraph model, NodeDef, NodeCatalog, GraphSerializer, pins
 Irc/                  IrcClient (TCP/TLS, CAP, SASL), IrcParser, IrcMessage, MockIrcServer
-Net/                  Http + Ai (OpenAI-compatible) + JSON-path helpers
+Net/                  Http + Ai (chat-completions client) + JSON-path helpers
 Runtime/              BotRuntime, GraphExecutor, ConsoleLog, SelfTest
 ```
 
@@ -242,7 +242,7 @@ Notable choices:
 trailing), a **full IRC loop over a loopback socket** (an embedded mock server
 registers the client, injects `!ping`, asserts `pong`), and a **full AI loop over
 loopback** including **tool-calling** (On Command → Ask AI → Send Reply against a
-mock OpenAI-compatible server).
+mock chat-completions server).
 
 ```
 $ dotnet run --project src/Ircuitry -- --selftest
@@ -255,9 +255,9 @@ SELFTEST_OK all passed
 ## Tech
 
 C# / .NET 8 · MonoGame 3.8.4.1 (DesktopGL) · FontStashSharp 1.5.6 · a
-from-scratch IRCv3 client · OpenAI-compatible LLM client (no vendor lock-in).
-Reference notes gathered during the build live in
-[`docs/REFERENCE.md`](docs/REFERENCE.md).
+from-scratch IRCv3 client · a chat-completions LLM client speaking the
+OpenAI-compatible protocol (no vendor lock-in). Reference notes gathered during
+the build live in [`docs/REFERENCE.md`](docs/REFERENCE.md).
 
 ## License
 

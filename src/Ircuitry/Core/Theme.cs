@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework;
 namespace Ircuitry.Core;
 
 /// <summary>
-/// Ircuitry's visual identity: a warm, cozy, Animal-Crossing-ish look - cream paper,
+/// Ircuitry's visual identity: a warm, cozy, hand-drawn look - cream paper,
 /// leaf greens, sky blue, honey and coral pastels, soft rounded everything.
 /// (The accent fields keep their old names so the whole app re-themes from here.)
 /// </summary>

@@ -716,7 +716,7 @@ void OnWireDrop(Vector2 mw) {
 
 ## 4. Bezier wire rendering
 
-Place control points with **horizontal tangents** so wires leave outputs going right and enter inputs going left - the n8n/Blender look.
+Place control points with **horizontal tangents** so wires leave outputs going right and enter inputs going left - the flow-editor look.
 
 ```csharp
 // p0 = output port world pos, p3 = input port world pos
@@ -772,7 +772,7 @@ Tips: round joints look fine at N≥16; for extra-smooth wires draw with a soft/
 
 **Selection set:** `HashSet<int> selected`. Click empty = clear (unless shift). Click node = select it (shift toggles). Dragging a selected node drags the whole set.
 
-**Box / marquee select:** on mousedown over empty space → `BoxSelect`. Track `boxStartWorld`. Each frame the box = `RectFromCorners(boxStartWorld, mw)`. On release, select all nodes whose rect intersects the box (or is fully contained - pick a rule; Blender uses intersect for drag-left, contain for drag-right). Shift adds to existing selection.
+**Box / marquee select:** on mousedown over empty space → `BoxSelect`. Track `boxStartWorld`. Each frame the box = `RectFromCorners(boxStartWorld, mw)`. On release, select all nodes whose rect intersects the box (or is fully contained - pick a rule; some editors use intersect for drag-left, contain for drag-right). Shift adds to existing selection.
 
 ```csharp
 Rectangle RectFromCorners(Vector2 a, Vector2 b){
