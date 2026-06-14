@@ -11,6 +11,35 @@ namespace Ircuitry.Net;
 public static class Http
 {
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private static readonly HttpClient DlClient = new() { Timeout = TimeSpan.FromMinutes(15) };
+
+    /// <summary>
+    /// Stream a URL to a file, reporting fractional progress (0..1) when the length is known.
+    /// Used by the in-app updater to download a release asset. Returns false on any failure.
+    /// </summary>
+    public static bool DownloadFile(string url, string destPath, Action<float>? onProgress = null)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            using var resp = DlClient.Send(req, HttpCompletionOption.ResponseHeadersRead);
+            if (!resp.IsSuccessStatusCode) return false;
+            long total = resp.Content.Headers.ContentLength ?? -1;
+            using var srcStream = resp.Content.ReadAsStream();
+            using var dst = System.IO.File.Create(destPath);
+            var buf = new byte[81920];
+            long read = 0; int n;
+            while ((n = srcStream.Read(buf, 0, buf.Length)) > 0)
+            {
+                dst.Write(buf, 0, n);
+                read += n;
+                if (total > 0) onProgress?.Invoke((float)((double)read / total));
+            }
+            onProgress?.Invoke(1f);
+            return true;
+        }
+        catch { return false; }
+    }
 
     public static (int status, string body) Send(string method, string url, IEnumerable<(string key, string val)> headers, string? body)
     {

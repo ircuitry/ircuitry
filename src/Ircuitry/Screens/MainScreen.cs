@@ -99,6 +99,16 @@ public sealed partial class MainScreen : IScreen
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _nodeMgrInLibrary = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _nodeMgrLatest = new();    // typeId -> latest manifest json
 
+    // in-app updater
+    private enum UpState { None, Available, Downloading, Applying, Failed }
+    private volatile UpState _upState = UpState.None;
+    private string _upVer = "", _upBody = "", _upAssetUrl = "", _upAssetName = "", _upTempPath = "";
+    private bool _upIsAppImage, _upPromptOpen, _upPromptJustOpened, _upPrompted;
+    private volatile float _upProgress;
+    private volatile string _upStatus = "";
+    private volatile bool _upDownloadDone;
+    private float _upBodyScroll;
+
     // new-bot template picker
     private bool _templateOpen, _templateJustOpened;
 
@@ -110,7 +120,8 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen;
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen
+        || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
     {
@@ -319,7 +330,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -356,6 +367,8 @@ public sealed partial class MainScreen : IScreen
                 if (input.Ctrl && input.Shift && input.KeyPressed(Keys.V)) InstallFromClipboard();
             }
         }
+
+        UpdateTick();
     }
 
     private void OpenHistory()
@@ -508,9 +521,17 @@ public sealed partial class MainScreen : IScreen
             _ui.Enabled = true;
             DrawNodeManager(r);
         }
+        else if (_upPromptOpen)
+        {
+            _ui.Enabled = true;
+            DrawUpdatePrompt(r);
+        }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
         DrawTutorial(r, clock);
+
+        // ---------- update overlay (on top of absolutely everything) ----------
+        if (_upState == UpState.Downloading || _upState == UpState.Applying) DrawUpgradeOverlay(r, clock);
 
         _ui.EndFrame(); // blur stale focus (e.g. after switching node/bot) so canvas shortcuts keep working
     }
@@ -1153,6 +1174,246 @@ public sealed partial class MainScreen : IScreen
             y += rowH;
         }
         r.End();
+    }
+
+    // ====================== in-app updater ======================
+    public void StartUpdateCheck()
+    {
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                var (status, body) = Ircuitry.Net.Http.Send("GET",
+                    $"https://api.github.com/repos/{Ircuitry.App.AppInfo.Repo}/releases/latest",
+                    System.Array.Empty<(string, string)>(), null);
+                if (status < 200 || status >= 300) return;
+                using var doc = System.Text.Json.JsonDocument.Parse(body);
+                var root = doc.RootElement;
+                string ver = (root.TryGetProperty("tag_name", out var t) ? t.GetString() ?? "" : "").TrimStart('v', 'V');
+                if (ver.Length == 0 || !IsNewer(ver, Ircuitry.App.AppInfo.Version)) return;
+                string notes = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
+                string url = "", name = "";
+                if (root.TryGetProperty("assets", out var arr) && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var a in arr.EnumerateArray())
+                    {
+                        string an = a.TryGetProperty("name", out var nn) ? nn.GetString() ?? "" : "";
+                        if (!WantAsset(an)) continue;
+                        url = a.TryGetProperty("browser_download_url", out var uu) ? uu.GetString() ?? "" : "";
+                        name = an; break;
+                    }
+                if (url.Length == 0) return;
+                _upVer = ver; _upBody = notes; _upAssetUrl = url; _upAssetName = name;
+                _upIsAppImage = (Environment.GetEnvironmentVariable("APPIMAGE") ?? "").Length > 0;
+                _upState = UpState.Available;
+            }
+            catch { /* offline / rate-limited - just skip the check */ }
+        });
+    }
+
+    private static bool WantAsset(string name)
+    {
+        if (OperatingSystem.IsLinux()) return name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase);
+        if (OperatingSystem.IsWindows()) return name == "ircuitry-win-x64.zip";
+        if (OperatingSystem.IsMacOS()) return name == (System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "ircuitry-osx-arm64.zip" : "ircuitry-osx-x64.zip");
+        return false;
+    }
+
+    private static bool IsNewer(string a, string b)
+    {
+        var pa = ParseVer(a); var pb = ParseVer(b);
+        for (int i = 0; i < 3; i++) if (pa[i] != pb[i]) return pa[i] > pb[i];
+        return false;
+    }
+    private static int[] ParseVer(string v)
+    {
+        var p = new int[3]; var s = v.Split('.');
+        for (int i = 0; i < 3 && i < s.Length; i++) int.TryParse(new string(s[i].TakeWhile(char.IsDigit).ToArray()), out p[i]);
+        return p;
+    }
+
+    // runs every frame: auto-ask once, and hand a finished download from the worker to the game thread
+    private void UpdateTick()
+    {
+        if (_upState == UpState.Available && !_upPrompted && !Modal && !_tut.Active)
+        { _upPrompted = true; _upPromptOpen = true; _upPromptJustOpened = true; _upBodyScroll = 0; }
+
+        if (_upState == UpState.Downloading && _upDownloadDone)
+        {
+            _upDownloadDone = false;
+            if (_upIsAppImage)
+            {
+                _upState = UpState.Applying; _upProgress = 1f; _upStatus = "Installing and restarting…";
+                try
+                {
+                    string appimage = Environment.GetEnvironmentVariable("APPIMAGE") ?? "";
+                    try { var ps = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("chmod", "+x \"" + _upTempPath + "\"") { UseShellExecute = false }); ps?.WaitForExit(3000); } catch { }
+                    System.IO.File.Move(_upTempPath, appimage, true);
+                    var psi = new System.Diagnostics.ProcessStartInfo(appimage) { UseShellExecute = false };
+                    psi.ArgumentList.Add("--relaunch");   // the new instance waits for our single-instance lock, then takes over
+                    System.Diagnostics.Process.Start(psi);
+                    OnExitRequested?.Invoke();            // clean exit (autosaves)
+                }
+                catch (Exception ex) { _upStatus = "Install failed: " + ex.Message; _upState = UpState.Failed; }
+            }
+            else
+            {
+                _upState = UpState.None;
+                Bot.Log.Add(LogLevel.System, "downloaded " + _upAssetName + " to your Downloads folder - open it to finish updating");
+                Ircuitry.App.DeepLink.OpenUrl($"https://github.com/{Ircuitry.App.AppInfo.Repo}/releases/latest");
+            }
+        }
+    }
+
+    private void StartUpdateDownload()
+    {
+        if (_upState == UpState.Downloading || _upState == UpState.Applying) return;
+        _upPromptOpen = false;
+        _upState = UpState.Downloading; _upProgress = 0f; _upDownloadDone = false;
+        _upStatus = "Downloading " + _upAssetName + " …";
+        string appimage = Environment.GetEnvironmentVariable("APPIMAGE") ?? "";
+        string url = _upAssetUrl, name = _upAssetName; bool appImg = _upIsAppImage;
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                string dest;
+                if (appImg && appimage.Length > 0) dest = appimage + ".new";
+                else
+                {
+                    string dl = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                    try { System.IO.Directory.CreateDirectory(dl); } catch { }
+                    dest = System.IO.Path.Combine(dl, name);
+                }
+                bool ok = Ircuitry.Net.Http.DownloadFile(url, dest, p => _upProgress = p);
+                if (!ok) { _upStatus = "Download failed - check your connection"; _upState = UpState.Failed; return; }
+                _upTempPath = dest;
+                _upDownloadDone = true;
+            }
+            catch { _upStatus = "Update failed"; _upState = UpState.Failed; }
+        });
+    }
+
+    private void DrawUpdatePrompt(Renderer r)
+    {
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = 560, ph = MathF.Min(480, _vh * 0.86f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Update available", Theme.Lime);
+        float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 17), "ircuitry v" + _upVer + " is ready", new Vector2(x, y), Theme.Text); y += 26;
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), "You have v" + Ircuitry.App.AppInfo.Version + (_upIsAppImage ? "  ·  installs automatically" : "  ·  downloads to your Downloads folder"), new Vector2(x, y), Theme.TextDim); y += 24;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "WHAT'S NEW", new Vector2(x, y), Theme.TextFaint); y += 18;
+        var box = new RectF(x, y, w, panel.Bottom - 56 - y);
+        r.RoundFill(box, Theme.PanelLo, 7);
+        r.End();
+
+        var lines = new List<string>();
+        foreach (var raw in _upBody.Replace("\r", "").Split('\n'))
+        {
+            var s = raw.TrimEnd();
+            if (s.Trim().Length == 0) { lines.Add(""); continue; }
+            foreach (var wl in Wrap(r.Fonts.Get(FontKind.Sans, 12), s, box.W - 22)) lines.Add(wl);
+        }
+        const float lh = 17f;
+        float totalH = lines.Count * lh;
+        if (box.Contains(In.Mouse) && In.ScrollDelta != 0) _upBodyScroll -= In.ScrollDelta;
+        _upBodyScroll = Math.Clamp(_upBodyScroll, 0, MathF.Max(0, totalH - box.H + 14));
+
+        r.Begin(BlendMode.Alpha, box.ToRectangle());
+        var bf = r.Fonts.Get(FontKind.Sans, 12);
+        float ty = box.Y + 8 - _upBodyScroll;
+        foreach (var line in lines) { if (ty + lh > box.Y && ty < box.Bottom && line.Length > 0) r.Text(bf, line, new Vector2(box.X + 11, ty), Theme.Text); ty += lh; }
+        r.End();
+
+        r.Begin();
+        var goR = new RectF(panel.Right - 22 - 150, panel.Bottom - 48, 150, 34);
+        var laterR = new RectF(goR.X - 12 - 110, panel.Bottom - 48, 110, 34);
+        if (_ui.Button("up.later", laterR, "LATER", Theme.Idle)) _upPromptOpen = false;
+        if (_ui.Button("up.go", goR, _upIsAppImage ? "⤓  Update now" : "⤓  Download", Theme.Lime, primary: true)) StartUpdateDownload();
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_upPromptJustOpened) _upPromptOpen = false;
+        _upPromptJustOpened = false;
+        r.End();
+    }
+
+    private void DrawUpgradeOverlay(Renderer r, Clock clock)
+    {
+        float t = clock.Time;
+        float cx = _vw / 2f, cy = _vh / 2f - 44f;
+        var center = new Vector2(cx, cy);
+
+        r.Begin(BlendMode.Alpha);
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Theme.Void, 0.98f));
+        r.End();
+
+        r.Begin(BlendMode.Add);
+        r.Glow(center, 240f, Theme.WithAlpha(Theme.CyanDeep, 0.30f));
+        r.Glow(center, 150f, Theme.WithAlpha(Theme.Amber, 0.10f));
+        r.End();
+
+        r.Begin(BlendMode.Alpha);
+        const int N = 14; float head = t * 3.4f; const float ringR = 72f;
+        for (int i = 0; i < N; i++)
+        {
+            float frac = i / (float)N; float ang = head - i * (MathF.PI * 2f / N);
+            var pos = center + new Vector2(MathF.Cos(ang), MathF.Sin(ang)) * ringR;
+            float tail = 1f - frac;
+            r.Disc(pos, 1.5f + 3f * tail, Theme.WithAlpha(Theme.Cyan, 0.12f + 0.7f * tail * tail));
+        }
+        var cols = new[] { Theme.Cyan, Theme.Amber, Theme.Lime };
+        for (int i = 0; i < 3; i++)
+        {
+            float ang = -t * 1.5f + i * (MathF.PI * 2f / 3f);
+            r.Disc(center + new Vector2(MathF.Cos(ang), MathF.Sin(ang)) * (ringR + 24f), 5f, cols[i]);
+        }
+        if (r.Brand != null)
+        {
+            float sc = 88f / r.Brand.Width;
+            r.Sb.Draw(r.Brand, center, null, Color.White, 0f, new Vector2(r.Brand.Width / 2f, r.Brand.Height / 2f), new Vector2(sc), Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+        }
+        r.End();
+
+        r.Begin(BlendMode.Alpha);
+        r.TextCenteredX(r.Fonts.Get(FontKind.Display, 30), "Updating ircuitry", cx, cy + 84f, Theme.Text);
+        r.TextCenteredX(r.Fonts.Get(FontKind.SansBold, 15), "v" + Ircuitry.App.AppInfo.Version + "   →   v" + _upVer, cx, cy + 126f, Theme.CyanDim);
+
+        float barW = 360f, barH = 10f;
+        var track = new RectF(cx - barW / 2f, cy + 158f, barW, barH);
+        r.RoundFill(track, Theme.PanelLo, barH / 2f);
+        float pr = Math.Clamp(_upProgress, 0f, 1f);
+        if (pr > 0.001f) r.RoundFill(new RectF(track.X, track.Y, MathF.Max(barH, barW * pr), barH), Theme.Cyan, barH / 2f);
+        r.TextRight(r.Fonts.Get(FontKind.Mono, 11), (int)(pr * 100) + "%", track.Right, cy + 140f, Theme.TextFaint);
+        r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 12), _upStatus.Length > 0 ? _upStatus : "Working…", cx, cy + 178f, Theme.TextDim);
+
+        if (_upBody.Length > 0)
+        {
+            float ly = cy + 212f;
+            r.TextCenteredX(r.Fonts.Get(FontKind.SansBold, 12), "What's new", cx, ly, Theme.TextDim); ly += 22;
+            var lf = r.Fonts.Get(FontKind.Sans, 12);
+            int shown = 0;
+            foreach (var raw in _upBody.Replace("\r", "").Split('\n'))
+            {
+                var line = raw.Trim().TrimStart('-', '*', ' ');
+                if (line.Length == 0) continue;
+                if (shown++ >= 5) break;
+                r.TextCenteredX(lf, r.Ellipsize(lf, "•  " + line, 540f), cx, ly, Theme.TextFaint); ly += 18;
+            }
+        }
+        r.End();
+    }
+
+    public void DebugShowUpdate()
+    {
+        _upVer = "9.9.9"; _upIsAppImage = true;
+        _upBody = "- Cosier Node Library with proper category headers\n- New community node manager with bulk uninstall and updates\n- One-click installs from the website via ircuitry://\n- Auto-update with this lovely overlay";
+        _upState = UpState.Available; _upPrompted = true; _upPromptOpen = true; _upPromptJustOpened = true; _upBodyScroll = 0;
+    }
+
+    public void DebugShowUpgrade()
+    {
+        _upVer = "9.9.9"; _upIsAppImage = true;
+        _upBody = "- Cosier Node Library\n- Community node manager\n- Auto-update overlay";
+        _upStatus = "Downloading ircuitry-9.9.9-x86_64.AppImage …"; _upProgress = 0.46f; _upState = UpState.Downloading;
     }
 
     private void UpdatePaletteDrag(Renderer r)

@@ -134,6 +134,7 @@ public sealed class IrcuitryGame : Game
 
         // first-run onboarding (skipped in demo/screenshot modes); --tutorial forces it for capture
         if (_shotPath == null && !_demo) ms?.MaybeAutostartTutorial();
+        if (_shotPath == null && !_demo) ms?.StartUpdateCheck();   // quietly check GitHub for a newer release
         if (Array.IndexOf(_args, "--tutorial") >= 0) ms?.ForceStartTutorial();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--tutstep" && int.TryParse(_args[i + 1], out var ts)) ms?.DebugTutorialStep(ts);
@@ -152,6 +153,8 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showinstallclip") >= 0) ms?.DebugInstallClip();
         if (Array.IndexOf(_args, "--showuninstall") >= 0) ms?.DebugOpenUninstall();
         if (Array.IndexOf(_args, "--shownodemgr") >= 0) ms?.DebugOpenNodeManager();
+        if (Array.IndexOf(_args, "--showupdate") >= 0) ms?.DebugShowUpdate();
+        if (Array.IndexOf(_args, "--showupgrade") >= 0) ms?.DebugShowUpgrade();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();

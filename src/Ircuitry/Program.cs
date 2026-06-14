@@ -54,9 +54,10 @@ public static class Program
         try { Directory.CreateDirectory(dataDir); } catch { /* best effort */ }
         string inboxPath = Path.Combine(dataDir, ".deeplink-inbox");
 
+        bool relaunch = Array.IndexOf(args, "--relaunch") >= 0;   // a self-update restart waits for the old instance to release
         using var single = new Mutex(false, "ircuitry-singleton-" + Environment.UserName);
         bool primary;
-        try { primary = single.WaitOne(0); }
+        try { primary = single.WaitOne(relaunch ? 12000 : 0); }
         catch (AbandonedMutexException) { primary = true; }   // previous owner crashed; we take over
         if (!primary)
         {
