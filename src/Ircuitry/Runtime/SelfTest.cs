@@ -120,9 +120,52 @@ public static class SelfTest
         fails += AiToolsTest();
         fails += IoTest();
         fails += WorkspaceTest();
+        fails += TextSafetyTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
+    }
+
+    /// <summary>
+    /// Guards the GUI text path against lone UTF-16 surrogates (a sliced emoji), which crashed
+    /// FontStashSharp when the node-card ellipsizer cut through a surrogate pair.
+    /// </summary>
+    private static int TextSafetyTest()
+    {
+        int fails = 0;
+        static string Safe(string s) => Ircuitry.Render.Renderer.SafeText(s);
+
+        string plain = "hello world";
+        fails += Expect("safetext-plain-noalloc", ReferenceEquals(Safe(plain), plain), "");
+
+        string emoji = "duck \U0001F986 hunt";   // valid surrogate pair preserved, same instance
+        fails += Expect("safetext-emoji-keep", ReferenceEquals(Safe(emoji), emoji), "");
+
+        string loneHigh = "ab" + '\uD83E' + "cd";    // high surrogate, no following low
+        string fixedHigh = Safe(loneHigh);
+        fails += Expect("safetext-lone-high",
+            !HasLoneSurrogate(fixedHigh) && fixedHigh.Length == loneHigh.Length && fixedHigh != loneHigh, fixedHigh);
+
+        string loneLow = "x" + '\uDD86' + "y";        // low surrogate, no preceding high
+        fails += Expect("safetext-lone-low", !HasLoneSurrogate(Safe(loneLow)), "");
+
+        // every ellipsize cut index must stay off the middle of a surrogate pair
+        string s = "AB\U0001F986\U0001F600CD\U0001F389";
+        bool anyLone = false;
+        for (int n = 0; n <= s.Length; n++)
+            if (HasLoneSurrogate(s[..Ircuitry.Render.Renderer.CutAt(s, n)])) { anyLone = true; break; }
+        fails += Expect("ellipsize-cut-surrogate-safe", !anyLone, "a CutAt slice split an emoji");
+        return fails;
+    }
+
+    private static bool HasLoneSurrogate(string s)
+    {
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (char.IsHighSurrogate(s[i])) { if (i + 1 >= s.Length || !char.IsLowSurrogate(s[i + 1])) return true; i++; }
+            else if (char.IsLowSurrogate(s[i])) return true;
+        }
+        return false;
     }
 
     /// <summary>End-to-end AI path against a mock OpenAI-compatible server: On Command → Ask AI → Send Reply.</summary>

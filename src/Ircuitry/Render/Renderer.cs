@@ -215,12 +215,12 @@ public sealed class Renderer
     }
 
     // ---- text -----------------------------------------------------------
-    public Vector2 Measure(DynamicSpriteFont font, string text) => font.MeasureString(text);
+    public Vector2 Measure(DynamicSpriteFont font, string text) => font.MeasureString(SafeText(text));
 
     public void Text(DynamicSpriteFont font, string text, Vector2 pos, Color c)
     {
         if (string.IsNullOrEmpty(text)) return;
-        Sb.DrawString(font, text, new Vector2(MathF.Round(pos.X), MathF.Round(pos.Y)), Pm(c));
+        Sb.DrawString(font, SafeText(text), new Vector2(MathF.Round(pos.X), MathF.Round(pos.Y)), Pm(c));
     }
 
     public void Text(FontKind kind, int size, string text, Vector2 pos, Color c) => Text(Fonts.Get(kind, size), text, pos, c);
@@ -246,14 +246,58 @@ public sealed class Renderer
     /// <summary>Truncate text with an ellipsis so it fits within maxWidth.</summary>
     public string Ellipsize(DynamicSpriteFont font, string text, float maxWidth)
     {
-        if (Measure(font, text).X <= maxWidth) return text;
+        if (string.IsNullOrEmpty(text) || Measure(font, text).X <= maxWidth) return text;
         const string ell = "…";
         int lo = 0, hi = text.Length;
         while (lo < hi)
         {
             int mid = (lo + hi + 1) / 2;
-            if (Measure(font, text[..mid] + ell).X <= maxWidth) lo = mid; else hi = mid - 1;
+            // CutAt keeps the slice off the middle of a surrogate pair (a sliced emoji would
+            // otherwise leave a lone surrogate that FontStashSharp refuses to measure).
+            if (Measure(font, text[..CutAt(text, mid)] + ell).X <= maxWidth) lo = mid; else hi = mid - 1;
         }
-        return lo <= 0 ? ell : text[..lo] + ell;
+        int cut = CutAt(text, lo);
+        return cut <= 0 ? ell : text[..cut] + ell;
+    }
+
+    /// <summary>Largest index &lt;= n that does not split a UTF-16 surrogate pair.</summary>
+    internal static int CutAt(string s, int n) =>
+        (n > 0 && n < s.Length && char.IsLowSurrogate(s[n]) && char.IsHighSurrogate(s[n - 1])) ? n - 1 : n;
+
+    /// <summary>
+    /// FontStashSharp throws on a lone UTF-16 surrogate (half of a surrogate pair, e.g. a sliced
+    /// emoji). .NET text decoding never produces these, but our own slicing can, so we scrub any
+    /// stray surrogate to the replacement glyph before measuring or drawing. Returns the same
+    /// instance when the text is already well-formed (the common case), so normal text allocates
+    /// nothing per frame.
+    /// </summary>
+    public static string SafeText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsHighSurrogate(c))
+            {
+                if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) { i++; continue; }
+            }
+            else if (!char.IsLowSurrogate(c)) continue;
+            return Scrub(text);   // found a lone surrogate
+        }
+        return text;
+    }
+
+    private static string Scrub(string text)
+    {
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            { sb.Append(c); sb.Append(text[i + 1]); i++; }
+            else if (char.IsHighSurrogate(c) || char.IsLowSurrogate(c)) sb.Append('�');
+            else sb.Append(c);
+        }
+        return sb.ToString();
     }
 }
