@@ -35,6 +35,9 @@ public interface INodeContext
     /// outputs its flow.return nodes wrote (reusable subflows / community subflow nodes).</summary>
     System.Collections.Generic.Dictionary<string, string> RunSubflow(NodeGraph sub, System.Collections.Generic.Dictionary<string, string> inputs);
 
+    /// <summary>Fire every On Signal trigger whose name matches (one flow triggering another).</summary>
+    void EmitSignal(string name, string data);
+
     // persistent per-bot state (survives across events, saved with the workspace)
     string GetState(string key);
     void SetState(string key, string value);

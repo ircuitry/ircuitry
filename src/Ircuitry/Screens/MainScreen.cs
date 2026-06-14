@@ -34,6 +34,8 @@ public sealed partial class MainScreen : IScreen
     private bool _dragging;
     private float _paletteScroll;
     private string _paletteSearch = "";
+    private float _clipCheckAt = -1f;     // throttle clipboard polling
+    private string? _clipNodeTitle;        // title of an installable .ircnode currently in the clipboard, or null
     private NodeCategory? _openCat;   // palette accordion: at most one category expanded (null = all collapsed)
 
     // import modal + graph-change tracking
@@ -324,6 +326,7 @@ public sealed partial class MainScreen : IScreen
         _input = input;
         _editor.Graph = Bot.Graph;
         _l = Layout.Compute(_vw, _vh);
+        ClipboardPoll(clock);
 
         if (DebugAutoHistory && Bot.Runtime.HistoryCount > 0 && (!_historyOpen || _historyRuns.Count != Bot.Runtime.HistoryCount)) OpenHistory();
         if (DebugAutoQuick && !Modal) { OpenQuickAdd(_l.Canvas.Center); DebugAutoQuick = false; }
@@ -702,6 +705,8 @@ public sealed partial class MainScreen : IScreen
             y += 40;
         }
 
+        if (_ui.Button("imp.browse", new RectF(x, panel.Bottom - 46, 254, 32), "🌐  Browse community workflows ↗", Theme.Lime))
+            Ircuitry.App.DeepLink.OpenUrl("https://ircuitry.github.io/workflows");
         if (_ui.Button("imp.cancel", new RectF(panel.Right - 130, panel.Bottom - 46, 110, 32), "CANCEL", Theme.Idle))
             _importOpen = false;
 
@@ -848,11 +853,21 @@ public sealed partial class MainScreen : IScreen
         int customCount = NodeCatalog.Custom.Count;
         if (_ui.Button("palette.manage", mgrRect, customCount > 0 ? $"🧩  Community nodes · {customCount}" : "🧩  Community nodes", Theme.Berry))
             OpenNodeManager();
+        // contextual: only appears when a node is sitting in the clipboard, and names it
+        float listTopY = mgrRect.Bottom + 8;
+        if (_clipNodeTitle != null)
+        {
+            string label = _clipNodeTitle.Length > 20 ? _clipNodeTitle[..19] + "…" : _clipNodeTitle;
+            var clipRect = new RectF(x, mgrRect.Bottom + 8, w, 32);
+            if (_ui.Button("palette.clip", clipRect, "⎘  Install \"" + label + "\"", Theme.Amber, primary: true)) InstallFromClipboard();
+            r.Text(r.Fonts.Get(FontKind.Sans, 9), "found in your clipboard", new Vector2(x + 6, clipRect.Bottom), Theme.TextFaint);
+            listTopY = clipRect.Bottom + 16;
+        }
         r.End();
         string q = _paletteSearch.Trim();
         bool searching = q.Length > 0;
 
-        var listClip = new RectF(content.X, mgrRect.Bottom + 8, content.W, content.Bottom - mgrRect.Bottom - 10);
+        var listClip = new RectF(content.X, listTopY, content.W, content.Bottom - listTopY - 2);
         if (listClip.Contains(In.Mouse)) { /* scroll handled above on content */ }
         r.Begin(BlendMode.Alpha, listClip.ToRectangle());
         float y = listClip.Y - _paletteScroll;
@@ -909,6 +924,25 @@ public sealed partial class MainScreen : IScreen
     }
 
     private static bool Has(string s, string q) => s.Contains(q, StringComparison.OrdinalIgnoreCase);
+
+    // Peek at the clipboard a couple of times a second so the palette can offer a one-click install
+    // the moment a node is copied. Cheap: only parses when the text actually looks like a node manifest.
+    private void ClipboardPoll(Clock clock)
+    {
+        if (clock.Time - _clipCheckAt < 0.5f) return;
+        _clipCheckAt = clock.Time;
+        _clipNodeTitle = null;
+        try
+        {
+            var txt = (Ircuitry.Core.Clipboard.GetText() ?? "").Trim();
+            if (txt.StartsWith("{") && txt.Length < 200000 && txt.Contains("\"typeId\""))
+            {
+                var d = Ircuitry.Graph.CustomNode.Load(txt);
+                if (d != null) _clipNodeTitle = d.Title;
+            }
+        }
+        catch { /* not a node - ignore */ }
+    }
 
     private void DrawPaletteChip(Renderer r, RectF chip, NodeDef def, Color col, RectF content)
     {

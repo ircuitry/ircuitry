@@ -100,6 +100,18 @@ public static class GraphExecutor
             return child;
         }
 
+        /// <summary>Fire every On Signal trigger with a matching name, in this same run (shared step budget
+        /// guards against signal loops). A signal carries optional data on the {data} pin / __signaldata var.</summary>
+        public void EmitSignal(string name, string data)
+        {
+            if (name.Length == 0) return;
+            Vars["__signaldata"] = data ?? "";
+            foreach (var n in Graph.Nodes)
+                if (!n.Muted && n.TypeId == "event.signal" &&
+                    string.Equals(n.GetParam("signal"), name, System.StringComparison.OrdinalIgnoreCase))
+                    RunExec(n);
+        }
+
         // The visiting set is threaded through nested input reads so the cycle
         // guard survives pure-node-calls-pure-node chains (a fresh set per level
         // would let A↔B data cycles recurse forever → StackOverflow).
@@ -185,6 +197,7 @@ public static class GraphExecutor
         public System.Collections.Generic.IReadOnlyList<Node> SourcesInto(int inputIndex) => _run.SourcesInto(_node, inputIndex);
         public void RunNode(Node node) => _run.RunExec(node);
         public Dictionary<string, string> RunSubflow(NodeGraph sub, Dictionary<string, string> inputs) => _run.RunSubflow(sub, inputs);
+        public void EmitSignal(string name, string data) => _run.EmitSignal(name, data);
 
         public string Var(string name) => _run.Vars.TryGetValue(name, out var v) ? v : "";
         public void SetVar(string name, string value) => _run.Vars[name] = value;

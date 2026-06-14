@@ -121,6 +121,7 @@ public static class SelfTest
         fails += IoTest();
         fails += WorkspaceTest();
         fails += TextSafetyTest();
+        fails += SignalTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -155,6 +156,29 @@ public static class SelfTest
         for (int n = 0; n <= s.Length; n++)
             if (HasLoneSurrogate(s[..Ircuitry.Render.Renderer.CutAt(s, n)])) { anyLone = true; break; }
         fails += Expect("ellipsize-cut-surrogate-safe", !anyLone, "a CutAt slice split an emoji");
+        return fails;
+    }
+
+    /// <summary>Emit Signal fires a matching On Signal flow (one workflow triggering another), carrying data.</summary>
+    private static int SignalTest()
+    {
+        var g = new NodeGraph();
+        var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "go");
+        var emit = N(g, "action.signal", 250, 0); emit.SetParam("signal", "ping"); emit.SetParam("data", "pong");
+        var onsig = N(g, "event.signal", 0, 200); onsig.SetParam("signal", "ping");
+        var reply = N(g, "action.reply", 250, 200);
+        g.Connect(cmd.Id, 0, emit.Id, 0);      // command -> emit signal
+        g.Connect(onsig.Id, 0, reply.Id, 0);   // on signal -> reply
+        g.Connect(onsig.Id, 1, reply.Id, 1);   // signal data -> reply message
+
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, cmd, Vars("!go", "alice", "#t"));
+        int fails = Expect("signal-emit", sink.Sent.Count == 1 && sink.Sent[0] == ("#t", "pong"), Dump(sink));
+
+        var miss = new FakeSink();
+        onsig.SetParam("signal", "other");     // name no longer matches -> no fire
+        GraphExecutor.Fire(g, miss, cmd, Vars("!go", "alice", "#t"));
+        fails += Expect("signal-nomatch", miss.Sent.Count == 0, Dump(miss));
         return fails;
     }
 

@@ -170,6 +170,27 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "event.signal", Icon = "📨", Title = "On Signal", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "signal",
+                Description = "Fires when another part of your bot emits a matching signal (via Emit Signal). Lets one workflow trigger another, or run a shared flow from several places. Carries optional {data}.",
+                Outputs = new[] { Ex("then"), Tx("data") },
+                Params = new[] { P("signal", "Signal name", ParamType.Text, "my-signal", "my-signal") },
+                SummaryParam = "signal",
+                Exec = c => { c.SetOut(1, c.Var("__signaldata")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.signal", Icon = "📣", Title = "Emit Signal", Subtitle = "flow",
+                Category = NodeCategory.Logic,
+                Description = "Triggers every On Signal node with the matching name, running their flows now. A way for one workflow to call another. Pass optional data along.",
+                Inputs = new[] { Ex(), Tx("data") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("signal", "Signal name", ParamType.Text, "my-signal", "my-signal"), P("data", "Data (optional)", ParamType.Text, "", "{message}") },
+                SummaryParam = "signal",
+                Exec = c => { c.EmitSignal(c.Param("signal"), c.InOr(1, c.Resolve(c.Param("data")))); c.Pulse(0); },
+            },
+            new()
+            {
                 TypeId = "event.message", Icon = "💬", Title = "On Message", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "message",
                 Description = "Fires for every channel/PM message. Optionally limit to one channel.",
