@@ -308,6 +308,31 @@ public sealed partial class MainScreen : IScreen
     }
 
     public void DebugOpenNodeManager() => OpenNodeManager();
+
+    private bool _demoShotFit;
+    // Build a clean, credential-free showcase graph for marketing screenshots.
+    public void DebugDemoShot()
+    {
+        var b = Bot;
+        var g = b.Graph;
+        g.Nodes.Clear(); g.Connections.Clear();
+        Node Add(string type, float x, float y) => g.Add(NodeCatalog.Get(type), new Vector2(x, y));
+        var cmd = Add("event.command", -360, -150); cmd.SetParam("command", "ask");
+        var ai = Add("ai.reply", -30, -150); ai.SetParam("prompt", "{args}");
+        var rep = Add("action.reply", 300, -150);
+        g.Connect(cmd.Id, 0, ai.Id, 0); g.Connect(ai.Id, 0, rep.Id, 0); g.Connect(ai.Id, 1, rep.Id, 1);
+        var join = Add("event.join", -360, 40);
+        var welcome = Add("action.reply", -30, 40); welcome.SetParam("message", "welcome to {channel}, {nick}! 🎉");
+        g.Connect(join.Id, 0, welcome.Id, 0);
+        var timer = Add("event.timer", -360, 210); timer.SetParam("seconds", "3600");
+        var say = Add("action.say", -30, 210); say.SetParam("channel", "#ircuitry"); say.SetParam("message", "still here and cosy ☕");
+        g.Connect(timer.Id, 0, say.Id, 0);
+        b.Name = "demo";
+        b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true;
+        b.Settings.Nick = "ircuitry-bot"; b.Settings.Channels = "#ircuitry";
+        _editor.Graph = g;
+        _demoShotFit = true;
+    }
     public void DebugSpawnSelect(string typeId)
     {
         if (!NodeCatalog.TryGet(typeId, out _)) return;
@@ -397,6 +422,7 @@ public sealed partial class MainScreen : IScreen
     {
         _vw = r.ViewW; _vh = r.ViewH;
         _l = Layout.Compute(_vw, _vh);
+        if (_demoShotFit && _vw > 0) { _demoShotFit = false; _editor.FocusContent(_l.Canvas); }   // frame the demo graph for screenshots
         _editor.Graph = Bot.Graph;
         _editor.Running = Bot.Runtime.Running;
         if (!ReferenceEquals(_lastGraph, Bot.Graph)) { _editor.Selection.Clear(); _lastGraph = Bot.Graph; }

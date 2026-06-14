@@ -16,7 +16,7 @@ Everything you see is drawn from scratch in **MonoGame** (no OS widgets): the
 panels, the node cards, the bezier wires, the glow, the scanlines, the text
 fields - all procedural.
 
-<img width="1922" height="1041" alt="image" src="https://github.com/user-attachments/assets/ca361d9f-435e-40fc-8261-162afa821177" />
+![ircuitry editor](shots/screenshot.png)
 
 ## Download
 
