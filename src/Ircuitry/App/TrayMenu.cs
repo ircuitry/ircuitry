@@ -182,9 +182,12 @@ public sealed class TrayMenu : IDbusMenu
         return Task.FromResult(Array.Empty<int>());
     }
 
-    public Task<bool> AboutToShowAsync(int id) { Rebuild(); return Task.FromResult(true); }   // always refresh on open
+    // Return false ("no update needed"): the menu is kept current via pre-population + the model push, so the
+    // host should just display its already-fetched layout. Returning true made the host re-fetch GetLayout the
+    // instant a submenu opened, tearing down and collapsing it (the expand-then-vanish flicker).
+    public Task<bool> AboutToShowAsync(int id) => Task.FromResult(false);
     public Task<(int[] updatesNeeded, int[] idErrors)> AboutToShowGroupAsync(int[] ids)
-    { Rebuild(); return Task.FromResult((ids, Array.Empty<int>())); }
+        => Task.FromResult((Array.Empty<int>(), Array.Empty<int>()));
 
     public Task<object> GetAsync(string prop) => Task.FromResult<object>(prop switch
     {
