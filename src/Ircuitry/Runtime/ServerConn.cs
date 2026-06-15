@@ -24,6 +24,12 @@ public sealed class ServerConn : IRuntimeSink
     private volatile bool _running;
     private readonly ConcurrentDictionary<string, DateTime> _typing = new();   // target → last +typing=active
 
+    // Workflow runs execute on this pool, NOT the IRC read thread - so a slow node (delay, http, ai)
+    // never blocks PING/PONG keepalive, and independent runs proceed concurrently instead of queueing.
+    private BlockingCollection<Action>? _runQueue;
+    private readonly List<System.Threading.Thread> _workers = new();
+    private const int RunWorkers = 8;
+
     public string Label { get; private set; }
     public bool Running => _running;
     public IrcState State => _client.State;
@@ -32,7 +38,8 @@ public sealed class ServerConn : IRuntimeSink
     public bool HasCap(string name) => _client.HasCap(name);
     public IrcSettings Config => _cfg;
     public int MessagesSeen { get; private set; }
-    public int ActionsFired { get; private set; }
+    private int _actionsFired;
+    public int ActionsFired => _actionsFired;
 
     public ServerConn(BotRuntime owner, IrcSettings cfg)
     {
@@ -65,8 +72,9 @@ public sealed class ServerConn : IRuntimeSink
         _cfg.ServerPass = Secrets.Expand(_cfg.ServerPass);
         _cfg.SaslUser = Secrets.Expand(_cfg.SaslUser);
         _cfg.SaslPass = Secrets.Expand(_cfg.SaslPass);
-        MessagesSeen = ActionsFired = 0;
+        MessagesSeen = 0; _actionsFired = 0;
         _running = true;
+        StartRunWorkers();
         _owner.LogFrom(Label, LogLevel.System, $"▶ connecting - {_owner.CountTriggers()} trigger(s) armed");
         _client.Connect(_cfg);
         StartTimers();
@@ -78,7 +86,38 @@ public sealed class ServerConn : IRuntimeSink
         _owner.LogFrom(Label, LogLevel.System, "■ disconnecting");
         _running = false;
         lock (_pendLock) _pending.Clear();   // drop any waiting human-in-the-loop gates
+        try { _runQueue?.CompleteAdding(); } catch { /* already completed */ }   // workers drain + exit
         _client.Disconnect();
+    }
+
+    // Background pool that executes workflow runs off the IRC read thread (see _runQueue).
+    private void StartRunWorkers()
+    {
+        var q = new BlockingCollection<Action>();
+        _runQueue = q;
+        _workers.Clear();
+        for (int i = 0; i < RunWorkers; i++)
+        {
+            var w = new System.Threading.Thread(() =>
+            {
+                foreach (var job in q.GetConsumingEnumerable())
+                    try { job(); } catch { /* a run never takes the connection down */ }
+            })
+            { IsBackground = true, Name = "bot-run:" + Label + ":" + i };
+            w.Start();
+            _workers.Add(w);
+        }
+    }
+
+    // Queue a workflow run for the pool; falls back to inline if the pool isn't up (shouldn't happen live).
+    private void Dispatch(Action job)
+    {
+        var q = _runQueue;
+        if (q != null && !q.IsAddingCompleted)
+        {
+            try { q.Add(job); return; } catch { /* completed between the check and the add */ }
+        }
+        job();
     }
 
     private void StartTimers()
@@ -213,7 +252,7 @@ public sealed class ServerConn : IRuntimeSink
         var b64 = BotTools.BuildCommandList(graph);
         if (!BotTools.Fits("+draft/bot-cmds=" + b64)) { _owner.LogFrom(Label, LogLevel.System, "command list too large to advertise (batching not yet supported)"); return; }
         _client.TagMsg(nick, "+draft/bot-cmds=" + b64);
-        ActionsFired++;
+        System.Threading.Interlocked.Increment(ref _actionsFired);
     }
 
     private void HandleInvocation(IrcMessage m, string nick, string target, string cmdTag)
@@ -275,7 +314,7 @@ public sealed class ServerConn : IRuntimeSink
             if (invChannel.Length > 0) tags.Append(";+draft/channel-context=").Append(invChannel);
             _client.NoticeTagged(nick, text, tags.ToString());
         }
-        ActionsFired++;
+        System.Threading.Interlocked.Increment(ref _actionsFired);
     }
 
     // ===================================================================
@@ -293,16 +332,19 @@ public sealed class ServerConn : IRuntimeSink
         }
     }
 
-    internal void FireNode(Node node, Dictionary<string, string> vars)
+    internal void FireNode(Node node, Dictionary<string, string> vars) => Dispatch(() => RunNode(node, vars));
+
+    private void RunNode(Node node, Dictionary<string, string> vars)
     {
         var graph = _owner.RunGraph;
         if (graph == null) return;
+        vars = new Dictionary<string, string>(vars);   // isolate this run's scope from any concurrent run
         var rec = new RunRecord { Time = DateTime.Now, Trigger = node.DisplayTitle, Icon = node.Def.Icon, Summary = Summarize(node.Def.TriggerEvent, vars) };
         int before = _owner.TotalActions;
         var stream = new WorkflowStream(this, vars, node.DisplayTitle);
         GraphExecutor.Fire(graph, this, node, vars, rec, stream.OnNode);
         StopAllTyping();   // a workflow run ends → drop any typing it started but didn't stop
-        rec.Actions = _owner.TotalActions - before;
+        rec.Actions = Math.Max(0, _owner.TotalActions - before);   // approximate under concurrency, never negative
         rec.Fired = rec.Nodes.Count > 0 && rec.Nodes[0].Pulsed.Count > 0;
         if (rec.Fired) _owner.AddHistory(rec);
         stream.Finish();
@@ -366,7 +408,7 @@ public sealed class ServerConn : IRuntimeSink
         var node = graph?.Find(p.NodeId);
         if (graph == null || node == null) return;
         var vars = new Dictionary<string, string>(p.Vars) { ["response"] = response, ["approver"] = approver };
-        GraphExecutor.FireFrom(graph, this, node, outPin, vars, new[] { (2, response) });
+        Dispatch(() => GraphExecutor.FireFrom(graph, this, node, outPin, vars, new[] { (2, response) }));
     }
 
     /// <summary>Deny any gate that has waited past its timeout (called from the timer tick).</summary>
@@ -516,7 +558,7 @@ public sealed class ServerConn : IRuntimeSink
     }
     private void StopAllTyping() { foreach (var t in new List<string>(_typing.Keys)) StopTyping(t); }
 
-    private void Bump() { ActionsFired++; }
+    private void Bump() { System.Threading.Interlocked.Increment(ref _actionsFired); }
 
     // shared effects route to the owner (one log/state/history/achievements per bot)
     public void Log(string message, LogLevel level) => _owner.LogFrom(Label, level, message);

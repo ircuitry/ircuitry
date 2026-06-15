@@ -1417,14 +1417,14 @@ public static class NodeCatalog
             {
                 TypeId = "flow.delay", Icon = "⏳", Title = "Delay", Subtitle = "flow",
                 Category = NodeCategory.Logic,
-                Description = "Waits a moment before continuing (capped at 10s so it never stalls the connection). Handy for paced multi-line replies.",
+                Description = "Waits before continuing. Runs off the connection thread, so it never stalls keepalive or other workflows (capped at 5 min). For long or recurring waits, prefer a Schedule/Timer trigger.",
                 Inputs = new[] { Ex() },
                 Outputs = new[] { Ex("then") },
                 Params = new[] { P("seconds", "Seconds", ParamType.Int, "1", "1") },
                 SummaryParam = "seconds",
                 Exec = c =>
                 {
-                    int ms = Math.Clamp(c.ParamInt("seconds", 1), 0, 10) * 1000;
+                    int ms = Math.Clamp(c.ParamInt("seconds", 1), 0, 300) * 1000;
                     if (ms > 0) System.Threading.Thread.Sleep(ms);
                     c.Pulse(0);
                 },

@@ -97,6 +97,10 @@ public sealed class MockIrcServer : IDisposable
                 {
                     lock (_lock) _outgoing.Add(line);   // record the FULL line incl. client tags (+reply, +draft/bot-tools, …)
                 }
+                else if (body.StartsWith("PONG", StringComparison.Ordinal))
+                {
+                    lock (_lock) _outgoing.Add(line);   // record keepalive PONGs (tests assert the read thread stays responsive)
+                }
                 else if (body.StartsWith("QUIT", StringComparison.Ordinal)) break;
             }
         }

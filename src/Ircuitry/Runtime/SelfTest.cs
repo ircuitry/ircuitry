@@ -139,6 +139,7 @@ public static class SelfTest
         fails += UnknownNodeWarningTest();
         fails += HumanNodesTest();
         fails += HumanLoopApproveTest();
+        fails += ConcurrentExecutorTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1639,6 +1640,37 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>Workflow runs execute off the IRC read thread: a 2s Delay run does NOT block PING/PONG
+    /// keepalive, and two slow runs finish concurrently (~2s) rather than serially (~4s).</summary>
+    private static int ConcurrentExecutorTest()
+    {
+        using var mock = new MockIrcServer(new[]
+        {
+            (200, ":alice!a@h PRIVMSG #ircuitry-test :!slow"),
+            (250, ":bob!b@h PRIVMSG #ircuitry-test :!slow"),
+            (450, "PING :keepalive"),
+        });
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "slow");
+        var delay = g.Add(NodeCatalog.Get("flow.delay"), new Vector2(250, 0)); delay.SetParam("seconds", "2");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(500, 0)); reply.SetParam("message", "done");
+        g.Connect(cmd.Id, 0, delay.Id, 0);
+        g.Connect(delay.Id, 0, reply.Id, 0);
+
+        rt.Start(g, new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "" });
+
+        // PONG must come back well before the 2s delays finish - i.e. the read thread isn't blocked by a run
+        bool pong = false;
+        for (int i = 0; i < 60 && !pong; i++) { Thread.Sleep(25); pong = mock.Sent().Any(s => s.StartsWith("PONG", StringComparison.Ordinal)); }
+        // both slow runs land together (~2s), not one-after-another (~4s)
+        int dones = 0;
+        for (int i = 0; i < 160 && dones < 2; i++) { Thread.Sleep(25); dones = mock.Sent().Count(s => s.Contains("PRIVMSG #ircuitry-test") && s.EndsWith(":done")); }
+        rt.Stop(); Thread.Sleep(80);
+        return Expect("executor-nonblocking-concurrent", pong && dones >= 2, $"pong={pong} dones={dones} sent: " + string.Join(" | ", mock.Sent()));
     }
 
     /// <summary>Alert Human pulses 'then' regardless of whether the OS notification could be shown (no
