@@ -48,10 +48,15 @@ jobs:
           (cd publish && zip -qr "$GITHUB_WORKSPACE/out/ircuitry-linux-x64.zip" ircuitry-linux-x64)
           bash tools/package-linux.sh publish/ircuitry-linux-x64 "$VERSION" out assets/icons/icon-256.png
 
-      # Windows: portable zip containing Ircuitry.exe
+      # Windows: a true single-file Ircuitry.exe (assets embedded), plus the portable zip
       - name: Package Windows
         if: matrix.rid == 'win-x64'
-        run: (cd publish && zip -qr "$GITHUB_WORKSPACE/out/ircuitry-win-x64.zip" ircuitry-win-x64)
+        run: |
+          (cd publish && zip -qr "$GITHUB_WORKSPACE/out/ircuitry-win-x64.zip" ircuitry-win-x64)
+          dotnet publish src/Ircuitry/Ircuitry.csproj -c Release -r win-x64 --self-contained true \
+            -p:PublishTrimmed=false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:IncludeAllContentForSelfExtract=true -o publish-winexe
+          cp publish-winexe/Ircuitry.exe out/ircuitry-win-x64.exe
 
       # macOS: double-clickable .app bundle, zipped
       - name: Package macOS
@@ -91,7 +96,7 @@ jobs:
             - Portable: `ircuitry-linux-x64.zip` (unzip, run `./Ircuitry`).
 
             **🪟 Windows**
-            - `ircuitry-win-x64.zip` (unzip, run `Ircuitry.exe`).
+            - `ircuitry-win-x64.exe` - a single self-contained file, just download and run it. (Or the portable `ircuitry-win-x64.zip`.)
 
             **🍎 macOS**
             - `ircuitry-osx-arm64.zip` (Apple Silicon) or `ircuitry-osx-x64.zip` (Intel). Unzip, move `ircuitry.app` to Applications, open it. First launch: right-click then Open (or `xattr -dr com.apple.quarantine ircuitry.app`) since it is unsigned.

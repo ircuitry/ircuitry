@@ -121,15 +121,19 @@ public sealed partial class MainScreen : IScreen
 
     // in-app updater
     private enum UpState { None, Available, Downloading, Applying, Failed }
+    private enum InstallKind { AppImage, Deb, WinExe, Portable }   // how this build was installed -> how it updates
     private volatile UpState _upState = UpState.None;
-    private string _upVer = "", _upBody = "", _upAssetUrl = "", _upAssetName = "", _upTempPath = "";
-    private bool _upIsAppImage, _upPromptOpen, _upPromptJustOpened, _upPrompted;
+    private InstallKind _upKind = InstallKind.Portable;
+    private string _upVer = "", _upBody = "", _upAssetUrl = "", _upAssetName = "";
+    private volatile string _upRelaunchPath = "";   // set by the worker; the game thread launches it then exits
+    private bool _upPromptOpen, _upPromptJustOpened, _upPrompted;
     private volatile float _upProgress;
     private volatile string _upStatus = "";
-    private volatile bool _upDownloadDone;
+    private volatile bool _upReady;     // worker finished install; game thread should relaunch + exit
     private float _upBodyScroll;
     private float _upCheckAt = -1f;     // last update check (re-checks every 6h)
     private string _upSeenVer = "";     // newest version we have already prompted for
+    private bool UpAuto => _upKind is InstallKind.AppImage or InstallKind.Deb or InstallKind.WinExe;   // installs itself
 
     // new-bot template picker
     private bool _templateOpen, _templateJustOpened;
@@ -1377,18 +1381,18 @@ public sealed partial class MainScreen : IScreen
                 string ver = (root.TryGetProperty("tag_name", out var t) ? t.GetString() ?? "" : "").TrimStart('v', 'V');
                 if (ver.Length == 0 || !IsNewer(ver, Ircuitry.App.AppInfo.Version)) return;
                 string notes = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
+                var kind = DetectInstall();
                 string url = "", name = "";
                 if (root.TryGetProperty("assets", out var arr) && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
                     foreach (var a in arr.EnumerateArray())
                     {
                         string an = a.TryGetProperty("name", out var nn) ? nn.GetString() ?? "" : "";
-                        if (!WantAsset(an)) continue;
+                        if (!WantAsset(an, kind)) continue;
                         url = a.TryGetProperty("browser_download_url", out var uu) ? uu.GetString() ?? "" : "";
                         name = an; break;
                     }
                 if (url.Length == 0) return;
-                _upVer = ver; _upBody = notes; _upAssetUrl = url; _upAssetName = name;
-                _upIsAppImage = (Environment.GetEnvironmentVariable("APPIMAGE") ?? "").Length > 0;
+                _upVer = ver; _upBody = notes; _upAssetUrl = url; _upAssetName = name; _upKind = kind;
                 if (ver != _upSeenVer) { _upSeenVer = ver; _upPrompted = false; }   // a genuinely new version may prompt again
                 _upState = UpState.Available;
             }
@@ -1396,13 +1400,26 @@ public sealed partial class MainScreen : IScreen
         });
     }
 
-    private static bool WantAsset(string name)
+    // How this build was installed determines how it updates itself.
+    private static InstallKind DetectInstall()
     {
-        if (OperatingSystem.IsLinux()) return name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase);
-        if (OperatingSystem.IsWindows()) return name == "ircuitry-win-x64.zip";
-        if (OperatingSystem.IsMacOS()) return name == (System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "ircuitry-osx-arm64.zip" : "ircuitry-osx-x64.zip");
-        return false;
+        if ((Environment.GetEnvironmentVariable("APPIMAGE") ?? "").Length > 0) return InstallKind.AppImage;
+        if (OperatingSystem.IsWindows()) return InstallKind.WinExe;
+        string proc = Environment.ProcessPath ?? "";
+        if (OperatingSystem.IsLinux() && (proc.StartsWith("/opt/ircuitry") || proc.StartsWith("/usr/"))) return InstallKind.Deb;
+        return InstallKind.Portable;
     }
+
+    private static bool WantAsset(string name, InstallKind kind) => kind switch
+    {
+        InstallKind.AppImage => name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase),
+        InstallKind.Deb => name.EndsWith(".deb", StringComparison.OrdinalIgnoreCase),
+        InstallKind.WinExe => name == "ircuitry-win-x64.exe",
+        // portable: linux gets the runnable AppImage; mac gets its zip
+        _ => OperatingSystem.IsMacOS()
+            ? name == (System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "ircuitry-osx-arm64.zip" : "ircuitry-osx-x64.zip")
+            : name.EndsWith(".AppImage", StringComparison.OrdinalIgnoreCase),
+    };
 
     private static bool IsNewer(string a, string b)
     {
@@ -1417,6 +1434,20 @@ public sealed partial class MainScreen : IScreen
         return p;
     }
 
+    private static int RunQuiet(string file, string args)
+    {
+        try
+        {
+            var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file, args)
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true });
+            if (p == null) return -1;
+            p.WaitForExit();
+            return p.ExitCode;
+        }
+        catch { return -1; }
+    }
+    private static string EnsureDir(string d) { try { System.IO.Directory.CreateDirectory(d); } catch { } return d; }
+
     // runs every frame: re-check periodically, auto-ask once, and hand a finished download to the game thread
     private void UpdateTick(Clock clock)
     {
@@ -1428,30 +1459,18 @@ public sealed partial class MainScreen : IScreen
         if (_upState == UpState.Available && !_upPrompted && !Modal && !_tut.Active)
         { _upPrompted = true; _upPromptOpen = true; _upPromptJustOpened = true; _upBodyScroll = 0; }
 
-        if (_upState == UpState.Downloading && _upDownloadDone)
+        // the worker set a relaunch path -> swap to the new build on the game thread (clean exit autosaves)
+        if (_upReady && _upRelaunchPath.Length > 0)
         {
-            _upDownloadDone = false;
-            if (_upIsAppImage)
+            _upReady = false;
+            try
             {
-                _upState = UpState.Applying; _upProgress = 1f; _upStatus = "Installing and restarting…";
-                try
-                {
-                    string appimage = Environment.GetEnvironmentVariable("APPIMAGE") ?? "";
-                    try { var ps = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("chmod", "+x \"" + _upTempPath + "\"") { UseShellExecute = false }); ps?.WaitForExit(3000); } catch { }
-                    System.IO.File.Move(_upTempPath, appimage, true);
-                    var psi = new System.Diagnostics.ProcessStartInfo(appimage) { UseShellExecute = false };
-                    psi.ArgumentList.Add("--relaunch");   // the new instance waits for our single-instance lock, then takes over
-                    System.Diagnostics.Process.Start(psi);
-                    OnExitRequested?.Invoke();            // clean exit (autosaves)
-                }
-                catch (Exception ex) { _upStatus = "Install failed: " + ex.Message; _upState = UpState.Failed; }
+                var psi = new System.Diagnostics.ProcessStartInfo(_upRelaunchPath) { UseShellExecute = false };
+                psi.ArgumentList.Add("--relaunch");   // the new instance waits for our single-instance lock, then takes over
+                System.Diagnostics.Process.Start(psi);
+                OnExitRequested?.Invoke();
             }
-            else
-            {
-                _upState = UpState.None;
-                Bot.Log.Add(LogLevel.System, "downloaded " + _upAssetName + " to your Downloads folder - open it to finish updating");
-                Ircuitry.App.DeepLink.OpenUrl($"https://github.com/{Ircuitry.App.AppInfo.Repo}/releases/latest");
-            }
+            catch (Exception ex) { _upStatus = "Restart failed: " + ex.Message; _upState = UpState.Failed; }
         }
     }
 
@@ -1459,28 +1478,64 @@ public sealed partial class MainScreen : IScreen
     {
         if (_upState == UpState.Downloading || _upState == UpState.Applying) return;
         _upPromptOpen = false;
-        _upState = UpState.Downloading; _upProgress = 0f; _upDownloadDone = false;
+        _upState = UpState.Downloading; _upProgress = 0f; _upReady = false;
         _upStatus = "Downloading " + _upAssetName + " …";
+        string url = _upAssetUrl, name = _upAssetName;
+        var kind = _upKind;
         string appimage = Environment.GetEnvironmentVariable("APPIMAGE") ?? "";
-        string url = _upAssetUrl, name = _upAssetName; bool appImg = _upIsAppImage;
+        string procPath = Environment.ProcessPath ?? "";
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         System.Threading.Tasks.Task.Run(() =>
         {
             try
             {
-                string dest;
-                if (appImg && appimage.Length > 0) dest = appimage + ".new";
-                else
-                {
-                    string dl = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-                    try { System.IO.Directory.CreateDirectory(dl); } catch { }
-                    dest = System.IO.Path.Combine(dl, name);
-                }
+                string updir = System.IO.Path.Combine(home, "ircuitry", ".update");
+                try { System.IO.Directory.CreateDirectory(updir); } catch { }
+                bool auto = kind is InstallKind.AppImage or InstallKind.Deb or InstallKind.WinExe;
+                string dest = auto ? System.IO.Path.Combine(updir, name)
+                    : System.IO.Path.Combine(EnsureDir(System.IO.Path.Combine(home, "Downloads")), name);
+
                 bool ok = Ircuitry.Net.Http.DownloadFile(url, dest, p => _upProgress = p);
                 if (!ok) { _upStatus = "Download failed - check your connection"; _upState = UpState.Failed; return; }
-                _upTempPath = dest;
-                _upDownloadDone = true;
+
+                _upState = UpState.Applying; _upProgress = 1f;
+                switch (kind)
+                {
+                    case InstallKind.AppImage:
+                        _upStatus = "Installing and restarting…";
+                        RunQuiet("chmod", "+x \"" + dest + "\"");
+                        System.IO.File.Move(dest, appimage, true);
+                        _upRelaunchPath = appimage; _upReady = true;
+                        break;
+
+                    case InstallKind.Deb:
+                        _upStatus = "Installing (you may be asked for your password)…";
+                        int code = RunQuiet("pkexec", "dpkg -i \"" + dest + "\"");
+                        if (code != 0) { _upStatus = "Install was cancelled or failed"; _upState = UpState.Failed; break; }
+                        _upRelaunchPath = System.IO.File.Exists("/usr/bin/ircuitry") ? "/usr/bin/ircuitry" : procPath;
+                        _upReady = true;
+                        break;
+
+                    case InstallKind.WinExe:
+                        _upStatus = "Installing and restarting…";
+                        if (procPath.Length > 0)
+                        {
+                            try { System.IO.File.Delete(procPath + ".old"); } catch { }
+                            System.IO.File.Move(procPath, procPath + ".old");   // a running .exe can be renamed on Windows
+                            System.IO.File.Move(dest, procPath);
+                            _upRelaunchPath = procPath; _upReady = true;
+                        }
+                        else { _upStatus = "Could not locate the app to replace"; _upState = UpState.Failed; }
+                        break;
+
+                    default:   // Portable / macOS: downloaded to Downloads, point the user at it
+                        _upState = UpState.None;
+                        Bot.Log.Add(LogLevel.System, "downloaded " + name + " to your Downloads folder - open it to finish updating");
+                        Ircuitry.App.DeepLink.OpenUrl($"https://github.com/{Ircuitry.App.AppInfo.Repo}/releases/latest");
+                        break;
+                }
             }
-            catch { _upStatus = "Update failed"; _upState = UpState.Failed; }
+            catch (Exception ex) { _upStatus = "Update failed: " + ex.Message; _upState = UpState.Failed; }
         });
     }
 
@@ -1493,7 +1548,7 @@ public sealed partial class MainScreen : IScreen
         Hud.Panel(r, panel, "Update available", Theme.Lime);
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
         r.Text(r.Fonts.Get(FontKind.SansBold, 17), "ircuitry v" + _upVer + " is ready", new Vector2(x, y), Theme.Text); y += 26;
-        r.Text(r.Fonts.Get(FontKind.Sans, 12), "You have v" + Ircuitry.App.AppInfo.Version + (_upIsAppImage ? "  ·  installs automatically" : "  ·  downloads to your Downloads folder"), new Vector2(x, y), Theme.TextDim); y += 24;
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), "You have v" + Ircuitry.App.AppInfo.Version + (UpAuto ? "  ·  installs automatically" : "  ·  downloads to your Downloads folder"), new Vector2(x, y), Theme.TextDim); y += 24;
         r.Text(r.Fonts.Get(FontKind.SansBold, 11), "WHAT'S NEW", new Vector2(x, y), Theme.TextFaint); y += 18;
         var box = new RectF(x, y, w, panel.Bottom - 56 - y);
         r.RoundFill(box, Theme.PanelLo, 7);
@@ -1521,7 +1576,7 @@ public sealed partial class MainScreen : IScreen
         var goR = new RectF(panel.Right - 22 - 150, panel.Bottom - 48, 150, 34);
         var laterR = new RectF(goR.X - 12 - 110, panel.Bottom - 48, 110, 34);
         if (_ui.Button("up.later", laterR, "LATER", Theme.Idle)) _upPromptOpen = false;
-        if (_ui.Button("up.go", goR, _upIsAppImage ? "⤓  Update now" : "⤓  Download", Theme.Lime, primary: true)) StartUpdateDownload();
+        if (_ui.Button("up.go", goR, UpAuto ? "⤓  Update now" : "⤓  Download", Theme.Lime, primary: true)) StartUpdateDownload();
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_upPromptJustOpened) _upPromptOpen = false;
         _upPromptJustOpened = false;
         r.End();
@@ -1595,14 +1650,14 @@ public sealed partial class MainScreen : IScreen
 
     public void DebugShowUpdate()
     {
-        _upVer = "9.9.9"; _upIsAppImage = true;
+        _upVer = "9.9.9"; _upKind = InstallKind.AppImage;
         _upBody = "- Cosier Node Library with proper category headers\n- New community node manager with bulk uninstall and updates\n- One-click installs from the website via ircuitry://\n- Auto-update with this lovely overlay";
         _upState = UpState.Available; _upPrompted = true; _upPromptOpen = true; _upPromptJustOpened = true; _upBodyScroll = 0;
     }
 
     public void DebugShowUpgrade()
     {
-        _upVer = "9.9.9"; _upIsAppImage = true;
+        _upVer = "9.9.9"; _upKind = InstallKind.AppImage;
         _upBody = "- Cosier Node Library\n- Community node manager\n- Auto-update overlay";
         _upStatus = "Downloading ircuitry-9.9.9-x86_64.AppImage …"; _upProgress = 0.46f; _upState = UpState.Downloading;
     }
