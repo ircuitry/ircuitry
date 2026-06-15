@@ -57,7 +57,12 @@ public sealed partial class MainScreen : IScreen
     private bool _closePromptOpen, _closeJustOpened;
     public Action? OnExitRequested;
     public Action? OnMinimizeRequested;
-    public void RequestClosePrompt() { _closePromptOpen = true; _closeJustOpened = true; }
+    public void RequestClosePrompt()
+    {
+        // only stop to ask (offer to minimise instead) when bots are actually live; otherwise just quit
+        if (_app.Bots.Any(b => b.Runtime.Running)) { _closePromptOpen = true; _closeJustOpened = true; }
+        else OnExitRequested?.Invoke();
+    }
 
     // inline tab rename (double-click a tab)
     private Bot? _renamingBot;
@@ -871,8 +876,11 @@ public sealed partial class MainScreen : IScreen
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, "Close ircuitry?", Theme.Cyan);
 
+        int live = _app.Bots.Count(b => b.Runtime.Running);
+        string msg = $"{live} bot{(live == 1 ? " is" : "s are")} still connected. Minimise to keep "
+            + (live == 1 ? "it" : "them") + " online in the background, or Exit to disconnect and close.";
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 18;
-        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), "Minimise keeps your bots running in the background. Exit stops every bot and closes the app.", w))
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), msg, w))
         { r.Text(r.Fonts.Get(FontKind.Sans, 13), line, new Vector2(x, y), Theme.TextDim); y += 18; }
 
         var exitR = new RectF(panel.Right - 22 - 120, panel.Bottom - 50, 120, 34);
@@ -964,7 +972,7 @@ public sealed partial class MainScreen : IScreen
         }
 
         if (_ui.Button("imp.browse", new RectF(x, panel.Bottom - 46, 254, 32), "🌐  Browse community workflows ↗", Theme.Lime))
-            Ircuitry.App.DeepLink.OpenUrl("https://ircuitry.github.io/workflows");
+            Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
         if (_ui.Button("imp.cancel", new RectF(panel.Right - 130, panel.Bottom - 46, 110, 32), "CANCEL", Theme.Idle))
             _importOpen = false;
 
@@ -1139,23 +1147,19 @@ public sealed partial class MainScreen : IScreen
     {
         var p = _l.Palette;
         var content = new RectF(p.X + 6, p.Y + Hud.HeaderH + 2, p.W - 12, p.H - Hud.HeaderH - 8);
-        if (content.Contains(In.Mouse)) _paletteScroll = Math.Max(0, _paletteScroll - In.ScrollDelta / 4f);
+        _paletteScroll = Wheel("palette", _paletteScroll, content);
 
-        // search field + a single tidy entry point for community nodes (install / update / remove)
+        // search field at the top; the community node/workflow links live at the BOTTOM of the panel
         float x = content.X + 8, w = content.W - 16;
         var searchRect = new RectF(x, content.Y + 8, w, 30);
-        var mgrRect = new RectF(x, searchRect.Bottom + 8, w, 30);
         r.Begin(BlendMode.Alpha, content.ToRectangle());
         _paletteSearch = _ui.TextField("palette.search", searchRect, _paletteSearch, "⌕  search nodes…");
-        int customCount = NodeCatalog.Custom.Count;
-        if (_ui.Button("palette.manage", mgrRect, customCount > 0 ? $"🧩  Community nodes · {customCount}" : "🧩  Community nodes", Theme.Berry))
-            OpenNodeManager();
         // contextual: only appears when a node is sitting in the clipboard, and names it
-        float listTopY = mgrRect.Bottom + 8;
+        float listTopY = searchRect.Bottom + 8;
         if (_clipNodeTitle != null)
         {
             string label = _clipNodeTitle.Length > 20 ? _clipNodeTitle[..19] + "…" : _clipNodeTitle;
-            var clipRect = new RectF(x, mgrRect.Bottom + 8, w, 32);
+            var clipRect = new RectF(x, searchRect.Bottom + 8, w, 32);
             if (_ui.Button("palette.clip", clipRect, "⎘  Install \"" + label + "\"", Theme.Amber, primary: true)) InstallFromClipboard();
             r.Text(r.Fonts.Get(FontKind.Sans, 9), "found in your clipboard", new Vector2(x + 6, clipRect.Bottom), Theme.TextFaint);
             listTopY = clipRect.Bottom + 16;
@@ -1164,8 +1168,17 @@ public sealed partial class MainScreen : IScreen
         string q = _paletteSearch.Trim();
         bool searching = q.Length > 0;
 
-        var listClip = new RectF(content.X, listTopY, content.W, content.Bottom - listTopY - 2);
-        if (listClip.Contains(In.Mouse)) { /* scroll handled above on content */ }
+        // two community links pinned to the bottom of the panel (nodes open the in-app manager; workflows open the gallery)
+        int customCount = NodeCatalog.Custom.Count;
+        float footY = content.Bottom - 68;
+        r.Begin(BlendMode.Alpha, content.ToRectangle());
+        if (_ui.Button("palette.manage", new RectF(x, footY, w, 30), customCount > 0 ? $"🧩  Community nodes · {customCount}" : "🧩  Community nodes", Theme.Berry))
+            OpenNodeManager();
+        if (_ui.Button("palette.workflows", new RectF(x, footY + 34, w, 30), "🤖  Community workflows ↗", Theme.Sky))
+            Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
+        r.End();
+
+        var listClip = new RectF(content.X, listTopY, content.W, footY - 8 - listTopY);
         r.Begin(BlendMode.Alpha, listClip.ToRectangle());
         float y = listClip.Y - _paletteScroll;
 
@@ -1250,10 +1263,28 @@ public sealed partial class MainScreen : IScreen
         r.End();
 
         float total = y + _paletteScroll - listClip.Y;
-        _paletteScroll = Math.Clamp(_paletteScroll, 0, Math.Max(0, total - listClip.H));
+        _paletteScroll = ClampScroll("palette", _paletteScroll, total, listClip.H);
     }
 
     private static bool Has(string s, string q) => s.Contains(q, StringComparison.OrdinalIgnoreCase);
+
+    // ---- scrolling helpers (no over-scroll stutter) ----
+    // The classic immediate-mode bug is clamping a scroll value only AFTER drawing, so a wheel notch at the
+    // bottom draws one over-scrolled (jumpy) frame before snapping back. We clamp the wheel at input time
+    // against the previous frame's measured max, so the value never exceeds the content - it just sits still.
+    private readonly Dictionary<string, float> _scrollMax = new();
+    private float Wheel(string id, float cur, RectF area)
+    {
+        if (area.Contains(In.Mouse) && In.ScrollDelta != 0)
+            cur = Math.Clamp(cur - In.ScrollDelta * 0.4f, 0, _scrollMax.TryGetValue(id, out var m) ? m : cur);
+        return cur;
+    }
+    private float ClampScroll(string id, float cur, float total, float viewH)
+    {
+        float max = MathF.Max(0, total - viewH);
+        _scrollMax[id] = max;
+        return Math.Clamp(cur, 0, max);
+    }
 
     // Peek at the clipboard a couple of times a second so the palette can offer a one-click install
     // the moment a node is copied. Cheap: only parses when the text actually looks like a node manifest.
@@ -1335,7 +1366,8 @@ public sealed partial class MainScreen : IScreen
     }
 
     // ====================== community node manager ======================
-    private const string NodeLibraryUrl = "https://ircuitry.github.io/nodes";
+    private const string NodeLibraryUrl = "https://ircuitry.github.io/nodes.html";
+    private const string WorkflowsUrl = "https://ircuitry.github.io/workflows.html";
 
     private void OpenNodeManager()
     {
@@ -1496,8 +1528,7 @@ public sealed partial class MainScreen : IScreen
         var custom = NodeCatalog.Custom;
         const float rowH = 60f;
         float total = custom.Count * rowH;
-        if (rect.Contains(In.Mouse) && In.ScrollDelta != 0) _nodeMgrScroll -= In.ScrollDelta;
-        _nodeMgrScroll = Math.Clamp(_nodeMgrScroll, 0, MathF.Max(0, total - rect.H));
+        _nodeMgrScroll = ClampScroll("nodeMgrScroll", Wheel("nodeMgrScroll", _nodeMgrScroll, rect), total, rect.H);
 
         r.Begin(BlendMode.Alpha, rect.ToRectangle());
         float y = rect.Y - _nodeMgrScroll;
@@ -1750,8 +1781,7 @@ public sealed partial class MainScreen : IScreen
         }
         const float lh = 17f;
         float totalH = lines.Count * lh;
-        if (box.Contains(In.Mouse) && In.ScrollDelta != 0) _upBodyScroll -= In.ScrollDelta;
-        _upBodyScroll = Math.Clamp(_upBodyScroll, 0, MathF.Max(0, totalH - box.H + 14));
+        _upBodyScroll = ClampScroll("upBodyScroll", Wheel("upBodyScroll", _upBodyScroll, box), totalH, box.H - 14);
 
         r.Begin(BlendMode.Alpha, box.ToRectangle());
         var bf = r.Fonts.Get(FontKind.Sans, 12);
@@ -1886,7 +1916,7 @@ public sealed partial class MainScreen : IScreen
         // reset scroll when the inspected thing changes (node id, or which server is selected)
         string key = (_editor.SelectedSingle?.Id ?? "conn") + ":" + Bot.SelectedServer;
         if (key != _inspKey) { _inspKey = key; _inspScroll = 0; }
-        if (content.Contains(In.Mouse) && In.ScrollDelta != 0 && !Modal) _inspScroll -= In.ScrollDelta / 4f;
+        if (!Modal) _inspScroll = Wheel("insp", _inspScroll, content);
 
         r.Begin(BlendMode.Alpha, content.ToRectangle());
         var scrolled = content.Offset(0, -_inspScroll);   // shift content up by the scroll amount; the scissor still clips to the panel
@@ -1896,7 +1926,7 @@ public sealed partial class MainScreen : IScreen
 
         // clamp scroll to the content height we just measured
         float total = bottom - scrolled.Y;
-        _inspScroll = Math.Clamp(_inspScroll, 0, MathF.Max(0, total - content.H));
+        _inspScroll = ClampScroll("insp", _inspScroll, total, content.H);
 
         // a slim scrollbar when there's overflow
         if (total > content.H)
@@ -2260,8 +2290,7 @@ public sealed partial class MainScreen : IScreen
         r.End();
         if (listH > 0)
         {
-            if (listRect.Contains(In.Mouse) && In.ScrollDelta != 0) _secretPickScroll -= In.ScrollDelta;
-            _secretPickScroll = Math.Clamp(_secretPickScroll, 0, MathF.Max(0, names.Count * 34f - listH));
+            _secretPickScroll = ClampScroll("secretPickScroll", Wheel("secretPickScroll", _secretPickScroll, listRect), names.Count * 34f, listH);
             r.Begin(BlendMode.Alpha, listRect.ToRectangle());
             float ly = listRect.Y - _secretPickScroll;
             foreach (var name in names)
@@ -2341,8 +2370,7 @@ public sealed partial class MainScreen : IScreen
         r.RoundFill(listRect, Theme.PanelLo, 8); r.RoundOutline(listRect, Theme.Edge, 8);
         r.End();
 
-        if (listRect.Contains(In.Mouse) && In.ScrollDelta != 0) _serversScroll -= In.ScrollDelta;
-        _serversScroll = Math.Clamp(_serversScroll, 0, MathF.Max(0, list.Count * 50f - listRect.H));
+        _serversScroll = ClampScroll("serversScroll", Wheel("serversScroll", _serversScroll, listRect), list.Count * 50f, listRect.H);
         r.Begin(BlendMode.Alpha, listRect.ToRectangle());
         float ly = listRect.Y + 4 - _serversScroll;
         foreach (var p in list)
@@ -2428,8 +2456,7 @@ public sealed partial class MainScreen : IScreen
         }
         r.End();
         float total = maxBottom + _networkScroll - area.Y;
-        if (area.Contains(In.Mouse) && In.ScrollDelta != 0) _networkScroll -= In.ScrollDelta;
-        _networkScroll = Math.Clamp(_networkScroll, 0, MathF.Max(0, total - area.H));
+        _networkScroll = ClampScroll("networkScroll", Wheel("networkScroll", _networkScroll, area), total, area.H);
 
         r.Begin();
         if (_ui.Button("nw.close", new RectF(panel.Right - 16 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _networkOpen = false;
@@ -2557,8 +2584,7 @@ public sealed partial class MainScreen : IScreen
         var area = new RectF(panel.X + 12, panel.Y + Hud.HeaderH + 10, panel.W - 24, panel.Bottom - (panel.Y + Hud.HeaderH) - 16);
         if (_notifLog.Count > 0)
         {
-            if (area.Contains(In.Mouse) && In.ScrollDelta != 0) _notifScroll -= In.ScrollDelta;
-            _notifScroll = Math.Clamp(_notifScroll, 0, MathF.Max(0, _notifLog.Count * 34f - area.H));
+            _notifScroll = ClampScroll("notifScroll", Wheel("notifScroll", _notifScroll, area), _notifLog.Count * 34f, area.H);
             r.Begin(BlendMode.Alpha, area.ToRectangle());
             float ny = area.Y - _notifScroll;
             var tf = r.Fonts.Get(FontKind.Mono, 10);
@@ -2699,8 +2725,7 @@ public sealed partial class MainScreen : IScreen
             if (selBot > _cmdkScroll + listRect.H) _cmdkScroll = selBot - listRect.H;
         }
         float total = results.Count * rowH;
-        if (listRect.Contains(In.Mouse) && In.ScrollDelta != 0) _cmdkScroll -= In.ScrollDelta;
-        _cmdkScroll = Math.Clamp(_cmdkScroll, 0, MathF.Max(0, total - listRect.H));
+        _cmdkScroll = ClampScroll("cmdkScroll", Wheel("cmdkScroll", _cmdkScroll, listRect), total, listRect.H);
 
         r.Begin(BlendMode.Alpha, listRect.ToRectangle());
         var tf = r.Fonts.Get(FontKind.Sans, 13);
@@ -2784,8 +2809,7 @@ public sealed partial class MainScreen : IScreen
         }
         r.End();
         float total = y + _achScroll - area.Y;
-        if (area.Contains(In.Mouse) && In.ScrollDelta != 0) _achScroll -= In.ScrollDelta;
-        _achScroll = Math.Clamp(_achScroll, 0, MathF.Max(0, total - area.H));
+        _achScroll = ClampScroll("achScroll", Wheel("achScroll", _achScroll, area), total, area.H);
 
         r.Begin();
         if (_ui.Button("ach.close", new RectF(panel.Right - 16 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _achOpen = false;
@@ -3020,8 +3044,7 @@ public sealed partial class MainScreen : IScreen
     {
         const float rowH = 50f;
         float total = _historyRuns.Count * rowH;
-        if (rect.Contains(In.Mouse) && In.ScrollDelta != 0) _historyListScroll -= In.ScrollDelta;
-        _historyListScroll = Math.Clamp(_historyListScroll, 0, MathF.Max(0, total - rect.H));
+        _historyListScroll = ClampScroll("historyListScroll", Wheel("historyListScroll", _historyListScroll, rect), total, rect.H);
 
         r.Begin(BlendMode.Alpha, rect.ToRectangle());
         var tf = r.Fonts.Get(FontKind.SansBold, 13);
@@ -3054,13 +3077,13 @@ public sealed partial class MainScreen : IScreen
     private void DrawHistoryDetail(Renderer r, RectF rect)
     {
         if (_historySel < 0 || _historySel >= _historyRuns.Count) return;
-        DrawRunDetail(r, rect, _historyRuns[_historySel], ref _historyDetailScroll);
+        DrawRunDetail(r, rect, _historyRuns[_historySel], ref _historyDetailScroll, "histDetail");
     }
 
     /// <summary>Render a RunRecord's node-by-node I/O (shared by Run History and the Test Bench).</summary>
-    private void DrawRunDetail(Renderer r, RectF rect, RunRecord run, ref float scroll)
+    private void DrawRunDetail(Renderer r, RectF rect, RunRecord run, ref float scroll, string id = "runDetail")
     {
-        if (rect.Contains(In.Mouse) && In.ScrollDelta != 0) scroll -= In.ScrollDelta;
+        scroll = Wheel(id, scroll, rect);
 
         r.Begin(BlendMode.Alpha, rect.ToRectangle());
         float pad = 14, x = rect.X + pad, w = rect.W - pad * 2;
@@ -3095,7 +3118,7 @@ public sealed partial class MainScreen : IScreen
         }
         float contentH = (y + scroll) - rect.Y + 8;
         r.End();
-        scroll = Math.Clamp(scroll, 0, MathF.Max(0, contentH - rect.H));
+        scroll = ClampScroll(id, scroll, contentH, rect.H);
     }
 
     private void DrawIOLine(Renderer r, DynamicSpriteFont f, float x, float y, float w, string label, string val, Color lc)
@@ -3132,8 +3155,7 @@ public sealed partial class MainScreen : IScreen
         var matches = NodeCatalog.All.Where(d => QuickMatch(d, _quickSearch)).ToList();
         const float rowH = 30f;
         float total = matches.Count * rowH;
-        if (listRect.Contains(In.Mouse) && In.ScrollDelta != 0) _quickScroll -= In.ScrollDelta;
-        _quickScroll = Math.Clamp(_quickScroll, 0, MathF.Max(0, total - listRect.H));
+        _quickScroll = ClampScroll("quickScroll", Wheel("quickScroll", _quickScroll, listRect), total, listRect.H);
 
         r.Begin(BlendMode.Alpha, listRect.ToRectangle());
         var tf = r.Fonts.Get(FontKind.Sans, 13);
@@ -3243,7 +3265,7 @@ public sealed partial class MainScreen : IScreen
         r.Begin();
         r.RoundFill(traceRect, Theme.Panel, 8); r.RoundOutline(traceRect, Theme.Edge, 8);
         r.End();
-        if (_testRec != null) DrawRunDetail(r, traceRect, _testRec, ref _testScroll);
+        if (_testRec != null) DrawRunDetail(r, traceRect, _testRec, ref _testScroll, "testDetail");
         else { r.Begin(); r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 13), "No command/message node fired for that input.", traceRect.Center.X, traceRect.Center.Y - 8, Theme.TextFaint); r.End(); }
 
         r.Begin();
