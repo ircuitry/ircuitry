@@ -98,7 +98,15 @@ public static class Program
         if (!primary)
         {
             if (deepLink != null)
-                try { Directory.CreateDirectory(inboxDir); File.WriteAllText(Path.Combine(inboxDir, Guid.NewGuid().ToString("N") + ".link"), deepLink); }
+                try
+                {
+                    Directory.CreateDirectory(inboxDir);
+                    // write to .tmp then rename to .link so the watcher only ever sees a COMPLETE file
+                    string id = Guid.NewGuid().ToString("N");
+                    string tmp = Path.Combine(inboxDir, id + ".tmp");
+                    File.WriteAllText(tmp, deepLink);
+                    File.Move(tmp, Path.Combine(inboxDir, id + ".link"), true);
+                }
                 catch { /* ignore */ }
             return;   // another GUI is running; we forwarded (or had nothing to do)
         }

@@ -343,9 +343,10 @@ public sealed class IrcuitryGame : Game
             {
                 string link;
                 try { link = File.ReadAllText(file).Trim(); }
-                catch { continue; }   // still being written; a later event/poll retries
+                catch { continue; }                 // locked/mid-write; a later event/poll retries (don't delete)
+                if (link.Length == 0) continue;     // not fully written yet; leave it for a retry
                 try { File.Delete(file); } catch { }
-                if (link.Length == 0) continue;
+                // collapse rapid duplicate clicks of the same link (mashing the install button)
                 // collapse rapid duplicate clicks of the same link (mashing the install button)
                 var now = DateTime.UtcNow;
                 if (_recentLinks.TryGetValue(link, out var t) && (now - t).TotalSeconds < 10) continue;
