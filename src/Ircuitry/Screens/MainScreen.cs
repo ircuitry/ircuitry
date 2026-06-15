@@ -181,6 +181,7 @@ public sealed partial class MainScreen : IScreen
         {
             FireGlow = id => _app.ActiveBot.Runtime.FireGlow(id),
             FireCount = id => _app.ActiveBot.Runtime.FireCount(id),
+            Notify = PushToast,
         };
     }
 
@@ -194,11 +195,17 @@ public sealed partial class MainScreen : IScreen
     {
         try
         {
-            var (g, _) = Ircuitry.Graph.GraphSerializer.Load(System.IO.File.ReadAllText(path));
-            if (g.Nodes.Count == 0) { Bot.Log.Add(LogLevel.System, "nothing to load from " + System.IO.Path.GetFileName(path)); return; }
+            var (g, _) = Ircuitry.Graph.GraphSerializer.Load(System.IO.File.ReadAllText(path), out var skipped);
+            if (g.Nodes.Count == 0 && skipped.Count == 0) { Bot.Log.Add(LogLevel.System, "nothing to load from " + System.IO.Path.GetFileName(path)); return; }
             _editor.InsertGraphAt(g, screen);
             _app.MarkDirty();
             Bot.Log.Add(LogLevel.System, $"loaded {g.Nodes.Count} node(s) from {System.IO.Path.GetFileName(path)}");
+            if (skipped.Count > 0)
+            {
+                var w = Ircuitry.Graph.GraphSerializer.SkippedWarning(skipped);
+                Bot.Log.Add(LogLevel.Warn, "⚠ " + w);
+                PushToast("⚠ " + w);
+            }
         }
         catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "load failed: " + ex.Message); }
     }

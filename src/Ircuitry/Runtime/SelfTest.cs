@@ -136,6 +136,7 @@ public static class SelfTest
         fails += McpEditorTest();
         fails += AiEditorToolTest();
         fails += ReloadKeepsRunningBotTest();
+        fails += UnknownNodeWarningTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1636,6 +1637,31 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Loading a workflow that uses a node type this build doesn't know must REPORT it (so import/paste
+    /// can warn), not silently drop the node and its wires with no trace - the thing that made an
+    /// out-of-date app look like it had shipped a broken workflow.
+    /// </summary>
+    private static int UnknownNodeWarningTest()
+    {
+        int fails = 0;
+        string json = "{\"name\":\"x\",\"nodes\":["
+            + "{\"id\":\"a\",\"type\":\"event.command\"},"
+            + "{\"id\":\"b\",\"type\":\"totally.bogus\"},"
+            + "{\"id\":\"c\",\"type\":\"action.reply\"}],"
+            + "\"connections\":[{\"from\":\"a\",\"fromPin\":0,\"to\":\"b\",\"toPin\":0},{\"from\":\"a\",\"fromPin\":0,\"to\":\"c\",\"toPin\":0}]}";
+        var (g, _) = Ircuitry.Graph.GraphSerializer.Load(json, out var skipped);
+        bool dropped = g.Nodes.Count == 2 && g.Find("b") == null;                 // unknown node gone
+        bool wireGone = g.Connections.All(c => c.ToNode != "b" && c.FromNode != "b"); // its wire gone too
+        bool reported = skipped.Contains("totally.bogus")
+            && Ircuitry.Graph.GraphSerializer.SkippedWarning(skipped).Contains("totally.bogus");
+        fails += Expect("unknown-node-reported", dropped && wireGone && reported, $"nodes={g.Nodes.Count} skipped=[{string.Join(",", skipped)}]");
+
+        var (_, _2) = Ircuitry.Graph.GraphSerializer.Load("{\"name\":\"y\",\"nodes\":[{\"id\":\"a\",\"type\":\"event.command\"}]}", out var none);
+        fails += Expect("known-graph-no-warning", none.Count == 0 && Ircuitry.Graph.GraphSerializer.SkippedWarning(none).Length == 0, $"skipped=[{string.Join(",", none)}]");
+        return fails;
     }
 
     /// <summary>

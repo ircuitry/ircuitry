@@ -203,12 +203,13 @@ public sealed class AppModel
     {
         try
         {
-            var (g, name) = GraphSerializer.Load(File.ReadAllText(path));
+            var (g, name) = GraphSerializer.Load(File.ReadAllText(path), out var skipped);
             var bot = new Bot(name.Length > 0 ? name : Path.GetFileNameWithoutExtension(path)) { Graph = g };
             Bots.Add(bot);
             Active = Bots.Count - 1;
             Dirty = true;
             bot.Log.Add(LogLevel.System, $"imported {g.Nodes.Count} node(s) from {Path.GetFileName(path)}");
+            if (skipped.Count > 0) bot.Log.Add(LogLevel.Warn, "⚠ " + GraphSerializer.SkippedWarning(skipped));
             return bot;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "import failed: " + ex.Message); return null; }
@@ -219,12 +220,13 @@ public sealed class AppModel
     {
         try
         {
-            var (g, name) = GraphSerializer.Load(json);
+            var (g, name) = GraphSerializer.Load(json, out var skipped);
             var bot = new Bot(name.Length > 0 ? name : "imported") { Graph = g };
             Bots.Add(bot);
             Active = Bots.Count - 1;
             Dirty = true;
             bot.Log.Add(LogLevel.System, $"imported {g.Nodes.Count} node(s)");
+            if (skipped.Count > 0) bot.Log.Add(LogLevel.Warn, "⚠ " + GraphSerializer.SkippedWarning(skipped));
             return bot;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "import failed: " + ex.Message); return null; }

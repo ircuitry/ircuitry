@@ -26,6 +26,8 @@ public sealed class GraphEditor
     public Func<string, float>? FireGlow;
     /// <summary>Set by the host: lifetime fire count for a node (badge), and whether a bot is live.</summary>
     public Func<string, int>? FireCount;
+    /// <summary>Set by the host: surface a brief user-facing message (e.g. a paste skipped unknown nodes).</summary>
+    public Action<string>? Notify;
     public bool Running;
     public bool ShowMinimap = true;
     public bool SnapToGrid;                 // dragged nodes snap to the grid when on
@@ -128,7 +130,8 @@ public sealed class GraphEditor
     public void PasteAtCursor(Vector2 worldCursor)
     {
         // prefer graph JSON on the OS clipboard (lets you paste between editors / from shared JSON)
-        var ext = TryLoadClipboardGraph();
+        var ext = TryLoadClipboardGraph(out var skipped);
+        if (skipped.Count > 0) Notify?.Invoke("⚠ " + GraphSerializer.SkippedWarning(skipped));
         if (ext != null) { InsertAtCursor(ext.Nodes, ext.Connections, worldCursor); return; }
         if (_clipNodes is { Count: > 0 }) InsertAtCursor(_clipNodes, _clipConns!, worldCursor);
     }
@@ -150,7 +153,7 @@ public sealed class GraphEditor
     }
 
     /// <summary>True if there are nodes to paste - locally copied, or graph JSON on the OS clipboard.</summary>
-    public bool ClipboardHasNodes() => (_clipNodes is { Count: > 0 }) || TryLoadClipboardGraph() != null;
+    public bool ClipboardHasNodes() => (_clipNodes is { Count: > 0 }) || TryLoadClipboardGraph(out _) != null;
 
     /// <summary>True if the selection can be saved as a reusable subflow node (contains a Subflow Start).</summary>
     public bool SelectionIsSubflow => Selection.Count > 0 && Graph.Nodes.Any(n => Selection.Contains(n.Id) && n.TypeId == "flow.in");
@@ -188,13 +191,14 @@ public sealed class GraphEditor
     /// <summary>Load a whole graph (e.g. a dropped .ircbot) into the current workflow at a screen point.</summary>
     public void InsertGraphAt(NodeGraph g, Vector2 screen) => InsertAtCursor(g.Nodes, g.Connections, Cam.ScreenToWorld(screen));
 
-    private static NodeGraph? TryLoadClipboardGraph()
+    private static NodeGraph? TryLoadClipboardGraph(out List<string> skipped)
     {
+        skipped = new List<string>();
         try
         {
             var t = Clipboard.GetText();
             if (t.Length == 0 || t.IndexOf("\"nodes\"", StringComparison.Ordinal) < 0) return null;
-            var (g, _) = GraphSerializer.Load(t);
+            var (g, _) = GraphSerializer.Load(t, out skipped);
             return g.Nodes.Count > 0 ? g : null;
         }
         catch { return null; }

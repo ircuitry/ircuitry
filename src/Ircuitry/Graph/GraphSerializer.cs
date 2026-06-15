@@ -53,14 +53,26 @@ public static class GraphSerializer
     }
 
     /// <summary>Parse a workflow. Unknown node types are skipped (and their wires dropped).</summary>
-    public static (NodeGraph graph, string name) Load(string json)
+    public static (NodeGraph graph, string name) Load(string json) => Load(json, out _);
+
+    /// <summary>
+    /// Parse a workflow, reporting any node types that were skipped because this build does not know
+    /// them (an out-of-date app, or a community node that is not installed). Callers can warn the user
+    /// instead of silently dropping the nodes and their wires.
+    /// </summary>
+    public static (NodeGraph graph, string name) Load(string json, out List<string> skippedTypes)
     {
+        skippedTypes = new List<string>();
         var doc = JsonSerializer.Deserialize<Doc>(json, Opts) ?? new Doc();
         var g = new NodeGraph();
         var live = new HashSet<string>();
         foreach (var rec in doc.nodes)
         {
-            if (!NodeCatalog.TryGet(rec.type, out var def)) continue;
+            if (!NodeCatalog.TryGet(rec.type, out var def))
+            {
+                if (!string.IsNullOrEmpty(rec.type) && !skippedTypes.Contains(rec.type)) skippedTypes.Add(rec.type);
+                continue;
+            }
             var n = new Node(rec.id, rec.type) { Def = def, Pos = new Vector2(rec.x, rec.y), Muted = rec.muted, StreamAsTool = rec.streamAsTool ?? def.StreamByDefault, Title = rec.title ?? "" };
             foreach (var p in def.Params) n.Params[p.Key] = rec.@params.TryGetValue(p.Key, out var v) ? v : p.Default;
             g.Nodes.Add(n);
@@ -74,4 +86,8 @@ public static class GraphSerializer
         }
         return (g, doc.name);
     }
+
+    /// <summary>A human warning for node types <see cref="Load"/> skipped, or "" if none were skipped.</summary>
+    public static string SkippedWarning(List<string> skipped) => skipped.Count == 0 ? ""
+        : $"skipped {skipped.Count} unknown node(s) ({string.Join(", ", skipped)}) - update ircuitry to the latest release, or install the missing node, then re-import";
 }
