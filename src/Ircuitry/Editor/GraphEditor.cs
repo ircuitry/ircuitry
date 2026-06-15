@@ -528,7 +528,9 @@ public sealed class GraphEditor
         r.Begin(BlendMode.Alpha, scissor);
         DrawGrid(r, canvas);
         RefreshRouteCache();
-        foreach (var c in Graph.Connections) DrawWire(r, c, clock);
+        // draw quiet wires first, then any in-use (lit) wire on top, so the active path is never hidden
+        foreach (var c in Graph.Connections) if (WireHeat(c) <= 0.02f) DrawWire(r, c, clock);
+        foreach (var c in Graph.Connections) if (WireHeat(c) > 0.02f) DrawWire(r, c, clock);
         if (_mode == Mode.DragWire) DrawDragWire(r, input);
         foreach (var n in Graph.Nodes) DrawNode(r, n, clock);
         // node-fired shockwave (alpha so the rings read on the cream canvas): a white-hot flash
@@ -659,6 +661,8 @@ public sealed class GraphEditor
         if (o.Y >= c.Top && o.Y <= c.Bottom) r.HLine(c.Left, c.Right, MathF.Round(o.Y), Theme.GridAxis, 1.5f);
     }
 
+    private float WireHeat(Connection c) => FireGlow?.Invoke(c.FromNode) ?? 0f;
+
     private void DrawWire(Renderer r, Connection c, Clock clock)
     {
         var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
@@ -671,13 +675,16 @@ public sealed class GraphEditor
         var pts = new List<Vector2>(world.Count);
         foreach (var wp in world) pts.Add(Cam.WorldToScreen(wp));
         bool hovered = !muted && _hoverWire == WireKey(c);
-        if (hovered) DrawTrace(r, pts, Theme.WithAlpha(Theme.Mix(col, Color.White, 0.55f), 0.5f));   // soft halo under the hovered wire
-        DrawTrace(r, pts, muted ? Theme.WithAlpha(col, 0.28f) : (hovered ? Theme.Mix(col, Color.White, 0.35f) : col));
+        float hot = muted ? 0f : (FireGlow?.Invoke(c.FromNode) ?? 0f);   // 0..1 while data is flowing through it
+        if (hovered && hot <= 0.02f) DrawTrace(r, pts, Theme.WithAlpha(Theme.Mix(col, Color.White, 0.55f), 0.5f));   // soft halo under the hovered wire
+
+        Color main = muted ? Theme.WithAlpha(col, 0.28f) : (hovered ? Theme.Mix(col, Color.White, 0.35f) : col);
+        if (hot > 0.02f) main = Theme.Mix(col, Color.White, 0.45f + 0.5f * hot);   // light up bright while in use
+        DrawTrace(r, pts, main, hot);
 
         // travelling data-flow dots while a bot is live (brighter on a freshly-fired source)
         if (Running && !muted)
         {
-            float hot = FireGlow?.Invoke(c.FromNode) ?? 0f;
             float speed = 0.30f + 0.9f * hot;
             float dotR = MathF.Max(2f, 2.6f * Cam.Zoom);
             for (int d = 0; d < 2; d++)
@@ -741,16 +748,43 @@ public sealed class GraphEditor
         return step * Cam.Zoom;
     }
 
-    private void DrawTrace(Renderer r, List<Vector2> pts, Color col)
+    private void DrawTrace(Renderer r, List<Vector2> pts, Color col, float glow = 0f)
     {
-        float w = MathF.Max(1.7f, 2.4f * Cam.Zoom);
-        for (int i = 0; i + 1 < pts.Count; i++)
+        var path = Rounded(pts, MathF.Max(6f, 11f * Cam.Zoom));   // fillet the right-angle corners so direction reads clearly
+        float w = MathF.Max(1.7f, 2.4f * Cam.Zoom) * (1f + 0.5f * glow);
+        if (glow > 0.02f)   // a soft halo under an in-use wire, so it reads as lit
+            for (int i = 0; i + 1 < path.Count; i++)
+                r.Line(path[i], path[i + 1], Theme.WithAlpha(Theme.Mix(col, Color.White, 0.5f), 0.30f * glow), w + 6f * glow);
+        for (int i = 0; i + 1 < path.Count; i++)
+            r.Line(path[i], path[i + 1], col, w);
+        r.Disc(path[0], w * 0.85f, col);                                     // solder pads at both ends
+        r.Disc(path[^1], w * 0.85f, col);
+    }
+
+    /// <summary>Replace each interior right-angle corner with a small rounded fillet (quadratic through the
+    /// corner), so a wire's turn direction reads at a glance instead of as a hard L.</summary>
+    private static List<Vector2> Rounded(List<Vector2> pts, float radius)
+    {
+        if (pts.Count < 3) return pts;
+        var outp = new List<Vector2> { pts[0] };
+        for (int i = 1; i + 1 < pts.Count; i++)
         {
-            r.Line(pts[i], pts[i + 1], col, w);
-            if (i + 1 < pts.Count - 1) r.Disc(pts[i + 1], w * 0.9f, col);   // round the bend
+            Vector2 p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+            Vector2 d0 = p1 - p0, d1 = p2 - p1;
+            float l0 = d0.Length(), l1 = d1.Length();
+            if (l0 < 0.01f || l1 < 0.01f) { outp.Add(p1); continue; }
+            float r = MathF.Min(radius, MathF.Min(l0, l1) * 0.5f);
+            Vector2 a = p1 - d0 / l0 * r, b = p1 + d1 / l1 * r;
+            outp.Add(a);
+            const int seg = 5;
+            for (int s = 1; s <= seg; s++)
+            {
+                float t = s / (float)seg;
+                outp.Add(Vector2.Lerp(Vector2.Lerp(a, p1, t), Vector2.Lerp(p1, b, t), t));   // quadratic bezier
+            }
         }
-        r.Disc(pts[0], w * 0.85f, col);                                     // solder pads at both ends
-        r.Disc(pts[^1], w * 0.85f, col);
+        outp.Add(pts[^1]);
+        return outp;
     }
 
     private static Vector2 PointAlong(List<Vector2> pts, float t)
