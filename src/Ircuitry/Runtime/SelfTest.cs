@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -132,6 +133,8 @@ public static class SelfTest
         fails += TrayMenuTest();
         fails += ShortcodeTest();
         fails += CameraBoundsTest();
+        fails += McpEditorTest();
+        fails += AiEditorToolTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -359,6 +362,73 @@ public static class SelfTest
         bool finalOk = s.Sent.Count == 1 && s.Sent[0].text == "final answer";
         return Expect("ai-tools-call-loop", ranToolWithArg && finalOk && reqs >= 2,
             $"logs=[{string.Join(",", s.Logs)}] {Dump(s)} reqs={reqs}");
+    }
+
+    /// <summary>Plug-and-play inward MCP: Ask AI + a Workflow Editor node. The (mocked) model calls the
+    /// add_node editor tool and it actually mutates a SANDBOXED workspace - never the user's ~/ircuitry.</summary>
+    private static int AiEditorToolTest()
+    {
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("ai-editor-tool (skipped: " + ex.Message + ")", true, ""); }
+
+        bool stop = false;
+        int reqs = 0;
+        // round 1: model asks to add an action.say node carrying a distinctive marker; round 2: final answer
+        string toolJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"add_node","arguments":"{\"typeId\":\"action.say\",\"params\":{\"message\":\"INJECTED_BY_AI\"}}"}}]}}]}""";
+        string finalJson = """{"choices":[{"message":{"content":"done"}}]}""";
+        var server = new Thread(() =>
+        {
+            try
+            {
+                while (!stop)
+                {
+                    var ctx = listener.GetContext();
+                    int n = Interlocked.Increment(ref reqs);
+                    var b = Encoding.UTF8.GetBytes(n == 1 ? toolJson : finalJson);
+                    ctx.Response.ContentType = "application/json";
+                    ctx.Response.OutputStream.Write(b, 0, b.Length);
+                    ctx.Response.Close();
+                }
+            }
+            catch { }
+        }) { IsBackground = true };
+        server.Start();
+
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-aiedit-" + Guid.NewGuid().ToString("N")[..8]);
+        int fails;
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            bool sandboxed = Ircuitry.App.AppModel.WorkspaceDir.StartsWith(tmp, StringComparison.Ordinal);
+            if (!sandboxed) { stop = true; try { listener.Stop(); } catch { } return Expect("ai-editor-tool (skipped: no sandbox)", true, ""); }
+            new Ircuitry.App.AppModel().Save(announce: false);   // seed the sandbox workspace
+
+            var g = new NodeGraph();
+            var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ai");
+            var ai = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+            ai.SetParam("baseUrl", $"http://localhost:{port}/v1"); ai.SetParam("apiKey", "test"); ai.SetParam("model", "mock");
+            var editor = g.Add(NodeCatalog.Get("ai.editor"), new Vector2(100, 150));   // edit mode, active bot
+            g.Connect(cmd.Id, 0, ai.Id, 0);     // exec
+            g.Connect(editor.Id, 0, ai.Id, 2);  // editor 'tools' -> ai 'tools'
+
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!ai add a say node", "u", "#c"));
+
+            var graph = Ircuitry.App.Mcp.McpBridge.Invoke("get_graph", new Dictionary<string, string>(), null);
+            bool edited = graph.Contains("INJECTED_BY_AI");
+            fails = Expect("ai-editor-tool-mutates-sandbox", edited && reqs >= 2, $"edited={edited} reqs={reqs}");
+        }
+        finally
+        {
+            stop = true; try { listener.Stop(); } catch { }
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
     }
 
     /// <summary>Exercises the new programmable nodes: If, Switch, counter (Get/Set/Math), Cooldown, For-Each.</summary>
@@ -1565,6 +1635,51 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The inward MCP bridge a Workflow Editor node hands to Ask AI: edit mode exposes the mutating
+    /// graph tools (each with a real schema), read-only hides them, and an edit round-trips against an
+    /// ISOLATED throwaway workspace - never the user's ~/ircuitry.
+    /// </summary>
+    private static int McpEditorTest()
+    {
+        int fails = 0;
+
+        var edit = Ircuitry.App.Mcp.McpBridge.EditorToolDefs(false);
+        bool hasEdit = edit.Any(d => d.Name == "add_node") && edit.Any(d => d.Name == "set_graph") && edit.Any(d => d.Name == "connect");
+        bool schemas = edit.Count > 0 && edit.All(d => d.Parameters != null);   // MCP schemas reach the model
+        fails += Expect("mcp-editor-edit-tools", hasEdit && schemas, $"count={edit.Count} schemas={schemas}");
+
+        var ro = Ircuitry.App.Mcp.McpBridge.EditorToolDefs(true);
+        bool roSafe = ro.Any(d => d.Name == "get_graph") && !ro.Any(d => d.Name == "add_node") && !ro.Any(d => d.Name == "set_graph");
+        fails += Expect("mcp-editor-readonly-safe", roSafe, "ro=" + string.Join(",", ro.Select(d => d.Name)));
+
+        // end-to-end edit, sandboxed: point IRCUITRY_HOME at a temp dir so AppModel never touches the real workspace
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-mcp-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            if (Ircuitry.App.AppModel.WorkspaceDir.StartsWith(tmp, StringComparison.Ordinal))   // sandbox really in effect
+            {
+                new Ircuitry.App.AppModel().Save(announce: false);   // seed a workspace in the sandbox
+                var add = Ircuitry.App.Mcp.McpBridge.Invoke("add_node",
+                    new Dictionary<string, string> { ["typeId"] = "action.reply", ["params"] = "{\"message\":\"hi\"}" }, null);
+                string id = "";
+                try { using var d = JsonDocument.Parse(add); id = d.RootElement.GetProperty("id").GetString() ?? ""; } catch { }
+                var graph = Ircuitry.App.Mcp.McpBridge.Invoke("get_graph", new Dictionary<string, string>(), null);
+                bool ok = !add.StartsWith("Error") && id.Length > 0 && graph.Contains(id) && graph.Contains("\"hi\"");
+                fails += Expect("mcp-editor-edits-sandbox", ok, $"add={(add.Length > 100 ? add[..100] : add)} idIn={graph.Contains(id)}");
+            }
+            else Console.WriteLine("  [SKIP] mcp-editor-edits-sandbox   (sandbox not in effect)");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
     }
 
     /// <summary>

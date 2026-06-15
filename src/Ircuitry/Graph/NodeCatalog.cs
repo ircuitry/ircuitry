@@ -767,18 +767,33 @@ public static class NodeCatalog
                         return;
                     }
 
-                    // gather AI Tool nodes wired into the 'tools' input (pin 2)
+                    // gather tool nodes wired into the 'tools' input (pin 2): AI Tool sub-flows and/or
+                    // Workflow Editor nodes (which expose the inward MCP editing tools to the model)
                     var defs = new List<Ai.ToolDef>();
-                    var byName = new Dictionary<string, Node>();
+                    var byName = new Dictionary<string, Node>();          // ai.tool name -> sub-flow node
+                    var editorBot = new Dictionary<string, string>();     // editor tool name -> default bot
                     foreach (var tn in c.SourcesInto(2))
                     {
-                        if (tn.TypeId != "ai.tool") continue;
-                        var nm = tn.GetParam("name");
-                        if (nm.Length == 0) continue;
-                        var a = new List<(string, string)>();
-                        for (int i = 1; i <= 3; i++) { var an = tn.GetParam("arg" + i + "name"); if (an.Length > 0) a.Add((an, tn.GetParam("arg" + i + "desc"))); }
-                        defs.Add(new Ai.ToolDef(nm, tn.GetParam("description"), a));
-                        byName[nm] = tn;
+                        if (tn.TypeId == "ai.tool")
+                        {
+                            var nm = tn.GetParam("name");
+                            if (nm.Length == 0) continue;
+                            var a = new List<(string, string)>();
+                            for (int i = 1; i <= 3; i++) { var an = tn.GetParam("arg" + i + "name"); if (an.Length > 0) a.Add((an, tn.GetParam("arg" + i + "desc"))); }
+                            defs.Add(new Ai.ToolDef(nm, tn.GetParam("description"), a));
+                            byName[nm] = tn;
+                        }
+                        else if (tn.TypeId == "ai.editor")
+                        {
+                            bool ro = tn.GetParam("mode") == "read-only";
+                            string defBot = tn.GetParam("bot").Trim();
+                            foreach (var d in Ircuitry.App.Mcp.McpBridge.EditorToolDefs(ro))
+                            {
+                                if (byName.ContainsKey(d.Name) || editorBot.ContainsKey(d.Name)) continue;   // first wins
+                                defs.Add(d);
+                                editorBot[d.Name] = defBot;
+                            }
+                        }
                     }
 
                     if (defs.Count == 0)
@@ -787,6 +802,8 @@ public static class NodeCatalog
                         reply = Ai.ChatWithTools(c.Param("baseUrl"), c.Param("apiKey"), c.Param("model"), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
                             (name, args) =>
                             {
+                                if (editorBot.TryGetValue(name, out var db))    // inward MCP edit against the workspace
+                                    return Ircuitry.App.Mcp.McpBridge.Invoke(name, args, db.Length > 0 ? db : null);
                                 if (!byName.TryGetValue(name, out var tn)) return "(unknown tool: " + name + ")";
                                 foreach (var kv in args) c.SetVar("__arg." + kv.Key, kv.Value);
                                 c.SetVar("__tool_result", "");
@@ -830,6 +847,23 @@ public static class NodeCatalog
                 Params = new[] { P("result", "Result", ParamType.Text, "", "value returned to the AI") },
                 SummaryParam = "result",
                 Exec = c => { c.SetVar("__tool_result", c.InOr(1, c.Resolve(c.Param("result")))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ai.editor", Icon = "📝", Title = "Workflow Editor", Subtitle = "ai",
+                Category = NodeCategory.Ai,
+                Description = "Gives an Ask AI node the inward MCP tools to read and EDIT bot workflows in this " +
+                              "workspace - its own or another bot's: add/remove nodes, wire pins, set params, replace " +
+                              "or validate a graph, dry-run a command. Wire 'tools' into Ask AI. Edits save to the " +
+                              "workspace (the canvas hot-reloads); a running bot applies them on its next start.",
+                Outputs = new[] { To("tools") },
+                Params = new[]
+                {
+                    P("bot", "Target bot", ParamType.Text, "", "blank = the active bot; or a bot name (the model can still target others by name)"),
+                    P("mode", "Access", ParamType.Choice, "edit", "read-only = introspect/validate/dry-run only", new[] { "edit", "read-only" }),
+                },
+                SummaryParam = "bot",
+                Exec = c => { },   // never runs in the flow - it only advertises tools to Ask AI
             },
             new()
             {

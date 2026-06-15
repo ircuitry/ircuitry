@@ -18,8 +18,18 @@ public sealed class AppModel
 
     public Bot ActiveBot => Bots[Math.Clamp(Active, 0, Bots.Count - 1)];
 
-    public static string WorkspaceDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry");
+    // Data lives in ~/ircuitry, unless IRCUITRY_HOME points elsewhere (sandboxed/alternate workspaces,
+    // headless/test runs) - honoured everywhere WorkspaceDir is read, including the MCP server/bridge.
+    public static string WorkspaceDir
+    {
+        get
+        {
+            var ov = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+            return !string.IsNullOrEmpty(ov)
+                ? ov
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry");
+        }
+    }
     public string WorkspacePath => Path.Combine(WorkspaceDir, "workspace.ircuitry");
     public string ProjectName => "workspace.ircuitry";
 
@@ -41,6 +51,7 @@ public sealed class AppModel
     {
         try
         {
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IRCUITRY_HOME"))) return;   // explicit workspace, nothing to migrate
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var oldDir = Path.Combine(home, "obbie");
             var newDir = WorkspaceDir;

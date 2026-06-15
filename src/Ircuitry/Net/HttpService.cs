@@ -120,13 +120,17 @@ public static class Ai
 
     private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "…";
 
-    /// <summary>A tool the model may call: a name, a description, and named string args.</summary>
+    /// <summary>A tool the model may call: a name, a description, and named string args. An optional
+    /// <see cref="Parameters"/> JSON-schema object (e.g. an MCP tool's schema) overrides the simple
+    /// all-strings <see cref="Args"/> shape so richer arg types reach the model.</summary>
     public sealed class ToolDef
     {
         public string Name;
         public string Description;
         public List<(string name, string desc)> Args;
-        public ToolDef(string name, string description, List<(string, string)> args) { Name = name; Description = description; Args = args; }
+        public object? Parameters;
+        public ToolDef(string name, string description, List<(string, string)> args, object? parameters = null)
+        { Name = name; Description = description; Args = args; Parameters = parameters; }
     }
 
     /// <summary>
@@ -158,7 +162,7 @@ public static class Ai
                 {
                     ["name"] = t.Name,
                     ["description"] = t.Description,
-                    ["parameters"] = new Dictionary<string, object?>
+                    ["parameters"] = t.Parameters ?? new Dictionary<string, object?>
                     {
                         ["type"] = "object",
                         ["properties"] = t.Args.ToDictionary(a => a.name, a => (object?)new Dictionary<string, object?> { ["type"] = "string", ["description"] = a.desc }),
