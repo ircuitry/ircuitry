@@ -93,6 +93,11 @@ public sealed partial class MainScreen : IScreen
     private bool _notifOpen, _notifJustOpened;
     private int _notifUnread;        // toasts shown since the history was last opened (for the bell badge)
     private float _notifScroll;
+    // command palette (Ctrl+K): run any action or add any node by typing
+    private bool _cmdkOpen, _cmdkJustOpened;
+    private string _cmdkQuery = "";
+    private int _cmdkSel;
+    private float _cmdkScroll;
     private Ircuitry.Core.AchDef? _achCur;
     private float _achCurUntil;
     private bool _achOpen, _achJustOpened;
@@ -158,7 +163,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -418,6 +423,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
     public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh); OpenFileMenu(new Vector2(_vw - 360, _l.Tabs.Bottom + 3)); }
+    public void DebugCommandPalette() { OpenCommandPalette(); _cmdkQuery = "se"; _cmdkJustOpened = true; }
     public void DebugNotifications()
     {
         _l = Layout.Compute(_vw, _vh);
@@ -497,7 +503,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _cmdkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -526,6 +532,7 @@ public sealed partial class MainScreen : IScreen
             if (!Modal)
             {
                 _editor.Update(input, _l.Canvas, _ui.AnyFieldFocused);
+                if (input.Ctrl && input.KeyPressed(Keys.K)) OpenCommandPalette();
                 if (input.Ctrl && input.KeyPressed(Keys.S)) { _app.Save(); Notify("💾 Workspace saved"); }
                 if (input.Ctrl && input.KeyPressed(Keys.R)) ToggleRun();
                 if (input.Ctrl && input.KeyPressed(Keys.E)) { _app.ExportActive(); Notify($"📤 Exported {Bot.Name}"); }
@@ -729,6 +736,11 @@ public sealed partial class MainScreen : IScreen
             r.Begin();
             DrawServerLinkModal(r);
             r.End();
+        }
+        else if (_cmdkOpen)
+        {
+            _ui.Enabled = true;
+            DrawCommandPalette(r);
         }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
@@ -2416,6 +2428,156 @@ public sealed partial class MainScreen : IScreen
 
         if (!_notifJustOpened && In.LeftPressed && !panel.Contains(In.Mouse)) _notifOpen = false;
         _notifJustOpened = false;
+    }
+
+    // ===================================================================
+    //  Command palette (Ctrl+K): one search box over every action and every node
+    // ===================================================================
+    private sealed class Cmd { public string Icon = ""; public string Label = ""; public string Hint = ""; public Action Do = () => { }; }
+
+    public void OpenCommandPalette()
+    {
+        _l = Layout.Compute(_vw, _vh);
+        _cmdkOpen = true; _cmdkJustOpened = true; _cmdkQuery = ""; _cmdkSel = 0; _cmdkScroll = 0;
+        _ui.Focus = "cmdk.query";
+    }
+
+    private List<Cmd> BuildCommands()
+    {
+        var list = new List<Cmd>();
+        void A(string icon, string label, string hint, Action act) => list.Add(new Cmd { Icon = icon, Label = label, Hint = hint, Do = act });
+        bool running = Bot.Runtime.Running, hasNodes = Bot.Graph.Nodes.Count > 0;
+
+        A("💾", "Save workspace", "Ctrl+S", () => { _app.Save(); Notify("💾 Workspace saved"); });
+        A(running ? "■" : "▶", running ? "Stop bot" : "Run bot", "Ctrl+R", ToggleRun);
+        if (running) A("⟲", "Apply changes to the live bot", "", () => Bot.Runtime.ApplyGraph(Bot.Graph));
+        A("🧪", "Test (dry run)", "", () => { _testOpen = true; _testJustOpened = true; RunTest(); });
+        A("📐", "Tidy layout", "Ctrl+L", () => { if (hasNodes) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); } });
+        A("🔍", "Fit to view", "", () => _editor.FocusContent(_l.Canvas));
+        A("⟲", "Run history", "Ctrl+H", OpenHistory);
+        A("🔔", "Notifications", "", () => { _notifOpen = true; _notifJustOpened = true; _notifUnread = 0; });
+        A("🏆", "Achievements", "", () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
+        A("🔑", "Secret keys", "", () => { _secretsOpen = true; _secretsJustOpened = true; });
+        A("🧩", "Community nodes", "", OpenNodeManager);
+        A("📡", "Saved servers", "", () => { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; });
+        A("🗺", "Network map", "", () => { _networkOpen = true; _networkJustOpened = true; });
+        A("📸", "Save a snapshot", "", () => { _app.SaveSnapshot(); Notify("📸 Snapshot saved"); });
+        if (_app.Snapshots().Length > 0) A("↩", "Restore a snapshot", "", () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
+        A("📤", "Export this bot", "Ctrl+E", () => { _app.ExportActive(); Notify($"📤 Exported {Bot.Name}"); });
+        A("📥", "Import a bot", "", () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
+        A("📂", "Show files", "", () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
+        A("🎓", "Tutorial", "", ForceStartTutorial);
+
+        // every node: "Add <Title>", spawned at the centre of the canvas
+        foreach (var def in NodeCatalog.All)
+        {
+            var d = def;
+            A(d.Icon, "Add: " + d.Title, d.Category.ToString().ToLowerInvariant(), () =>
+            {
+                var world = _editor.Cam.ScreenToWorld(new Vector2(_l.Canvas.Center.X, _l.Canvas.Center.Y));
+                var n = _editor.Spawn(d, world);
+                _editor.Selection.Clear(); _editor.Selection.Add(n.Id); _app.MarkDirty();
+            });
+        }
+        return list;
+    }
+
+    // subsequence/contains fuzzy score; -1 = no match. Higher is better.
+    private static int FuzzyScore(string label, string q)
+    {
+        if (q.Length == 0) return 1;
+        string L = label.ToLowerInvariant();
+        int idx = L.IndexOf(q, StringComparison.Ordinal);
+        if (idx == 0) return 1000;
+        if (idx > 0) return (L[idx - 1] is ' ' or ':' or '-' ? 800 : 400) - idx;
+        int qi = 0;
+        foreach (char c in L) { if (qi < q.Length && c == q[qi]) qi++; }
+        return qi == q.Length ? 90 - L.Length / 8 : -1;
+    }
+
+    private List<Cmd> FilterCommands()
+    {
+        string q = _cmdkQuery.Trim().ToLowerInvariant();
+        var all = BuildCommands();
+        var scored = new List<(int score, int order, Cmd cmd)>();
+        for (int i = 0; i < all.Count; i++)
+        {
+            int s = FuzzyScore(all[i].Label, q);
+            if (s >= 0) scored.Add((s, i, all[i]));
+        }
+        scored.Sort((a, b) => a.score != b.score ? b.score.CompareTo(a.score) : a.order.CompareTo(b.order));
+        var res = new List<Cmd>(scored.Count);
+        foreach (var s in scored) res.Add(s.cmd);
+        return res;
+    }
+
+    private void DrawCommandPalette(Renderer r)
+    {
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
+        float pw = MathF.Min(560, _vw * 0.86f), ph = MathF.Min(460, _vh * 0.8f);
+        var panel = new RectF((_vw - pw) / 2f, MathF.Max(60, _vh * 0.16f), pw, ph);
+        r.RoundFill(panel.Offset(0, 5), Theme.WithAlpha(Color.Black, 0.22f), 14);
+        r.RoundFill(panel, Theme.Panel, 14);
+        r.RoundOutline(panel, Theme.WithAlpha(Theme.Violet, 0.9f), 14);
+        r.End();
+
+        float x = panel.X + 16, w = panel.W - 32, y = panel.Y + 14;
+        r.Begin();
+        r.Text(r.Fonts.Get(FontKind.Display, 16), "⌘", new Vector2(x, y + 3), Theme.Violet);
+        r.End();
+        r.Begin();
+        var prev = _cmdkQuery;
+        _cmdkQuery = _ui.TextField("cmdk.query", new RectF(x + 26, y, w - 26, 32), _cmdkQuery, "Type a command or node…  (↑ ↓ Enter)");
+        if (_cmdkQuery != prev) { _cmdkSel = 0; _cmdkScroll = 0; }
+        r.End();
+        y += 42;
+
+        var results = FilterCommands();
+        const float rowH = 34f;
+        var listRect = new RectF(x, y, w, panel.Bottom - 14 - y);
+
+        // keyboard navigation (edges are stable through the frame)
+        if (results.Count > 0)
+        {
+            if (In.KeyPressed(Keys.Down)) _cmdkSel = (_cmdkSel + 1) % results.Count;
+            if (In.KeyPressed(Keys.Up)) _cmdkSel = (_cmdkSel - 1 + results.Count) % results.Count;
+            _cmdkSel = Math.Clamp(_cmdkSel, 0, results.Count - 1);
+            if (In.EnterPressed) { var c = results[_cmdkSel]; _cmdkOpen = false; c.Do(); r.Begin(); r.End(); return; }
+            // keep the selection in view
+            float selTop = _cmdkSel * rowH, selBot = selTop + rowH;
+            if (selTop < _cmdkScroll) _cmdkScroll = selTop;
+            if (selBot > _cmdkScroll + listRect.H) _cmdkScroll = selBot - listRect.H;
+        }
+        float total = results.Count * rowH;
+        if (listRect.Contains(In.Mouse) && In.ScrollDelta != 0) _cmdkScroll -= In.ScrollDelta;
+        _cmdkScroll = Math.Clamp(_cmdkScroll, 0, MathF.Max(0, total - listRect.H));
+
+        r.Begin(BlendMode.Alpha, listRect.ToRectangle());
+        var tf = r.Fonts.Get(FontKind.Sans, 13);
+        var icf = r.Fonts.Get(FontKind.Display, 15);
+        var hf = r.Fonts.Get(FontKind.Mono, 10);
+        float ry = listRect.Y - _cmdkScroll;
+        for (int i = 0; i < results.Count; i++)
+        {
+            var c = results[i];
+            var row = new RectF(listRect.X, ry, listRect.W, rowH - 2);
+            if (row.Bottom >= listRect.Y && row.Y <= listRect.Bottom)
+            {
+                bool hover = row.Contains(In.Mouse) && listRect.Contains(In.Mouse);
+                if (hover) _cmdkSel = i;
+                if (i == _cmdkSel) { r.RoundFill(row, Theme.PanelHi, 7); r.Fill(new RectF(row.X, row.Y + 5, 3, row.H - 10), Theme.Violet); }
+                r.Text(icf, c.Icon, new Vector2(row.X + 8, row.Y + 6), Theme.Text);
+                r.Text(tf, r.Ellipsize(tf, c.Label, row.W - 130), new Vector2(row.X + 34, row.Y + 8), Theme.Text);
+                if (c.Hint.Length > 0) r.TextRight(hf, c.Hint, row.Right - 10, row.Y + 10, Theme.TextFaint);
+                if (hover && In.LeftPressed) { _cmdkOpen = false; c.Do(); break; }
+            }
+            ry += rowH;
+        }
+        r.End();
+
+        if (!_cmdkJustOpened && In.LeftPressed && !panel.Contains(In.Mouse)) _cmdkOpen = false;
+        _cmdkJustOpened = false;
     }
 
     private void DrawAchievementsModal(Renderer r)
