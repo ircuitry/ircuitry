@@ -28,6 +28,14 @@ public sealed class GraphEditor
     public Func<string, int>? FireCount;
     public bool Running;
     public bool ShowMinimap = true;
+    public bool SnapToGrid;                 // dragged nodes snap to the grid when on
+
+    // minimap interaction (the box is a draggable viewport); mapping is captured each draw
+    private bool _minimapDrag, _mmActive;
+    private RectF _mmBox;
+    private Vector2 _mmMin, _mmOrigin;
+    private float _mmScale;
+    private string? _hoverWire;             // connection key the cursor is closest to (for hover highlight)
 
     // undo / redo (graph-JSON snapshots) + node clipboard (shared across bots)
     private readonly List<string> _undo = new();
@@ -294,6 +302,22 @@ public sealed class GraphEditor
 
         _hoverPort = inCanvas ? HitPort(input.Mouse) : null;
 
+        // minimap: click or drag inside the box to pan the viewport there
+        if (_mmActive && !uiCapturing)
+        {
+            if (input.LeftPressed && _mmBox.Contains(input.Mouse)) _minimapDrag = true;
+            if (_minimapDrag)
+            {
+                if (input.LeftDown) Cam.CenterOn(_mmMin + (input.Mouse - _mmOrigin) / _mmScale, canvas.Center);
+                else _minimapDrag = false;
+                _hoverPort = null;
+                return;   // the minimap owns the mouse this frame
+            }
+        }
+
+        // hover-highlight the wire nearest the cursor (for legibility in dense graphs)
+        _hoverWire = (inCanvas && _mode == Mode.Idle && _hoverPort == null) ? NearestWire(input.Mouse) : null;
+
         switch (_mode)
         {
             case Mode.Idle:
@@ -312,7 +336,7 @@ public sealed class GraphEditor
             case Mode.DragNodes:
                 var delta = mw - _dragStartWorld;
                 if (delta.LengthSquared() > 4) Dragged = true;
-                foreach (var kv in _dragOrigin) { var n = Graph.Find(kv.Key); if (n != null) n.Pos = kv.Value + delta; }
+                foreach (var kv in _dragOrigin) { var n = Graph.Find(kv.Key); if (n != null) n.Pos = SnapToGrid ? SnapPos(kv.Value + delta) : kv.Value + delta; }
                 if (input.LeftReleased)
                 {
                     if (Dragged && _preDrag != null) { _undo.Add(_preDrag); if (_undo.Count > 60) _undo.RemoveAt(0); _redo.Clear(); }
@@ -345,6 +369,51 @@ public sealed class GraphEditor
         }
         if (!uiCapturing && !input.Ctrl && _mode == Mode.Idle && input.KeyPressed(Keys.M))
             ToggleMuteSelection();
+        if (!uiCapturing && !input.Ctrl && _mode == Mode.Idle && input.KeyPressed(Keys.F))
+            FrameSelection(canvas);
+    }
+
+    private static Vector2 SnapPos(Vector2 v) { const float g = 28f; return new(MathF.Round(v.X / g) * g, MathF.Round(v.Y / g) * g); }
+
+    /// <summary>Zoom/pan to fit the current selection (or the whole graph if nothing is selected).</summary>
+    public void FrameSelection(RectF canvas)
+    {
+        var list = (Selection.Count > 0 ? Graph.Nodes.Where(n => Selection.Contains(n.Id)) : Graph.Nodes).ToList();
+        if (list.Count == 0) { Cam.CenterOn(Vector2.Zero, canvas.Center); return; }
+        var min = new Vector2(float.MaxValue); var max = new Vector2(float.MinValue);
+        foreach (var n in list) { var l = NodeLayout.For(n); min = Vector2.Min(min, l.Card.Pos); max = Vector2.Max(max, new Vector2(l.Card.Right, l.Card.Bottom)); }
+        var span = Vector2.Max(max - min, new Vector2(1));
+        float z = MathF.Min((canvas.W - 100f) / span.X, (canvas.H - 100f) / span.Y);
+        Cam.Zoom = Math.Clamp(z, Camera.MinZoom, Camera.MaxZoom);
+        Cam.CenterOn((min + max) / 2f, canvas.Center);
+    }
+
+    private static string WireKey(Connection c) => $"{c.FromNode}:{c.FromPin}>{c.ToNode}:{c.ToPin}";
+
+    // the connection whose routed path passes closest to the cursor, within a small screen threshold
+    private string? NearestWire(Vector2 screen)
+    {
+        string? best = null; float bestD = 10f;   // px
+        foreach (var c in Graph.Connections)
+        {
+            var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
+            if (a == null || b == null || a.Muted || b.Muted) continue;
+            if (c.FromPin >= a.Def.Outputs.Length || c.ToPin >= b.Def.Inputs.Length) continue;
+            var world = WorldRoute(c);
+            for (int i = 1; i < world.Count; i++)
+            {
+                float d = DistToSegment(screen, Cam.WorldToScreen(world[i - 1]), Cam.WorldToScreen(world[i]));
+                if (d < bestD) { bestD = d; best = WireKey(c); }
+            }
+        }
+        return best;
+    }
+
+    private static float DistToSegment(Vector2 p, Vector2 a, Vector2 b)
+    {
+        var ab = b - a; float len2 = ab.LengthSquared();
+        float t = len2 < 1e-4f ? 0f : Math.Clamp(Vector2.Dot(p - a, ab) / len2, 0f, 1f);
+        return Vector2.Distance(p, a + ab * t);
     }
 
     private void BeginLeftPress(InputState input, Vector2 mw)
@@ -521,6 +590,7 @@ public sealed class GraphEditor
 
     private void DrawMinimap(Renderer r, RectF canvas)
     {
+        _mmActive = false;
         if (Graph.Nodes.Count < 2 || canvas.W < 360 || canvas.H < 300) return;
 
         var min = new Vector2(float.MaxValue); var max = new Vector2(float.MinValue);
@@ -555,7 +625,10 @@ public sealed class GraphEditor
             r.Fill(new RectF(a.X, a.Y, MathF.Max(2.5f, b.X - a.X), MathF.Max(2.5f, b.Y - a.Y)), col);
         }
         var va = Map(vtl); var vb = Map(vbr);
-        r.RectOutline(new RectF(va.X, va.Y, vb.X - va.X, vb.Y - va.Y), Theme.WithAlpha(Theme.CyanDim, 0.95f), 1.5f);
+        r.RectOutline(new RectF(va.X, va.Y, vb.X - va.X, vb.Y - va.Y), Theme.WithAlpha(Theme.CyanDim, _minimapDrag ? 1f : 0.95f), _minimapDrag ? 2f : 1.5f);
+
+        // expose the mapping so Update can pan when the box is dragged
+        _mmActive = true; _mmBox = box; _mmMin = min; _mmOrigin = origin; _mmScale = sc;
     }
 
     private void DrawGrid(Renderer r, RectF c)
@@ -597,7 +670,9 @@ public sealed class GraphEditor
         var world = WorldRoute(c);
         var pts = new List<Vector2>(world.Count);
         foreach (var wp in world) pts.Add(Cam.WorldToScreen(wp));
-        DrawTrace(r, pts, muted ? Theme.WithAlpha(col, 0.28f) : col);
+        bool hovered = !muted && _hoverWire == WireKey(c);
+        if (hovered) DrawTrace(r, pts, Theme.WithAlpha(Theme.Mix(col, Color.White, 0.55f), 0.5f));   // soft halo under the hovered wire
+        DrawTrace(r, pts, muted ? Theme.WithAlpha(col, 0.28f) : (hovered ? Theme.Mix(col, Color.White, 0.35f) : col));
 
         // travelling data-flow dots while a bot is live (brighter on a freshly-fired source)
         if (Running && !muted)

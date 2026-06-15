@@ -33,6 +33,8 @@ public sealed partial class MainScreen : IScreen
     private Vector2 _dragStart;
     private bool _dragging;
     private float _paletteScroll;
+    private float _inspScroll;        // inspector panel scroll (the connection panel can run long)
+    private string _inspKey = "";     // what the inspector is showing, to reset scroll on change
     private string _paletteSearch = "";
     private float _clipCheckAt = -1f;     // throttle clipboard polling
     private string? _clipNodeTitle;        // title of an installable .ircnode currently in the clipboard, or null
@@ -1098,6 +1100,8 @@ public sealed partial class MainScreen : IScreen
         Sep();
         Item("📐", "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
         Item("🔍", "Fit to view", "", hasNodes, () => _editor.FocusContent(_l.Canvas));
+        Item("🎯", "Frame selection", "F", hasNodes, () => _editor.FrameSelection(_l.Canvas));
+        Item(_editor.SnapToGrid ? "⊞" : "⊡", _editor.SnapToGrid ? "Snap to grid: on" : "Snap to grid: off", "", true, () => _editor.SnapToGrid = !_editor.SnapToGrid);
         Sep();
         Item("🎓", "Tutorial", "", true, ForceStartTutorial);
         _ctxOpen = true; _ctxJustOpened = true;
@@ -1878,11 +1882,30 @@ public sealed partial class MainScreen : IScreen
     {
         var p = _l.Inspector;
         var content = new RectF(p.X + 4, p.Y + Hud.HeaderH + 2, p.W - 8, p.H - Hud.HeaderH - 6);
+        // reset scroll when the inspected thing changes (node id, or which server is selected)
+        string key = (_editor.SelectedSingle?.Id ?? "conn") + ":" + Bot.SelectedServer;
+        if (key != _inspKey) { _inspKey = key; _inspScroll = 0; }
+        if (content.Contains(In.Mouse) && In.ScrollDelta != 0 && !Modal) _inspScroll -= In.ScrollDelta / 4f;
+
         r.Begin(BlendMode.Alpha, content.ToRectangle());
+        var scrolled = content.Offset(0, -_inspScroll);   // shift content up by the scroll amount; the scissor still clips to the panel
         var sel = _editor.SelectedSingle;
-        if (sel != null) DrawNodeInspector(r, content, sel);
-        else DrawConnectionInspector(r, content);
+        float bottom = sel != null ? DrawNodeInspector(r, scrolled, sel) : DrawConnectionInspector(r, scrolled);
         r.End();
+
+        // clamp scroll to the content height we just measured
+        float total = bottom - scrolled.Y;
+        _inspScroll = Math.Clamp(_inspScroll, 0, MathF.Max(0, total - content.H));
+
+        // a slim scrollbar when there's overflow
+        if (total > content.H)
+        {
+            float track = content.H, thumb = MathF.Max(28f, track * content.H / total);
+            float ty = content.Y + (_inspScroll / (total - content.H)) * (track - thumb);
+            r.Begin();
+            r.RoundFill(new RectF(content.Right - 4, ty, 3, thumb), Theme.WithAlpha(Theme.Text, 0.28f), 1.5f);
+            r.End();
+        }
     }
 
     /// <summary>A clickable "▸ Obby · advanced" header; returns the new expanded state. Advances y.</summary>
@@ -1896,7 +1919,7 @@ public sealed partial class MainScreen : IScreen
         return hover && In.LeftPressed ? !expanded : expanded;
     }
 
-    private void DrawNodeInspector(Renderer r, RectF c, Node n)
+    private float DrawNodeInspector(Renderer r, RectF c, Node n)
     {
         float x = c.X + 14, w = c.W - 28, y = c.Y + 14;
         var cat = Theme.Category(n.Def.Category);
@@ -1973,6 +1996,7 @@ public sealed partial class MainScreen : IScreen
         y += 8;
         if (!_tut.Active && _ui.Button("insp.del", new RectF(x, y, w, 32), "✕  DELETE NODE", Theme.Alert))
         { Bot.Graph.Remove(n); _editor.Selection.Clear(); _app.MarkDirty(); }
+        return y + 40;
     }
 
     // A growable list param: one row to start, an "Add" button to add more, and a per-row remove.
@@ -2006,7 +2030,7 @@ public sealed partial class MainScreen : IScreen
         return Ircuitry.Core.ParamList.Encode(rows, pair);
     }
 
-    private void DrawConnectionInspector(Renderer r, RectF c)
+    private float DrawConnectionInspector(Renderer r, RectF c)
     {
         var s = Bot.Settings;
         float x = c.X + 14, w = c.W - 28, y = c.Y + 14;
@@ -2109,6 +2133,7 @@ public sealed partial class MainScreen : IScreen
                 Bot.Runtime.Running ? "■  STOP BOT" : (Bot.Servers.Count > 1 ? "▶  RUN ALL SERVERS" : "▶  RUN BOT"),
                 Bot.Runtime.Running ? Theme.Alert : Theme.Cyan, primary: true))
             ToggleRun();
+        return y + 42;
     }
 
     /// <summary>Status label+colour for one server connection (or offline when it isn't live).</summary>
