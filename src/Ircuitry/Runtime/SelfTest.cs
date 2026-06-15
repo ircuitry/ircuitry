@@ -143,6 +143,7 @@ public static class SelfTest
         fails += JsonAndLoopsTest();
         fails += NodeAsToolTest();
         fails += CompositeBakeTest();
+        fails += CompositeMiniSerializeTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1699,6 +1700,23 @@ public static class SelfTest
             Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
         }
+    }
+
+    /// <summary>The in-modal mini editor's whole-graph serialization (explicit Subflow scaffold) produces a
+    /// loadable composite node with the pins defined by its Subflow Input/Output nodes.</summary>
+    private static int CompositeMiniSerializeTest()
+    {
+        var mg = new NodeGraph();
+        var fin = mg.Add(NodeCatalog.Get("flow.in"), Vector2.Zero);
+        var arg = mg.Add(NodeCatalog.Get("flow.arg"), new Vector2(0, 100)); arg.SetParam("name", "text");
+        var up = mg.Add(NodeCatalog.Get("data.transform"), new Vector2(200, 100)); up.SetParam("op", "upper");
+        var ret = mg.Add(NodeCatalog.Get("flow.return"), new Vector2(400, 100)); ret.SetParam("name", "out");
+        mg.Connect(fin.Id, 0, ret.Id, 0); mg.Connect(arg.Id, 0, up.Id, 0); mg.Connect(up.Id, 0, ret.Id, 1);
+        var med = new Ircuitry.Editor.GraphEditor(mg);
+        var m = med.SerializeAsComposite("subflow.mini", "Mini", "🧩", "Data", "x");
+        var def = m != null ? CustomNode.Load(m) : null;
+        bool ok = def != null && def.Inputs.Any(p => p.Name == "text") && def.Outputs.Any(p => p.Name == "out");
+        return Expect("composite-mini-serialize", ok, "built=" + (m != null));
     }
 
     /// <summary>A custom .ircnode with a Tool output is usable directly as an AI tool: Ask AI advertises it

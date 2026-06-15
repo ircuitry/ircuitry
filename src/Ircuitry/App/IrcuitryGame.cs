@@ -174,6 +174,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showpalette") >= 0) ms?.DebugCommandPalette();
         if (Array.IndexOf(_args, "--showlibprefs") >= 0) ms?.DebugLibraryPrefs();
         if (Array.IndexOf(_args, "--shownodebuilder") >= 0) ms?.DebugOpenNodeBuilder();
+        if (Array.IndexOf(_args, "--showcomposite") >= 0) ms?.DebugOpenComposite();
         if (Array.IndexOf(_args, "--showwfinstall") >= 0) ms?.DebugWorkflowInstall();
         if (Array.IndexOf(_args, "--showbake") >= 0) ms?.DebugOpenBake();
         for (int i = 0; i < _args.Length - 1; i++)

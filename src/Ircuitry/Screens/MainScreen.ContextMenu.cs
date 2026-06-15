@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Ircuitry.Core;
+using Ircuitry.Graph;
 using Ircuitry.Render;
 
 namespace Ircuitry.Screens;
@@ -47,6 +48,9 @@ public sealed partial class MainScreen
             Item("📑", "Duplicate" + suffix, "Ctrl+D", true, () => { _editor.DuplicateSelection(); _app.MarkDirty(); });
             Item("📥", "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
             Item("🧁", "Bake into a node…", "", _editor.SelectionCanBake, () => { _saveNodeName = "My Node"; _saveNodeIcon = "🧩"; _saveNodeCat = "Logic"; _saveNodeDesc = ""; _saveNodeOpen = true; _saveNodeJustOpened = true; _ui.Focus = "savenode.name"; });
+            var only = n == 1 ? Bot.Graph.Find(_editor.Selection.First()) : null;
+            if (only != null && NodeCatalog.IsCustom(only.TypeId))
+                Item("✏️", "Edit node…", "", true, () => OpenNodeBuilderForEdit(only.TypeId));
             Sep();
             Item(anyOn ? "🔇" : "🔊", anyOn ? "Mute" + suffix : "Unmute" + suffix, "M", true, () => { _editor.ToggleMuteSelection(); _app.MarkDirty(); });
             Item("🔌", "Disconnect wires", "", true, () => { _editor.DisconnectSelection(); _app.MarkDirty(); });

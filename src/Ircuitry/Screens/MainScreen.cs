@@ -809,7 +809,7 @@ public sealed partial class MainScreen : IScreen
         else if (_nbOpen)
         {
             _ui.Enabled = true;
-            DrawNodeBuilder(r);
+            DrawNodeBuilder(r, clock);
         }
         else if (_nodeMgrOpen)
         {

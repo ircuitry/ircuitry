@@ -191,6 +191,30 @@ public sealed class GraphEditor
     /// <summary>True once at least one ordinary node is selected (so it can be baked into a composite).</summary>
     public bool SelectionCanBake => Selection.Count > 0 && Graph.Nodes.Any(n => Selection.Contains(n.Id) && !n.Def.IsTrigger);
 
+    /// <summary>Serialize this editor's WHOLE graph into a composite (subgraph) node manifest - used by the
+    /// in-modal mini editor. Pins come from the Subflow Input/Output nodes in it. Needs a Subflow Start.</summary>
+    public string? SerializeAsComposite(string typeId, string title, string icon, string category, string description)
+    {
+        var nodes = Graph.Nodes;
+        if (!nodes.Any(n => n.TypeId == "flow.in")) return null;
+        var sub = new NodeGraph();
+        foreach (var n in nodes) sub.Nodes.Add(CloneForClip(n));
+        foreach (var c in Graph.Connections) sub.Connections.Add(new Connection(c.FromNode, c.FromPin, c.ToNode, c.ToPin));
+
+        static string J(string s) => System.Text.Json.JsonSerializer.Serialize(s);
+        var inputs = new List<string> { "{\"name\":\"\",\"kind\":\"Exec\"}" };
+        foreach (var a in nodes.Where(n => n.TypeId == "flow.arg").Select(n => n.GetParam("name")).Where(s => s.Length > 0).Distinct())
+            inputs.Add("{\"name\":" + J(a) + ",\"kind\":\"Text\"}");
+        var outputs = new List<string> { "{\"name\":\"then\",\"kind\":\"Exec\"}" };
+        foreach (var rr in nodes.Where(n => n.TypeId == "flow.return").Select(n => n.GetParam("name")).Where(s => s.Length > 0).Distinct())
+            outputs.Add("{\"name\":" + J(rr) + ",\"kind\":\"Text\"}");
+
+        return "{\"typeId\":" + J(typeId) + ",\"title\":" + J(title) + ",\"subtitle\":\"composite\",\"icon\":" + J(icon)
+            + ",\"category\":" + J(category) + ",\"description\":" + J(description ?? "")
+            + ",\"inputs\":[" + string.Join(",", inputs) + "],\"outputs\":[" + string.Join(",", outputs) + "],"
+            + "\"subgraph\":" + GraphSerializer.Save(sub, title) + "}";
+    }
+
     /// <summary>
     /// "Bake" a selection of ordinary nodes into ONE reusable composite (subgraph) node, deriving its pins
     /// from the wires that cross the selection boundary - so you never have to place Subflow Input/Output
