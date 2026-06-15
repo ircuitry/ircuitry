@@ -2159,7 +2159,7 @@ public sealed partial class MainScreen : IScreen
         }
         if (cx + 30 > x + w + 0.5f) { cx = x; cy += chipH + 6; }
         if (_ui.Button("c.sv.add", new RectF(cx, cy, 30, chipH), "＋", Theme.Lime))
-        { Bot.Servers.Add(new IrcSettings()); Bot.SelectedServer = Bot.Servers.Count - 1; _app.MarkDirty(); }
+        { Bot.Servers.Add(new IrcSettings { Nick = Ircuitry.Core.BakeryNames.Random() }); Bot.SelectedServer = Bot.Servers.Count - 1; _app.MarkDirty(); }
         y = cy + chipH + 12;
 
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), "IRC Connection", new Vector2(x, y), Theme.Text); y += 24;
@@ -2190,7 +2190,10 @@ public sealed partial class MainScreen : IScreen
         var recon = _ui.Toggle("c.recon", new RectF(x, y, w, 24), s.AutoReconnect, "Auto-reconnect"); if (recon != s.AutoReconnect) { s.AutoReconnect = recon; _app.MarkDirty(); } y += 28;
         var onstart = _ui.Toggle("c.onstart", new RectF(x, y, w, 24), s.ConnectOnStartup, "Connect on app startup"); if (onstart != s.ConnectOnStartup) { s.ConnectOnStartup = onstart; _app.MarkDirty(); } y += 34;
 
-        y = Labeled(r, "NICK", x, y); s.Nick = Edit("c.nick", new RectF(x, y, w, 30), s.Nick, "ircuitry-bot"); y += 40;
+        y = Labeled(r, "NICK", x, y);
+        s.Nick = Edit("c.nick", new RectF(x, y, w - 38, 30), s.Nick, "BananaBread66");
+        if (_ui.Button("c.nick.gen", new RectF(x + w - 34, y, 34, 30), "🎲", Theme.Berry)) { s.Nick = Ircuitry.Core.BakeryNames.Random(); _app.MarkDirty(); }
+        y += 40;
         float idW = (w - 8) / 2f;
         Labeled(r, "IDENT", x, y); Labeled(r, "REAL NAME", x + idW + 8, y); y += 18;
         s.User = Edit("c.ident", new RectF(x, y, idW, 30), s.User, "ircuitry"); s.RealName = Edit("c.real", new RectF(x + idW + 8, y, idW, 30), s.RealName, "ircuitry bot"); y += 40;

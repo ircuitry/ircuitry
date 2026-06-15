@@ -77,6 +77,7 @@ public sealed class AppModel
     public Bot AddBot(string template = "blank")
     {
         var bot = new Bot($"bot-{Bots.Count + 1}");
+        bot.Settings.Nick = Ircuitry.Core.BakeryNames.Random();   // a fresh cozy default handle per bot
         BuildTemplate(bot.Graph, template);
         bot.Log.Add(LogLevel.System, bot.Graph.Nodes.Count == 0
             ? "New blank bot. Add an event node and a connection."
@@ -325,6 +326,7 @@ public sealed class AppModel
     private static Bot SeedDemoBot()
     {
         var bot = new Bot("main");
+        bot.Settings.Nick = Ircuitry.Core.BakeryNames.Random();
         var g = bot.Graph;
         Node N(string type, float x, float y) => g.Add(NodeCatalog.Get(type), new Vector2(x, y));
 
