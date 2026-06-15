@@ -38,6 +38,33 @@ public static class Program
             Console.WriteLine(b.Length > 240 ? b.Substring(0, 240) : b);
             return;
         }
+        {
+            int wi = Array.IndexOf(args, "--validate-workflow");
+            if (wi >= 0 && wi + 1 < args.Length)
+            {
+                Environment.Exit(WorkflowValidator.Run(args[wi + 1]));
+                return;
+            }
+        }
+        if (Array.IndexOf(args, "--schema") >= 0)
+        {
+            foreach (var d in Ircuitry.Graph.NodeCatalog.All)
+            {
+                var ins = new System.Collections.Generic.List<string>();
+                for (int k = 0; k < d.Inputs.Length; k++) ins.Add($"{k}:{(d.Inputs[k].Name.Length > 0 ? d.Inputs[k].Name : "_")}({d.Inputs[k].Kind})");
+                var outs = new System.Collections.Generic.List<string>();
+                for (int k = 0; k < d.Outputs.Length; k++) outs.Add($"{k}:{(d.Outputs[k].Name.Length > 0 ? d.Outputs[k].Name : "_")}({d.Outputs[k].Kind})");
+                var ps = new System.Collections.Generic.List<string>();
+                foreach (var p in d.Params)
+                {
+                    string ch = p.Choices is { Length: > 0 } ? "[" + string.Join("|", p.Choices) + "]" : "";
+                    ps.Add($"{p.Key}={p.Type}{ch}");
+                }
+                Console.WriteLine($"{d.TypeId} | cat={d.Category}{(d.IsTrigger ? " TRIGGER" : "")} | in: {string.Join(" ", ins)} | out: {string.Join(" ", outs)} | params: {string.Join(" ", ps)}");
+            }
+            Environment.Exit(0);
+            return;
+        }
         if (Array.IndexOf(args, "--listnodes") >= 0)
         {
             foreach (var d in Ircuitry.Graph.NodeCatalog.Custom)
