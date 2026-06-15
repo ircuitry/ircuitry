@@ -31,6 +31,13 @@ public static class Program
             Console.WriteLine("registered ircuitry:// handler");
             return;
         }
+        if (Array.IndexOf(args, "--updatecheck") >= 0)
+        {
+            var (s, b) = Ircuitry.Net.Http.Send("GET", "https://api.github.com/repos/ircuitry/ircuitry/releases/latest", System.Array.Empty<(string, string)>(), null);
+            Console.WriteLine($"status={s} len={b.Length}");
+            Console.WriteLine(b.Length > 240 ? b.Substring(0, 240) : b);
+            return;
+        }
         if (Array.IndexOf(args, "--listnodes") >= 0)
         {
             foreach (var d in Ircuitry.Graph.NodeCatalog.Custom)

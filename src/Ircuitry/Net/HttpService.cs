@@ -22,6 +22,7 @@ public static class Http
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.TryAddWithoutValidation("User-Agent", "ircuitry");
             using var resp = DlClient.Send(req, HttpCompletionOption.ResponseHeadersRead);
             if (!resp.IsSuccessStatusCode) return false;
             long total = resp.Content.Headers.ContentLength ?? -1;
@@ -47,11 +48,15 @@ public static class Http
         {
             using var req = new HttpRequestMessage(new HttpMethod(method.ToUpperInvariant()), url);
             string contentType = "application/json";
+            bool hasUserAgent = false;
             foreach (var (k, v) in headers)
             {
                 if (k.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)) { contentType = v; continue; }
+                if (k.Equals("User-Agent", StringComparison.OrdinalIgnoreCase)) hasUserAgent = true;
                 req.Headers.TryAddWithoutValidation(k, v);
             }
+            // some APIs (notably GitHub) reject requests with no User-Agent; .NET sends none by default
+            if (!hasUserAgent) req.Headers.TryAddWithoutValidation("User-Agent", "ircuitry");
             if (body != null && method.ToUpperInvariant() != "GET")
                 req.Content = new StringContent(body, Encoding.UTF8, contentType);
 
