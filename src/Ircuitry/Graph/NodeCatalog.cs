@@ -84,6 +84,15 @@ public static class NodeCatalog
         _byId = _all.ToDictionary(d => d.TypeId);
     }
 
+    /// <summary>Nodes that emit an IRC effect, so they get the per-node "Send via server" route override.</summary>
+    private static readonly HashSet<string> IrcSenders = new()
+    {
+        "action.reply", "action.replythread", "action.say", "action.join", "action.part", "action.react",
+        "action.setname", "action.away", "action.tagmsg", "action.redact", "action.monitor", "action.chathistory",
+        "action.rename", "action.metadata", "action.multiline",
+        "irc.action", "irc.kick", "irc.mode", "irc.raw", "irc.topic", "irc.typing.start", "irc.typing.stop",
+    };
+
     // ---- tiny builder helpers ----
     private static PinDef Ex(string n = "") => new(n, PinKind.Exec);
     private static PinDef Tx(string n) => new(n, PinKind.Text);
@@ -1604,6 +1613,13 @@ public static class NodeCatalog
             };
             // streaming as a bot-tools step is opt-in (advanced) - off for every node by default
             d.StreamByDefault = false;
+            // every node that talks to IRC gains an optional "Send via server" override: blank routes the
+            // effect to the server the event came from (origin), or name one of the bot's other servers
+            if (IrcSenders.Contains(d.TypeId))
+            {
+                var ps = new List<ParamDef>(d.Params) { P("server", "Send via server", ParamType.Text, "", "(origin)") };
+                d.Params = ps.ToArray();
+            }
         }
 
         _builtins = list;

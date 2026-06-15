@@ -337,6 +337,17 @@ public sealed partial class MainScreen : IScreen
     public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
     public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh); OpenFileMenu(new Vector2(_vw - 360, _l.Tabs.Bottom + 3)); }
+    public void DebugMultiServer()
+    {
+        _l = Layout.Compute(_vw, _vh);
+        var b = Bot;
+        b.Servers.Clear();
+        b.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = "Libera", Host = "irc.libera.chat", Channels = "#ircuitry", ConnectOnStartup = true });
+        b.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = "OFTC", Host = "irc.oftc.net", Channels = "#bots" });
+        b.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = "Libera (test)", Host = "irc.libera.chat", Channels = "#test" });
+        b.SelectedServer = 0;
+        _editor.Selection.Clear();   // no node selected → the connection inspector shows
+    }
     public void DebugShowNetwork()
     {
         _l = Layout.Compute(_vw, _vh);
@@ -1758,6 +1769,7 @@ public sealed partial class MainScreen : IScreen
         foreach (var pdef in n.Def.Params)
         {
             if (pdef.VisibleWhen != null && !pdef.VisibleWhen(n)) continue;   // hide fields that don't apply (e.g. schedule mode)
+            if (pdef.Key == "server" && Bot.Servers.Count <= 1) continue;     // the route override only matters with several servers
             r.Text(lf, pdef.Label.ToUpperInvariant(), new Vector2(x, y), Theme.TextDim);
             y += 18;
             string cur = n.GetParam(pdef.Key);
@@ -1838,15 +1850,42 @@ public sealed partial class MainScreen : IScreen
         if (_ui.Button("c.network", new RectF(x + half + 8, y, half, 28), "🗺 Network", Theme.Berry)) { _networkOpen = true; _networkJustOpened = true; }
         y += 40;
 
+        // ---- server selector: a bot can hold several servers; pick which one to edit ----
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), "SERVERS  ·  the graph reacts to all of them", new Vector2(x, y), Theme.TextDim); y += 18;
+        var chipFont = r.Fonts.Get(FontKind.Sans, 12);
+        float chipH = 26, cx = x, cy = y;
+        for (int i = 0; i < Bot.Servers.Count; i++)
+        {
+            var sv = Bot.Servers[i];
+            string lbl = sv.DisplayName;
+            float cw = MathF.Min(w, chipFont.MeasureString(lbl).X + 30);
+            if (cx + cw > x + w + 0.5f) { cx = x; cy += chipH + 6; }
+            var chip = new RectF(cx, cy, cw, chipH);
+            bool selected = i == Bot.SelectedServer;
+            if (_ui.Button($"c.sv.{i}", chip, lbl, selected ? Theme.Cyan : Theme.Idle, primary: selected)) Bot.SelectedServer = i;
+            var conn = Bot.Runtime.FindConn(sv.DisplayName);
+            Hud.SoftDot(r, new Vector2(chip.X + 7, chip.Y + 7), 3.5f, conn != null ? StatusColor(conn) : Theme.Idle);
+            cx += cw + 6;
+        }
+        if (cx + 30 > x + w + 0.5f) { cx = x; cy += chipH + 6; }
+        if (_ui.Button("c.sv.add", new RectF(cx, cy, 30, chipH), "＋", Theme.Lime))
+        { Bot.Servers.Add(new IrcSettings()); Bot.SelectedServer = Bot.Servers.Count - 1; _app.MarkDirty(); }
+        y = cy + chipH + 12;
+
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), "IRC Connection", new Vector2(x, y), Theme.Text); y += 24;
-        var (slabel, scol, _) = StatusInfo();
+        var selConn = Bot.Runtime.FindConn(s.DisplayName);
+        var (slabel, scol) = ServerStatus(selConn);
         Hud.SoftDot(r, new Vector2(x + 5, y + 7), 4f, scol);
         r.Text(r.Fonts.Get(FontKind.Mono, 12), slabel, new Vector2(x + 16, y), scol); y += 22;
-        if (Bot.Runtime.EnabledCaps.Count > 0)
-            foreach (var line in Wrap(r.Fonts.Get(FontKind.Mono, 10), "caps: " + string.Join(' ', Bot.Runtime.EnabledCaps), w))
+        var selCaps = selConn?.EnabledCaps;
+        if (selCaps is { Count: > 0 })
+            foreach (var line in Wrap(r.Fonts.Get(FontKind.Mono, 10), "caps: " + string.Join(' ', selCaps), w))
             { r.Text(r.Fonts.Get(FontKind.Mono, 10), line, new Vector2(x, y), Theme.TextFaint); y += 13; }
         y += 6;
         r.HLine(x, c.Right - 14, y, Theme.Hairline, 1f); y += 12;
+
+        y = Labeled(r, "LABEL (optional)", x, y);
+        s.Label = Edit("c.label", new RectF(x, y, w, 30), s.Label, s.Host.Length > 0 ? s.Host : "home, work, …"); y += 40;
 
         y = Labeled(r, "SERVER", x, y);
         var host = _ui.TextField("c.host", new RectF(x, y, w - 78, 30), s.Host, "irc.libera.chat");
@@ -1858,7 +1897,8 @@ public sealed partial class MainScreen : IScreen
         r.Text(r.Fonts.Get(FontKind.SansBold, 12), "SECURITY", new Vector2(x, y), Theme.TextDim); y += 18;
         var tls = _ui.Toggle("c.tls", new RectF(x, y, w, 24), s.UseTls, "Use TLS"); if (tls != s.UseTls) { s.UseTls = tls; _app.MarkDirty(); } y += 28;
         var cert = _ui.Toggle("c.cert", new RectF(x, y, w, 24), s.AcceptInvalidCerts, "Accept self-signed"); if (cert != s.AcceptInvalidCerts) { s.AcceptInvalidCerts = cert; _app.MarkDirty(); } y += 28;
-        var recon = _ui.Toggle("c.recon", new RectF(x, y, w, 24), s.AutoReconnect, "Auto-reconnect"); if (recon != s.AutoReconnect) { s.AutoReconnect = recon; _app.MarkDirty(); } y += 34;
+        var recon = _ui.Toggle("c.recon", new RectF(x, y, w, 24), s.AutoReconnect, "Auto-reconnect"); if (recon != s.AutoReconnect) { s.AutoReconnect = recon; _app.MarkDirty(); } y += 28;
+        var onstart = _ui.Toggle("c.onstart", new RectF(x, y, w, 24), s.ConnectOnStartup, "Connect on app startup"); if (onstart != s.ConnectOnStartup) { s.ConnectOnStartup = onstart; _app.MarkDirty(); } y += 34;
 
         y = Labeled(r, "NICK", x, y); s.Nick = Edit("c.nick", new RectF(x, y, w, 30), s.Nick, "ircuitry-bot"); y += 40;
         y = Labeled(r, "CHANNELS", x, y); s.Channels = Edit("c.chan", new RectF(x, y, w, 30), s.Channels, "#chan1 #chan2"); y += 40;
@@ -1874,9 +1914,41 @@ public sealed partial class MainScreen : IScreen
         }
         y += 6;
 
-        if (_ui.Button("c.run", new RectF(x, y, w, 34), Bot.Runtime.Running ? "■  STOP BOT" : "▶  RUN BOT", Bot.Runtime.Running ? Theme.Alert : Theme.Cyan, primary: true))
+        // per-server connect/disconnect (this server only) + remove, when a bot holds several
+        if (Bot.Servers.Count > 1)
+        {
+            bool thisOn = selConn?.Running == true;
+            float bw = (w - 8) / 2f;
+            if (_ui.Button("c.svrun", new RectF(x, y, bw, 30), thisOn ? "■ Disconnect this" : "▸ Connect this", thisOn ? Theme.Alert : Theme.Sky))
+            {
+                if (thisOn) Bot.Runtime.DisconnectServer(s.DisplayName);
+                else Bot.Runtime.ConnectServer(Bot.Graph, s);
+            }
+            if (_ui.Button("c.svdel", new RectF(x + bw + 8, y, bw, 30), "🗑 Remove server", Theme.Idle))
+            {
+                Bot.Runtime.DisconnectServer(s.DisplayName);
+                Bot.Servers.RemoveAt(Bot.SelectedServer);
+                Bot.SelectedServer = Math.Clamp(Bot.SelectedServer, 0, Bot.Servers.Count - 1);
+                _app.MarkDirty();
+            }
+            y += 38;
+        }
+
+        if (_ui.Button("c.run", new RectF(x, y, w, 34),
+                Bot.Runtime.Running ? "■  STOP BOT" : (Bot.Servers.Count > 1 ? "▶  RUN ALL SERVERS" : "▶  RUN BOT"),
+                Bot.Runtime.Running ? Theme.Alert : Theme.Cyan, primary: true))
             ToggleRun();
     }
+
+    /// <summary>Status label+colour for one server connection (or offline when it isn't live).</summary>
+    private static (string label, Color color) ServerStatus(Ircuitry.Runtime.ServerConn? c) => c?.State switch
+    {
+        IrcState.Connecting => ("CONNECTING", Theme.Warn),
+        IrcState.Registering => ("REGISTERING", Theme.Warn),
+        IrcState.Connected => ("LIVE ▸ " + c.CurrentNick, Theme.Ok),
+        IrcState.Error => ("ERROR", Theme.Alert),
+        _ => c?.Running == true ? ("STARTING", Theme.Warn) : ("OFFLINE", Theme.Idle),
+    };
 
     private string Edit(string id, RectF rect, string value, string ph, bool password = false)
     {
@@ -2049,15 +2121,16 @@ public sealed partial class MainScreen : IScreen
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, "Network · bots & servers", Theme.Berry);
 
-        // group bots by server host (multiple bots per server)
-        var groups = new List<(string host, int port, bool tls, List<Bot> bots)>();
+        // group every bot/server pairing by server host (a multi-server bot appears under each of its servers)
+        var groups = new List<(string host, int port, bool tls, List<(Bot bot, IrcSettings sv)> rows)>();
         foreach (var b in _app.Bots)
-        {
-            string host = b.Settings.Host.Length > 0 ? b.Settings.Host : "(no server set)";
-            var g = groups.FirstOrDefault(x => x.host == host && x.port == b.Settings.Port);
-            if (g.bots == null) { g = (host, b.Settings.Port, b.Settings.UseTls, new List<Bot>()); groups.Add(g); }
-            g.bots.Add(b);
-        }
+            foreach (var sv in b.Servers)
+            {
+                string host = sv.Host.Length > 0 ? sv.Host : "(no server set)";
+                var g = groups.FirstOrDefault(x => x.host == host && x.port == sv.Port);
+                if (g.rows == null) { g = (host, sv.Port, sv.UseTls, new List<(Bot, IrcSettings)>()); groups.Add(g); }
+                g.rows.Add((b, sv));
+            }
         int online = _app.Bots.Count(b => b.Runtime.Running);
         r.TextRight(r.Fonts.Get(FontKind.Mono, 11), $"{_app.Bots.Count} bots · {online} online · {groups.Count} servers", panel.Right - 18, panel.Y + 14, Theme.TextFaint);
         r.End();
@@ -2068,23 +2141,24 @@ public sealed partial class MainScreen : IScreen
         float maxBottom = gy;
         foreach (var grp in groups)
         {
-            float cardH = 64 + grp.bots.Count * 30 + 10;
+            float cardH = 64 + grp.rows.Count * 30 + 10;
             var card = new RectF(gx, gy, area.W, cardH);
             if (card.Bottom >= area.Y && card.Y <= area.Bottom)
             {
                 r.RoundFill(card, Theme.PanelLo, 10); r.RoundOutline(card, Theme.WithAlpha(Theme.Sky, 0.5f), 10);
-                bool anyOn = grp.bots.Exists(b => b.Runtime.Running);
+                bool anyOn = grp.rows.Exists(t => t.bot.Runtime.FindConn(t.sv.DisplayName)?.Running == true);
                 Hud.SoftDot(r, new Vector2(card.X + 20, card.Y + 24), 6f, anyOn ? Theme.Ok : Theme.Idle);
                 r.Text(r.Fonts.Get(FontKind.SansBold, 16), grp.host, new Vector2(card.X + 36, card.Y + 14), Theme.Text);
                 r.Text(r.Fonts.Get(FontKind.Mono, 11), grp.host == "(no server set)" ? "fill in a server to connect" : $":{grp.port}{(grp.tls ? "  ·  TLS" : "")}", new Vector2(card.X + 36, card.Y + 36), Theme.TextDim);
                 float by = card.Y + 60;
-                foreach (var b in grp.bots)
+                foreach (var (b, sv) in grp.rows)
                 {
-                    var col = StatusColor(b.Runtime);
+                    var conn = b.Runtime.FindConn(sv.DisplayName);
+                    var col = conn != null ? StatusColor(conn) : Theme.Idle;
                     Hud.SoftDot(r, new Vector2(card.X + 30, by + 9), 4f, col);
                     r.Text(r.Fonts.Get(FontKind.SansBold, 12), b.Name, new Vector2(card.X + 42, by + 2), Theme.Text);
-                    string chans = b.Settings.Channels.Length > 0 ? b.Settings.Channels : "no channels";
-                    r.Text(r.Fonts.Get(FontKind.Mono, 10), (b.Runtime.Running ? "online" : "offline") + "  ·  " + chans, new Vector2(card.X + 42 + 120, by + 3), Theme.TextDim);
+                    string chans = sv.Channels.Length > 0 ? sv.Channels : "no channels";
+                    r.Text(r.Fonts.Get(FontKind.Mono, 10), (conn?.Running == true ? "online" : "offline") + "  ·  " + chans, new Vector2(card.X + 42 + 120, by + 3), Theme.TextDim);
                     by += 30;
                 }
             }
@@ -2367,10 +2441,18 @@ public sealed partial class MainScreen : IScreen
         _ => rt.Running ? Theme.Warn : Theme.Idle,
     };
 
+    private static Color StatusColor(Ircuitry.Runtime.ServerConn c) => c.State switch
+    {
+        IrcState.Connected => Theme.Ok,
+        IrcState.Connecting or IrcState.Registering => Theme.Warn,
+        IrcState.Error => Theme.Alert,
+        _ => c.Running ? Theme.Warn : Theme.Idle,
+    };
+
     private void ToggleRun()
     {
         if (Bot.Runtime.Running) Bot.Runtime.Stop();
-        else Bot.Runtime.Start(Bot.Graph, Bot.Settings);
+        else Bot.Runtime.Start(Bot.Graph, Bot.Servers);
     }
 
     private static List<string> Wrap(DynamicSpriteFont f, string text, float maxW)

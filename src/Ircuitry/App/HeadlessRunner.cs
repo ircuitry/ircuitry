@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -23,10 +24,12 @@ public static class HeadlessRunner
         foreach (var bot in app.Bots)
         {
             if (only != null && !bot.Name.Equals(only, StringComparison.OrdinalIgnoreCase)) continue;
-            if (string.IsNullOrWhiteSpace(bot.Settings.Host)) { Console.WriteLine($"· skip '{bot.Name}' (no server set)"); continue; }
-            bot.Runtime.Start(bot.Graph, bot.Settings);
+            var live = bot.Servers.Where(sv => sv.Host.Length > 0).ToList();
+            if (live.Count == 0) { Console.WriteLine($"· skip '{bot.Name}' (no server set)"); continue; }
+            bot.Runtime.Start(bot.Graph, live);
             running.Add(bot);
-            Console.WriteLine($"▶ {bot.Name} → {bot.Settings.Host}:{bot.Settings.Port}  {string.Join(" ", bot.Settings.ChannelList)}");
+            foreach (var sv in live)
+                Console.WriteLine($"▶ {bot.Name} → {sv.Host}:{sv.Port}  {string.Join(" ", sv.ChannelList)}");
         }
         if (running.Count == 0) { Console.WriteLine("ircuitry: no runnable bots (open the app and set a server)."); return 1; }
 

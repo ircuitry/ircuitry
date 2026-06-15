@@ -5,6 +5,11 @@ namespace Ircuitry.Runtime;
 /// <summary>The effects a running graph can produce - fulfilled by the live runtime.</summary>
 public interface IRuntimeSink
 {
+    /// <summary>Returns the sink that should fulfil an action node's effects: this sink (the origin server an
+    /// event arrived on) when <paramref name="server"/> is blank, or the named server when a node overrides
+    /// the route. Sinks that don't model multiple servers (tests) just return themselves.</summary>
+    IRuntimeSink ForServer(string server) => this;
+
     void Privmsg(string target, string text);
     void Notice(string target, string text);
     void React(string target, string msgid, string emoji);

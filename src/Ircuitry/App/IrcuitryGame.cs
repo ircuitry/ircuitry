@@ -135,6 +135,11 @@ public sealed class IrcuitryGame : Game
         // first-run onboarding (skipped in demo/screenshot modes); --tutorial forces it for capture
         if (_shotPath == null && !_demo) ms?.MaybeAutostartTutorial();
         if (_shotPath == null && !_demo) ms?.StartUpdateCheck();   // quietly check GitHub for a newer release
+        // bring any "connect on app startup" servers online right away
+        if (_shotPath == null && !_demo)
+            foreach (var b in _app.Bots)
+                foreach (var sv in b.Servers)
+                    if (sv.ConnectOnStartup && sv.Host.Length > 0) b.Runtime.ConnectServer(b.Graph, sv);
         if (Array.IndexOf(_args, "--tutorial") >= 0) ms?.ForceStartTutorial();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--tutstep" && int.TryParse(_args[i + 1], out var ts)) ms?.DebugTutorialStep(ts);
@@ -162,6 +167,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showach") >= 0) ms?.DebugShowAchievements();
         if (Array.IndexOf(_args, "--showircv3") >= 0) ms?.DebugOpenIrcv3Cat();
         if (Array.IndexOf(_args, "--showfilemenu") >= 0) ms?.DebugOpenFileMenu();
+        if (Array.IndexOf(_args, "--showmultiserver") >= 0) ms?.DebugMultiServer();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();

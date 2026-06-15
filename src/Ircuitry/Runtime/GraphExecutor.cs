@@ -217,6 +217,10 @@ public static class GraphExecutor
         public void SetState(string key, string value) => _run.Sink.SetState(key, value);
         public double NowSeconds() => (System.DateTime.UtcNow - System.DateTime.UnixEpoch).TotalSeconds;
 
+        /// <summary>The sink an IRC effect from this node should use: the origin server by default, or the
+        /// server named by an optional "server" param (lets one flow act across several connections).</summary>
+        private IRuntimeSink Out() => _run.Sink.ForServer(Ircuitry.Core.Secrets.Expand(_node.GetParam("server")));
+
         public void Reply(string text) => SendReply(text, "");
         public void ReplyThreaded(string text) => SendReply(text, Var("msgid"));
 
@@ -234,17 +238,18 @@ public static class GraphExecutor
             if (ctx == "private" && Var("__chanctx") is { Length: > 0 } cc) Append(tags, "+draft/channel-context=" + cc);
             string t = tags.ToString();
 
+            var sink = Out();
             if (ctx is "private" or "pm")
             {
                 string who = Var("nick");
-                if (who.Length > 0) _run.Sink.NoticeTagged(who, text, t);
+                if (who.Length > 0) sink.NoticeTagged(who, text, t);
             }
             else
             {
                 string target = Var("replyto");
                 if (target.Length == 0) target = Var("channel");
                 if (target.Length == 0) target = Var("nick");
-                if (target.Length > 0) _run.Sink.PrivmsgTagged(target, text, t);
+                if (target.Length > 0) sink.PrivmsgTagged(target, text, t);
             }
         }
 
@@ -253,15 +258,15 @@ public static class GraphExecutor
         public void React(string emoji)
         {
             string t = Var("replyto"); if (t.Length == 0) t = Var("channel");
-            if (t.Length > 0 && emoji.Length > 0) _run.Sink.React(t, Var("msgid"), emoji);
+            if (t.Length > 0 && emoji.Length > 0) Out().React(t, Var("msgid"), emoji);
         }
-        public void Send(string target, string text) => _run.Sink.Privmsg(target, text);
-        public void Notice(string target, string text) => _run.Sink.Notice(target, text);
-        public void Join(string channel) => _run.Sink.Join(channel);
-        public void Part(string channel, string reason) => _run.Sink.Part(channel, reason);
-        public void Raw(string line) => _run.Sink.Raw(line);
-        public void StartTyping(string target) => _run.Sink.StartTyping(target);
-        public void StopTyping(string target) => _run.Sink.StopTyping(target);
+        public void Send(string target, string text) => Out().Privmsg(target, text);
+        public void Notice(string target, string text) => Out().Notice(target, text);
+        public void Join(string channel) => Out().Join(channel);
+        public void Part(string channel, string reason) => Out().Part(channel, reason);
+        public void Raw(string line) => Out().Raw(line);
+        public void StartTyping(string target) => Out().StartTyping(target);
+        public void StopTyping(string target) => Out().StopTyping(target);
         public void Log(string message, LogLevel level = LogLevel.Action) => _run.Sink.Log(message, level);
     }
 }

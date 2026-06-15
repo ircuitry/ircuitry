@@ -125,6 +125,8 @@ public static class SelfTest
         fails += TextSafetyTest();
         fails += SignalTest();
         fails += RunCompletedTest();
+        fails += FanInTest();
+        fails += MultiServerTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -159,6 +161,42 @@ public static class SelfTest
         for (int n = 0; n <= s.Length; n++)
             if (HasLoneSurrogate(s[..Ircuitry.Render.Renderer.CutAt(s, n)])) { anyLone = true; break; }
         fails += Expect("ellipsize-cut-surrogate-safe", !anyLone, "a CutAt slice split an emoji");
+        return fails;
+    }
+
+    /// <summary>Several triggers may fan in to one exec input: both stay wired (not replaced) and each
+    /// one independently drives the shared downstream flow.</summary>
+    private static int FanInTest()
+    {
+        var g = new NodeGraph();
+        var a = N(g, "event.command", 0, 0); a.SetParam("command", "hi");
+        var b = N(g, "event.command", 0, 120); b.SetParam("command", "yo");
+        var reply = N(g, "action.reply", 300, 60); reply.SetParam("message", "hey");
+        g.Connect(a.Id, 0, reply.Id, 0);   // first trigger -> reply.exec
+        g.Connect(b.Id, 0, reply.Id, 0);   // second trigger fans in to the same exec input
+
+        int fails = 0;
+        // exec input kept both wires
+        fails += Expect("fanin-keeps-both", g.Connections.Count(c => c.ToNode == reply.Id && c.ToPin == 0) == 2, "");
+
+        var s1 = new FakeSink();
+        GraphExecutor.Fire(g, s1, a, Vars("!hi", "alice", "#x"));
+        fails += Expect("fanin-trigger-a", s1.Sent.Count == 1 && s1.Sent[0] == ("#x", "hey"), Dump(s1));
+
+        var s2 = new FakeSink();
+        GraphExecutor.Fire(g, s2, b, Vars("!yo", "bob", "#x"));
+        fails += Expect("fanin-trigger-b", s2.Sent.Count == 1 && s2.Sent[0] == ("#x", "hey"), Dump(s2));
+
+        // a data input still replaces (single wire)
+        var g2 = new NodeGraph();
+        var cmd = N(g2, "event.command", 0, 0);
+        var r1 = N(g2, "data.random", 0, 80); r1.SetParam("options", "one");
+        var r2 = N(g2, "data.random", 0, 160); r2.SetParam("options", "two");
+        var rep = N(g2, "action.reply", 300, 0);
+        g2.Connect(cmd.Id, 0, rep.Id, 0);
+        g2.Connect(r1.Id, 0, rep.Id, 1);
+        g2.Connect(r2.Id, 0, rep.Id, 1);   // replaces r1's wire on the data input
+        fails += Expect("data-input-single", g2.Connections.Count(c => c.ToNode == rep.Id && c.ToPin == 1) == 1, "");
         return fails;
     }
 
@@ -1392,6 +1430,54 @@ public static class SelfTest
         bool ok = first && second && joins >= 2;
         string detail = ok ? "" : $"first={first} second={second} joins={joins} log: " + string.Join(" | ", log.Tail(12).Select(e => e.Text));
         return Expect("irc-restart-rejoins-and-replies", ok, detail);
+    }
+
+    /// <summary>One bot on two servers: an event on server A replies back to A (origin), and a node with a
+    /// "server" override sends to the named server instead.</summary>
+    private static int MultiServerTest()
+    {
+        int fails = 0;
+
+        // --- origin routing: !ping on A → pong on A, nothing on B ---
+        {
+            using var a = new MockIrcServer(new[] { (150, ":u!u@h PRIVMSG #ircuitry-test :!ping") });
+            using var b = new MockIrcServer(System.Array.Empty<(int, string)>());
+            var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+            var g = new NodeGraph();
+            var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ping");
+            var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "pong");
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+
+            IrcSettings S(string label, int port) => new() { Label = label, Host = "127.0.0.1", Port = port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "" };
+            rt.Start(g, new[] { S("alpha", a.Port), S("beta", b.Port) });
+
+            bool onA = false;
+            for (int i = 0; i < 160 && !onA; i++) { Thread.Sleep(50); onA = a.Sent().Any(s => s.Contains("PRIVMSG #ircuitry-test") && s.Contains("pong")); }
+            bool onB = b.Sent().Any(s => s.Contains("PRIVMSG #ircuitry-test") && s.Contains("pong"));
+            rt.Stop(); Thread.Sleep(100);
+            fails += Expect("multiserver-reply-to-origin", onA && !onB, $"onA={onA} onB={onB}");
+        }
+
+        // --- per-node override: !ping on A → pong on B (reply routed to "beta") ---
+        {
+            using var a = new MockIrcServer(new[] { (150, ":u!u@h PRIVMSG #ircuitry-test :!ping") });
+            using var b = new MockIrcServer(System.Array.Empty<(int, string)>());
+            var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+            var g = new NodeGraph();
+            var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ping");
+            var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "pong"); reply.SetParam("server", "beta");
+            g.Connect(cmd.Id, 0, reply.Id, 0);
+
+            IrcSettings S(string label, int port) => new() { Label = label, Host = "127.0.0.1", Port = port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "" };
+            rt.Start(g, new[] { S("alpha", a.Port), S("beta", b.Port) });
+
+            bool onB = false;
+            for (int i = 0; i < 160 && !onB; i++) { Thread.Sleep(50); onB = b.Sent().Any(s => s.Contains("PRIVMSG #ircuitry-test") && s.Contains("pong")); }
+            bool onA = a.Sent().Any(s => s.Contains("PRIVMSG #ircuitry-test") && s.Contains("pong"));
+            rt.Stop(); Thread.Sleep(100);
+            fails += Expect("multiserver-node-override", onB && !onA, $"onA={onA} onB={onB}");
+        }
+        return fails;
     }
 
     private static string Dump(FakeSink s) => "sent=[" + string.Join(", ", s.Sent.ConvertAll(t => $"{t.target}:{t.text}")) + "]";

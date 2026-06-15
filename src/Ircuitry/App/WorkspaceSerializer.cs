@@ -29,7 +29,8 @@ public static class WorkspaceSerializer
     private sealed class BotDoc
     {
         public string name { get; set; } = "bot";
-        public ConnDoc connection { get; set; } = new();
+        public ConnDoc connection { get; set; }                     // legacy single connection (still read)
+        public List<ConnDoc> servers { get; set; }                  // a bot may hold several servers
         public Dictionary<string, string> state { get; set; } = new();
         public List<NodeDoc> nodes { get; set; } = new();
         public List<WireDoc> wires { get; set; } = new();
@@ -37,6 +38,8 @@ public static class WorkspaceSerializer
 
     private sealed class ConnDoc
     {
+        public string label { get; set; } = "";
+        public bool connectOnStartup { get; set; }
         public string host { get; set; } = "";
         public int port { get; set; } = 6697;
         public bool tls { get; set; } = true;
@@ -79,7 +82,8 @@ public static class WorkspaceSerializer
         var doc = new Doc { active = active };
         foreach (var b in bots)
         {
-            var bd = new BotDoc { name = b.Name, connection = FromSettings(b.Settings), state = new(b.State) };
+            var bd = new BotDoc { name = b.Name, state = new(b.State), servers = new() };
+            foreach (var s in b.Servers) bd.servers.Add(FromSettings(s));
             foreach (var n in b.Graph.Nodes)
                 bd.nodes.Add(new NodeDoc { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, @params = new(n.Params) });
             foreach (var c in b.Graph.Connections)
@@ -95,7 +99,12 @@ public static class WorkspaceSerializer
         var bots = new List<Bot>();
         foreach (var bd in doc.bots)
         {
-            var bot = new Bot(bd.name) { Settings = ToSettings(bd.connection) };
+            var bot = new Bot(bd.name);
+            bot.Servers.Clear();
+            if (bd.servers is { Count: > 0 })
+                foreach (var c in bd.servers) bot.Servers.Add(ToSettings(c));
+            else
+                bot.Servers.Add(ToSettings(bd.connection ?? new ConnDoc()));   // legacy single-connection file
             foreach (var kv in bd.state) bot.State[kv.Key] = kv.Value;
             var live = new HashSet<string>();
             foreach (var rec in bd.nodes)
@@ -117,6 +126,7 @@ public static class WorkspaceSerializer
 
     private static ConnDoc FromSettings(IrcSettings s) => new()
     {
+        label = s.Label, connectOnStartup = s.ConnectOnStartup,
         host = s.Host, port = s.Port, tls = s.UseTls, acceptInvalidCerts = s.AcceptInvalidCerts, autoReconnect = s.AutoReconnect,
         botMode = s.BotMode, advertiseCommands = s.AdvertiseCommands, streamWorkflows = s.StreamWorkflows,
         nick = s.Nick, user = s.User, realName = s.RealName, serverPass = s.ServerPass,
@@ -125,6 +135,7 @@ public static class WorkspaceSerializer
 
     private static IrcSettings ToSettings(ConnDoc c) => new()
     {
+        Label = c.label, ConnectOnStartup = c.connectOnStartup,
         Host = c.host, Port = c.port, UseTls = c.tls, AcceptInvalidCerts = c.acceptInvalidCerts, AutoReconnect = c.autoReconnect,
         BotMode = c.botMode, AdvertiseCommands = c.advertiseCommands, StreamWorkflows = c.streamWorkflows,
         Nick = c.nick, User = c.user, RealName = c.realName, ServerPass = c.serverPass,

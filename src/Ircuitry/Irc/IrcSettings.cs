@@ -5,11 +5,13 @@ namespace Ircuitry.Irc;
 
 public sealed class IrcSettings
 {
+    public string Label = "";         // friendly name for this server (a bot can hold several)
     public string Host = "";          // no default network - the user fills this in
     public int Port = 6697;
     public bool UseTls = true;
     public bool AcceptInvalidCerts = true;   // many IRC servers use self-signed certs
     public bool AutoReconnect = true;        // reconnect with backoff on an unexpected drop
+    public bool ConnectOnStartup = false;    // bring this server online when the app launches
 
     // IRCv3 bot-tools spec (draft/bot-cmds + draft/bot-tools) - advanced ("Obby"), off by default
     public bool BotMode = true;               // set +B so clients know we're a bot
@@ -29,6 +31,9 @@ public sealed class IrcSettings
 
     public IEnumerable<string> ChannelList =>
         Channels.Split(new[] { ',', ' ' }, System.StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+
+    /// <summary>What to show/route by: the label if set, else the host, else a placeholder.</summary>
+    public string DisplayName => Label.Length > 0 ? Label : (Host.Length > 0 ? Host : "(no server)");
 
     public IrcSettings Clone() => (IrcSettings)MemberwiseClone();
 }

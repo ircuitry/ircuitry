@@ -26,8 +26,10 @@ public sealed class NodeGraph
     }
 
     /// <summary>
-    /// Connect output→input with type checking. Input pins hold at most one wire
-    /// (the existing one is replaced); output pins may fan out.
+    /// Connect output→input with type checking. A data input holds at most one wire
+    /// (the existing one is replaced), while exec inputs (and explicit multi pins like
+    /// Ask AI's tools) fan in - many triggers can feed the same downstream flow. Output
+    /// pins always fan out.
     /// </summary>
     public bool Connect(string fromNode, int fromPin, string toNode, int toPin)
     {
@@ -38,8 +40,9 @@ public sealed class NodeGraph
         if (toPin < 0 || toPin >= b.Def.Inputs.Length) return false;
         if (!Pins.Compatible(a.Def.Outputs[fromPin].Kind, b.Def.Inputs[toPin].Kind)) return false;
 
-        // an input accepts a single wire (unless it's a multi pin like Ask AI's tools) - drop any existing one
-        if (!b.Def.Inputs[toPin].Multi)
+        // a data input takes a single wire (replace the existing one); exec inputs and multi
+        // pins accept fan-in, so several upstream sources can drive the same node
+        if (!b.Def.Inputs[toPin].Multi && !b.Def.Inputs[toPin].Kind.IsExec())
             Connections.RemoveAll(c => c.ToNode == toNode && c.ToPin == toPin);
         // avoid exact duplicates
         var conn = new Connection(fromNode, fromPin, toNode, toPin);
