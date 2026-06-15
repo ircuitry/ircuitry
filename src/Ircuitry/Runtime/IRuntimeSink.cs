@@ -37,4 +37,11 @@ public interface IRuntimeSink
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);
+
+    /// <summary>Register a human-in-the-loop approval gate (the question has already been posted). The
+    /// runtime resumes <paramref name="node"/>'s approved/denied exec output when the (optional) named
+    /// approver answers with the approve/deny word in the target, or denies it on timeout. Returns false
+    /// when this sink can't host one (dry runs/tests), so the node can fall back.</summary>
+    bool AwaitApproval(Ircuitry.Graph.Node node, System.Collections.Generic.Dictionary<string, string> vars,
+        string target, string approver, string approveWord, string denyWord, int timeoutSec) => false;
 }

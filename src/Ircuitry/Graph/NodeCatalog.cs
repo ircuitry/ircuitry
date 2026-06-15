@@ -867,6 +867,68 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "human.alert", Icon = "🔔", Title = "Alert Human", Subtitle = "notify",
+                Category = NodeCategory.Action,
+                Description = "Pops a native desktop notification on the machine running ircuitry, so a human notices something even when they aren't watching chat. notify-send on Linux, osascript on macOS, a toast on Windows (best effort).",
+                Inputs = new[] { Ex(), Tx("message") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("title", "Title", ParamType.Text, "ircuitry", "notification title"),
+                    P("message", "Message", ParamType.Multiline, "", "supports {nick} {message} {channel} …"),
+                    P("urgency", "Urgency", ParamType.Choice, "normal", "", new[] { "low", "normal", "critical" }),
+                },
+                SummaryParam = "message",
+                Exec = c =>
+                {
+                    string title = c.Resolve(c.Param("title")); if (title.Length == 0) title = "ircuitry";
+                    string body = c.InOr(1, c.Resolve(c.Param("message")));
+                    if (!Ircuitry.Core.Notifier.Send(title, body, c.Param("urgency")))
+                        c.Log("Alert Human: desktop notifications unavailable on this system (is notify-send installed?)", LogLevel.Warn);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "human.loop", Icon = "🙋", Title = "Human in the Loop", Subtitle = "approval",
+                Category = NodeCategory.Action,
+                Description = "Pauses the flow and asks a human to approve or deny before it continues (like n8n's Human in the Loop). Posts the question to a channel/PM (and optionally a desktop alert), then resumes on 'approved' or 'denied' when they reply - or 'denied' if it times out. Their reply text comes out on 'response'.",
+                Inputs = new[] { Ex(), Tx("question") },
+                Outputs = new[] { Ex("approved"), Ex("denied"), Tx("response") },
+                Params = new[]
+                {
+                    P("question", "Question", ParamType.Multiline, "Approve this?", "what to ask the human"),
+                    P("target", "Ask in", ParamType.Text, "{channel}", "channel or nick (blank = where the event came from)"),
+                    P("approver", "Only from", ParamType.Text, "", "a specific nick, or blank for anyone there"),
+                    P("approveWord", "Approve word", ParamType.Text, "yes", "yes / approve / ok"),
+                    P("denyWord", "Deny word", ParamType.Text, "no", "no / deny / stop"),
+                    P("timeout", "Timeout (s)", ParamType.Int, "120", "0 = wait forever"),
+                    P("notify", "Desktop alert too", ParamType.Bool, "true"),
+                },
+                SummaryParam = "question",
+                Exec = c =>
+                {
+                    string q = c.InOr(1, c.Resolve(c.Param("question")));
+                    if (q.Length == 0) q = "Approval needed.";
+                    string target = c.Resolve(c.Param("target")); if (target.Length == 0) target = c.Var("replyto");
+                    string approveWord = c.Param("approveWord"); if (approveWord.Length == 0) approveWord = "yes";
+                    string denyWord = c.Param("denyWord"); if (denyWord.Length == 0) denyWord = "no";
+                    int timeout = Math.Max(0, c.ParamInt("timeout", 120));
+
+                    if (target.Length > 0) c.Send(target, $"{q} (reply '{approveWord}' to approve or '{denyWord}' to deny)");
+                    if (c.ParamBool("notify")) Ircuitry.Core.Notifier.Send("ircuitry: approval needed", q);
+
+                    if (!c.AwaitApproval(target, c.Resolve(c.Param("approver")), approveWord, denyWord, timeout))
+                    {
+                        // no live runtime to host the gate (a dry run/test) - take 'denied' so nothing hangs
+                        c.SetOut(2, "(no human available)");
+                        c.Pulse(1);
+                    }
+                    // otherwise: do NOT pulse - the run pauses here and resumes when a human answers
+                },
+            },
+            new()
+            {
                 TypeId = "net.http", Icon = "🌐", Title = "HTTP Request", Subtitle = "web",
                 Category = NodeCategory.Action,
                 Description = "Calls a web API. Outputs the response body and status. Headers are 'Key: value' lines.",

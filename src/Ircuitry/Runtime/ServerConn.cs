@@ -77,6 +77,7 @@ public sealed class ServerConn : IRuntimeSink
         if (!_running && State == IrcState.Disconnected) return;
         _owner.LogFrom(Label, LogLevel.System, "■ disconnecting");
         _running = false;
+        lock (_pendLock) _pending.Clear();   // drop any waiting human-in-the-loop gates
         _client.Disconnect();
     }
 
@@ -110,6 +111,8 @@ public sealed class ServerConn : IRuntimeSink
                 // keep active typing indicators alive (servers expire +typing after ~6s)
                 foreach (var kv in _typing)
                     if ((now - kv.Value).TotalSeconds >= 4) { _client.TagMsg(kv.Key, "+typing=active"); _typing[kv.Key] = now; }
+
+                ExpireApprovals(DateTime.UtcNow);   // deny any human-in-the-loop gate that has timed out
             }
         })
         { IsBackground = true, Name = "bot-timer:" + Label };
@@ -164,6 +167,7 @@ public sealed class ServerConn : IRuntimeSink
             string badges = (account.Length > 0 ? "✓" + account + " " : "") + (isbot ? "🤖 " : "");
             _owner.LogFrom(Label, LogLevel.In, $"{badges}<{nick}> {text}");
 
+            if (TryResolveApproval(nick, target, toChannel, text)) return;   // a human answered a pending gate
             FireFamily("message", vars);
         }
         else if (m.Is("TAGMSG"))
@@ -302,6 +306,77 @@ public sealed class ServerConn : IRuntimeSink
         rec.Fired = rec.Nodes.Count > 0 && rec.Nodes[0].Pulsed.Count > 0;
         if (rec.Fired) _owner.AddHistory(rec);
         stream.Finish();
+    }
+
+    // ===================================================================
+    //  Human in the Loop: gates that pause a run until a human answers
+    // ===================================================================
+    private sealed class Pending
+    {
+        public string NodeId = "";
+        public Dictionary<string, string> Vars = new();
+        public string Target = "", Approver = "", ApproveWord = "yes", DenyWord = "no";
+        public bool HasTimeout;
+        public DateTime Expires;
+    }
+    private readonly List<Pending> _pending = new();
+    private readonly object _pendLock = new();
+
+    public bool AwaitApproval(Node node, Dictionary<string, string> vars, string target, string approver,
+        string approveWord, string denyWord, int timeoutSec)
+    {
+        lock (_pendLock) _pending.Add(new Pending
+        {
+            NodeId = node.Id, Vars = vars, Target = target, Approver = approver,
+            ApproveWord = approveWord.Length > 0 ? approveWord : "yes",
+            DenyWord = denyWord.Length > 0 ? denyWord : "no",
+            HasTimeout = timeoutSec > 0, Expires = DateTime.UtcNow.AddSeconds(timeoutSec),
+        });
+        return true;
+    }
+
+    /// <summary>An incoming line may be the answer to a pending gate; resume it and report consumed.</summary>
+    private bool TryResolveApproval(string fromNick, string target, bool toChannel, string text)
+    {
+        string answer = text.Trim();
+        Pending? hit = null; int pin = -1;
+        lock (_pendLock)
+        {
+            foreach (var p in _pending)
+            {
+                // the answer must come from where we asked (the channel, or a PM with the asker) and, if a
+                // specific approver was named, from them
+                string askChan = p.Target.StartsWith('#') || p.Target.StartsWith('&') ? p.Target : "";
+                bool here = askChan.Length > 0 ? string.Equals(askChan, target, StringComparison.OrdinalIgnoreCase) : !toChannel;
+                if (!here) continue;
+                if (p.Approver.Length > 0 && !string.Equals(p.Approver, fromNick, StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.Equals(answer, p.ApproveWord, StringComparison.OrdinalIgnoreCase)) { hit = p; pin = 0; break; }
+                if (string.Equals(answer, p.DenyWord, StringComparison.OrdinalIgnoreCase)) { hit = p; pin = 1; break; }
+            }
+            if (hit != null) _pending.Remove(hit);
+        }
+        if (hit == null) return false;
+        ResumeApproval(hit, pin, answer, fromNick);
+        return true;
+    }
+
+    private void ResumeApproval(Pending p, int outPin, string response, string approver)
+    {
+        var graph = _owner.RunGraph;
+        var node = graph?.Find(p.NodeId);
+        if (graph == null || node == null) return;
+        var vars = new Dictionary<string, string>(p.Vars) { ["response"] = response, ["approver"] = approver };
+        GraphExecutor.FireFrom(graph, this, node, outPin, vars, new[] { (2, response) });
+    }
+
+    /// <summary>Deny any gate that has waited past its timeout (called from the timer tick).</summary>
+    private void ExpireApprovals(DateTime utcNow)
+    {
+        List<Pending>? due = null;
+        lock (_pendLock)
+            for (int i = _pending.Count - 1; i >= 0; i--)
+                if (_pending[i].HasTimeout && utcNow >= _pending[i].Expires) { (due ??= new()).Add(_pending[i]); _pending.RemoveAt(i); }
+        if (due != null) foreach (var p in due) ResumeApproval(p, 1, "(timed out)", "");
     }
 
     private static string Summarize(string? family, Dictionary<string, string> v)

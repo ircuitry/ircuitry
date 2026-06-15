@@ -137,6 +137,8 @@ public static class SelfTest
         fails += AiEditorToolTest();
         fails += ReloadKeepsRunningBotTest();
         fails += UnknownNodeWarningTest();
+        fails += HumanNodesTest();
+        fails += HumanLoopApproveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1637,6 +1639,79 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>Alert Human pulses 'then' regardless of whether the OS notification could be shown (no
+    /// display in CI), and Human in the Loop with no live runtime (a dry run) takes the 'denied' path so
+    /// nothing hangs.</summary>
+    private static int HumanNodesTest()
+    {
+        int fails = 0;
+
+        // Alert Human: the flow must continue past it even when notify-send isn't available
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "go");
+            var alert = N(g, "human.alert", 250, 0); alert.SetParam("message", "heads up");
+            var reply = N(g, "action.reply", 500, 0); reply.SetParam("message", "after");
+            g.Connect(cmd.Id, 0, alert.Id, 0);
+            g.Connect(alert.Id, 0, reply.Id, 0);
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!go", "u", "#x"));
+            fails += Expect("human-alert-continues", s.Sent.Any(t => t.text == "after"), Dump(s));
+        }
+
+        // Human in the Loop on a dry run (FakeSink can't host a gate) -> denied branch
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "ask");
+            var loop = N(g, "human.loop", 250, 0); loop.SetParam("question", "ok?");
+            var yes = N(g, "action.reply", 500, -60); yes.SetParam("message", "GRANTED");
+            var no = N(g, "action.reply", 500, 60); no.SetParam("message", "REFUSED");
+            g.Connect(cmd.Id, 0, loop.Id, 0);
+            g.Connect(loop.Id, 0, yes.Id, 0);     // approved
+            g.Connect(loop.Id, 1, no.Id, 0);      // denied
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!ask", "u", "#x"));
+            bool denied = s.Sent.Any(t => t.text == "REFUSED") && s.Sent.All(t => t.text != "GRANTED");
+            fails += Expect("human-loop-dryrun-denied", denied, Dump(s));
+        }
+        return fails;
+    }
+
+    /// <summary>End to end Human in the Loop: a command opens a gate, a human replies "yes", and the
+    /// approved branch resumes and answers - the async pause/resume that a synchronous executor can't do
+    /// by blocking.</summary>
+    private static int HumanLoopApproveTest()
+    {
+        using var mock = new MockIrcServer(new[]
+        {
+            (200, ":alice!a@h PRIVMSG #ircuitry-test :!ask deploy?"),
+            (1000, ":alice!a@h PRIVMSG #ircuitry-test :yes"),
+        });
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ask");
+        var loop = g.Add(NodeCatalog.Get("human.loop"), new Vector2(250, 0));
+        loop.SetParam("question", "deploy?"); loop.SetParam("timeout", "0"); loop.SetParam("notify", "false");
+        var yes = g.Add(NodeCatalog.Get("action.reply"), new Vector2(500, -60)); yes.SetParam("message", "GRANTED");
+        var no = g.Add(NodeCatalog.Get("action.reply"), new Vector2(500, 60)); no.SetParam("message", "REFUSED");
+        g.Connect(cmd.Id, 0, loop.Id, 0);
+        g.Connect(loop.Id, 0, yes.Id, 0);
+        g.Connect(loop.Id, 1, no.Id, 0);
+
+        rt.Start(g, new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "ircuitry-bot", Channels = "#ircuitry-test", SaslPass = "" });
+
+        bool granted = false;
+        for (int i = 0; i < 240 && !granted; i++)
+        {
+            Thread.Sleep(25);
+            granted = mock.Sent().Any(s => s.Contains("PRIVMSG #ircuitry-test") && s.Contains("GRANTED"));
+        }
+        bool refused = mock.Sent().Any(s => s.Contains("REFUSED"));
+        rt.Stop(); Thread.Sleep(80);
+        return Expect("human-loop-approve-resumes", granted && !refused, "sent: " + string.Join(" | ", mock.Sent()));
     }
 
     /// <summary>

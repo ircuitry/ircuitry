@@ -23,6 +23,20 @@ public static class GraphExecutor
         if (run.ExecutedTypes.Count > 0) sink.RunCompleted(run.ExecutedTypes);   // spec-compliance achievements
     }
 
+    /// <summary>
+    /// Resume a graph from one exec OUTPUT of an existing node (rather than from a trigger) - used by the
+    /// Human in the Loop gate to continue an approved/denied branch when a human answers later, on a
+    /// fresh run scope seeded with the captured vars and any of the node's data outputs.
+    /// </summary>
+    public static void FireFrom(NodeGraph graph, IRuntimeSink sink, Node node, int outPin,
+        Dictionary<string, string> vars, (int pin, string value)[]? seedOutputs = null, Action<NodeTrace>? onNode = null)
+    {
+        var run = new Run(graph, sink, vars, null, onNode);
+        if (seedOutputs != null) foreach (var (pin, value) in seedOutputs) run.Outputs[(node.Id, pin)] = value;
+        run.RunOutput(node, outPin);
+        if (run.ExecutedTypes.Count > 0) sink.RunCompleted(run.ExecutedTypes);
+    }
+
     private sealed class Run
     {
         public readonly NodeGraph Graph;
@@ -256,6 +270,9 @@ public static class GraphExecutor
 
         public string GetState(string key) => _run.Sink.GetState(key);
         public void SetState(string key, string value) => _run.Sink.SetState(key, value);
+
+        public bool AwaitApproval(string target, string approver, string approveWord, string denyWord, int timeoutSec)
+            => _run.Sink.AwaitApproval(_node, new Dictionary<string, string>(_run.Vars), target, approver, approveWord, denyWord, timeoutSec);
         public double NowSeconds() => (System.DateTime.UtcNow - System.DateTime.UnixEpoch).TotalSeconds;
 
         /// <summary>The sink an IRC effect from this node should use: the origin server by default, or the

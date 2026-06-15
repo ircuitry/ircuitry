@@ -68,4 +68,9 @@ public interface INodeContext
     void StopTyping(string target);
 
     void Log(string message, LogLevel level = LogLevel.Action);
+
+    /// <summary>Hold this run until a human approves/denies (or it times out), resuming this node's
+    /// approved/denied exec output. The question must already be posted. Returns false if no human gate is
+    /// available (e.g. a dry run), so the node can fall back instead of stalling forever.</summary>
+    bool AwaitApproval(string target, string approver, string approveWord, string denyWord, int timeoutSec);
 }
