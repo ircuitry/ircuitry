@@ -171,7 +171,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -532,7 +532,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _cmdkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -714,6 +714,11 @@ public sealed partial class MainScreen : IScreen
             r.Begin();
             DrawSaveNodeModal(r);
             r.End();
+        }
+        else if (_nbOpen)
+        {
+            _ui.Enabled = true;
+            DrawNodeBuilder(r);
         }
         else if (_installOpen)
         {
@@ -1177,11 +1182,13 @@ public sealed partial class MainScreen : IScreen
 
         // two community links pinned to the bottom of the panel (nodes open the in-app manager; workflows open the gallery)
         int customCount = NodeCatalog.Custom.Count;
-        float footY = content.Bottom - 68;
+        float footY = content.Bottom - 102;
         r.Begin(BlendMode.Alpha, content.ToRectangle());
-        if (_ui.Button("palette.manage", new RectF(x, footY, w, 30), customCount > 0 ? $"🧩  Community nodes · {customCount}" : "🧩  Community nodes", Theme.Berry))
+        if (_ui.Button("palette.build", new RectF(x, footY, w, 30), "🛠️  Build a node…", Theme.Violet, primary: true))
+            OpenNodeBuilder();
+        if (_ui.Button("palette.manage", new RectF(x, footY + 34, w, 30), customCount > 0 ? $"🧩  Community nodes · {customCount}" : "🧩  Community nodes", Theme.Berry))
             OpenNodeManager();
-        if (_ui.Button("palette.workflows", new RectF(x, footY + 34, w, 30), "🤖  Community workflows ↗", Theme.Sky))
+        if (_ui.Button("palette.workflows", new RectF(x, footY + 68, w, 30), "🤖  Community workflows ↗", Theme.Sky))
             Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
         r.End();
 
