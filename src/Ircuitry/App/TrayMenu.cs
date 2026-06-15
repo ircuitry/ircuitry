@@ -86,37 +86,31 @@ public sealed class TrayMenu : IDbusMenu
         var model = TrayIcon.Model;
         var bots = model.Bots;
 
-        List<int> ActionGroup(string kind, bool wantOnlineEnabled)
+        // One flat submenu level only (no per-bot sub-submenus). The GNOME AppIndicator host pre-fetches the
+        // whole menu once and caches it; a single level (verified working over D-Bus) avoids any deep
+        // lazy-loading quirks. Items stay always-enabled - a cache-once host would otherwise freeze a stale
+        // online state; the action re-checks the live state at click time, so clicking is always safe.
+        List<int> ActionGroup(string kind)
         {
-            // wantOnlineEnabled: Disconnect enables online servers; Reconnect enables offline ones
             var top = new List<int>();
-            if (bots.Count == 0) { top.Add(Leaf($"{kind}.nobots", "(no bots)", false, null)); return top; }
-
-            List<int> ServersOf(TrayBotInfo b)
-            {
-                var kids = new List<int>();
+            if (bots.Count == 0) { top.Add(Leaf($"{kind}.nobots", "(no bots yet)", false, null)); return top; }
+            bool many = bots.Count > 1;
+            bool any = false;
+            foreach (var b in bots)
                 foreach (var sv in b.Servers)
                 {
-                    bool enabled = wantOnlineEnabled ? sv.Online : !sv.Online;
-                    kids.Add(Leaf($"{kind}.bot.{b.Name}.sv.{sv.Label}", sv.Label, enabled, new TrayCommand(kind, b.Name, sv.Label)));
+                    string lbl = many ? $"{b.Name} · {sv.Label}" : sv.Label;
+                    top.Add(Leaf($"{kind}.bot.{b.Name}.sv.{sv.Label}", lbl, true, new TrayCommand(kind, b.Name, sv.Label)));
+                    any = true;
                 }
-                kids.Add(Leaf($"{kind}.bot.{b.Name}.all", "All servers", b.Servers.Count > 0, new TrayCommand(kind, b.Name, "*")));
-                return kids;
-            }
-
-            if (bots.Count == 1)
-                return ServersOf(bots[0]);   // one bot → list its servers directly
-
-            foreach (var b in bots) top.Add(Sub($"{kind}.bot.{b.Name}", b.Name, ServersOf(b)));
-            top.Add(Sep($"{kind}.sep"));
-            top.Add(Leaf($"{kind}.allbots", "All bots", true, new TrayCommand(kind, "*", "*")));
+            if (any) { top.Add(Sep($"{kind}.sep")); top.Add(Leaf($"{kind}.all", "All servers", true, new TrayCommand(kind, "*", "*"))); }
             return top;
         }
 
         var root = new List<int>
         {
-            Sub("disconnect", "Disconnect", ActionGroup("disconnect", true)),
-            Sub("reconnect", "Reconnect", ActionGroup("reconnect", false)),
+            Sub("disconnect", "Disconnect", ActionGroup("disconnect")),
+            Sub("reconnect", "Reconnect", ActionGroup("reconnect")),
             Leaf("open", "Open ircuitry", true, new TrayCommand("open", "", "")),
             Sep("rootsep"),
             Leaf("exit", "Exit", true, new TrayCommand("exit", "", "")),

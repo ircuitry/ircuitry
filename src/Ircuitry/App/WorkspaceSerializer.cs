@@ -29,8 +29,8 @@ public static class WorkspaceSerializer
     private sealed class BotDoc
     {
         public string name { get; set; } = "bot";
-        public ConnDoc connection { get; set; }                     // legacy single connection (still read)
-        public List<ConnDoc> servers { get; set; }                  // a bot may hold several servers
+        public ConnDoc? connection { get; set; }                    // legacy single connection (still read)
+        public List<ConnDoc>? servers { get; set; }                 // a bot may hold several servers (absent in old files)
         public Dictionary<string, string> state { get; set; } = new();
         public List<NodeDoc> nodes { get; set; } = new();
         public List<WireDoc> wires { get; set; } = new();

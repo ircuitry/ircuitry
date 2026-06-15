@@ -126,6 +126,7 @@ public sealed class IrcuitryGame : Game
             };
             Ircuitry.Core.Sdl.InterceptClose();
             Ircuitry.Core.Sdl.Maximize(Window.Handle);
+            RefreshTrayModel();   // populate BEFORE registering, so a host that fetches the menu once at startup already sees the bots/servers
             TrayIcon.Start();
         }
 
@@ -203,35 +204,44 @@ public sealed class IrcuitryGame : Game
     }
 
     private int _trayTick;
+    private string _traySig = "";   // sentinel: forces a MenuChanged on the first real build
+
+    // Snapshot the current bots/servers into the tray model; returns a content signature so callers can tell
+    // when it changed. Built from the workspace bots (present even before anything connects), so the menu is
+    // never empty - vital because some tray hosts (GNOME AppIndicator) fetch the menu once and cache it.
+    private string RefreshTrayModel()
+    {
+        var model = new TrayMenuModel();
+        var sig = new System.Text.StringBuilder();
+        foreach (var b in _app.Bots)
+        {
+            var bi = new TrayBotInfo { Name = b.Name };
+            sig.Append(b.Name).Append('{');
+            foreach (var sv in b.Servers)
+            {
+                bool on = b.Runtime.FindConn(sv.DisplayName)?.Running == true;
+                bi.Servers.Add(new TrayServerInfo { Label = sv.DisplayName, Online = on });
+                sig.Append(sv.DisplayName).Append(on ? '+' : '-').Append(',');
+            }
+            sig.Append('}');
+            model.Bots.Add(bi);
+        }
+        TrayIcon.Model = model;
+        return sig.ToString();
+    }
+
     // keep the tray menu's model current and run whatever the user picked from it (on the game thread)
     private void PumpTray()
     {
         if (!TrayIcon.Available) return;
-        if (_trayTick++ % 20 == 0)   // build immediately on the first tick, then a few times a second
+        if (_trayTick++ % 20 == 0)   // refresh a few times a second
         {
-            var model = new TrayMenuModel();
-            var sig = new System.Text.StringBuilder();
-            foreach (var b in _app.Bots)
-            {
-                var bi = new TrayBotInfo { Name = b.Name };
-                sig.Append(b.Name).Append('{');
-                foreach (var sv in b.Servers)
-                {
-                    bool on = b.Runtime.FindConn(sv.DisplayName)?.Running == true;
-                    bi.Servers.Add(new TrayServerInfo { Label = sv.DisplayName, Online = on });
-                    sig.Append(sv.DisplayName).Append(on ? '+' : '-').Append(',');
-                }
-                sig.Append('}');
-                model.Bots.Add(bi);
-            }
-            TrayIcon.Model = model;
-            // only nudge the host to re-fetch when the menu's content actually changed (connect/disconnect, bot add/remove)
-            string s = sig.ToString();
+            string s = RefreshTrayModel();
+            // nudge the host to re-fetch only when the menu's content changed (connect/disconnect, bot add/remove)
             if (s != _traySig) { _traySig = s; TrayIcon.MenuChanged(); }
         }
         while (TrayIcon.Commands.TryDequeue(out var cmd)) HandleTray(cmd);
     }
-    private string _traySig = " ";   // force a MenuChanged on the first populated build
 
     private void HandleTray(TrayCommand cmd)
     {
