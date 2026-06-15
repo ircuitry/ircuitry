@@ -76,11 +76,23 @@ public sealed partial class MainScreen : IScreen
     private bool _serversOpen, _serversJustOpened;
     private string _serverSaveName = "";
     private float _serversScroll;
+    // irc:// / ircs:// link → "save this server" (prompt only when one already exists)
+    private bool _serverLinkOpen, _serverLinkJustOpened;
+    private Ircuitry.Core.ServerProfile? _serverLinkProfile;
+    private string _serverLinkExisting = "";
     private bool _networkOpen, _networkJustOpened;
     private float _networkScroll;
     // achievements
     private float _achLastTick = -1f, _achEvalAt = -1f;
     private readonly Queue<Ircuitry.Core.AchDef> _achToasts = new();
+    // unified notifications: a cozy slide-in toast + a history dropdown of recent ones
+    private readonly Queue<string> _toasts = new();
+    private string? _toastCur;
+    private float _toastUntil;
+    private readonly List<(DateTime time, string text)> _notifLog = new();
+    private bool _notifOpen, _notifJustOpened;
+    private int _notifUnread;        // toasts shown since the history was last opened (for the bell badge)
+    private float _notifScroll;
     private Ircuitry.Core.AchDef? _achCur;
     private float _achCurUntil;
     private bool _achOpen, _achJustOpened;
@@ -146,7 +158,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -214,6 +226,7 @@ public sealed partial class MainScreen : IScreen
     /// </summary>
     public void HandleDeepLink(string link)
     {
+        if (Ircuitry.App.DeepLink.IsServerLink(link)) { HandleServerLink(link); return; }
         if (!Ircuitry.App.DeepLink.TryParse(link, out var action, out var url))
         { Bot.Log.Add(LogLevel.Error, "unrecognised link: " + link); return; }
         if (!Ircuitry.App.DeepLink.IsAllowedUrl(url))
@@ -236,6 +249,74 @@ public sealed partial class MainScreen : IScreen
             return;
         }
         StageInstall(text, "link");   // default action: install-node
+    }
+
+    /// <summary>An irc:// / ircs:// link adds a reusable server to the saved list (it never auto-connects).
+    /// If a server with the same host:port is already saved, we ask before adding another copy.</summary>
+    private void HandleServerLink(string link)
+    {
+        if (!Ircuitry.App.DeepLink.TryParseServer(link, out var host, out var port, out var tls, out var channels))
+        { Bot.Log.Add(LogLevel.Error, "unrecognised server link: " + link); return; }
+
+        var profile = new Ircuitry.Core.ServerProfile
+        {
+            Name = host, Host = host, Port = port, UseTls = tls,
+            AcceptInvalidCerts = tls, AutoReconnect = true, Channels = channels,
+        };
+        var existing = Ircuitry.Core.Servers.All().FirstOrDefault(s => s.Host == host && s.Port == port);
+        if (existing != null)
+        {
+            profile.Name = UniqueServerName(host);
+            _serverLinkProfile = profile;
+            _serverLinkExisting = existing.Name;
+            _serverLinkOpen = true; _serverLinkJustOpened = true;
+            return;
+        }
+        profile.Name = UniqueServerName(host);
+        Ircuitry.Core.Servers.Save(profile);
+        Notify($"📡 saved server {host}:{port}" + (channels.Length > 0 ? "  ·  " + channels : ""));
+        Bot.Log.Add(LogLevel.System, $"saved server '{profile.Name}' ({host}:{port}) from a link");
+    }
+
+    // a brief on-theme notification (fleshed out into toasts + history below)
+    private void Notify(string msg) => PushToast(msg);
+
+    private static string UniqueServerName(string baseName)
+    {
+        var names = Ircuitry.Core.Servers.All().Select(s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!names.Contains(baseName)) return baseName;
+        for (int i = 2; ; i++) { var n = $"{baseName} ({i})"; if (!names.Contains(n)) return n; }
+    }
+
+    private void DrawServerLinkModal(Renderer r)
+    {
+        var p = _serverLinkProfile;
+        if (p == null) return;
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
+
+        float pw = 500, ph = 210;
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Save this server?", Theme.Sky);
+
+        float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 18;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 16), $"{p.Host}:{p.Port}" + (p.UseTls ? "  · TLS" : ""), new Vector2(x, y), Theme.Text);
+        y += 26;
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), $"You already have this server saved as “{_serverLinkExisting}”. Add another copy? It is only saved to your servers list - nothing connects.", w))
+        { r.Text(r.Fonts.Get(FontKind.Sans, 13), line, new Vector2(x, y), Theme.TextDim); y += 17; }
+
+        var addRect = new RectF(panel.Right - 22 - 150, panel.Bottom - 50, 150, 34);
+        var cancelRect = new RectF(addRect.X - 12 - 110, panel.Bottom - 50, 110, 34);
+        if (_ui.Button("svlink.cancel", cancelRect, "CANCEL", Theme.Idle)) { _serverLinkOpen = false; _serverLinkProfile = null; }
+        if (_ui.Button("svlink.add", addRect, "ADD ANYWAY", Theme.Sky, primary: true))
+        {
+            Ircuitry.Core.Servers.Save(p);
+            Notify($"📡 saved server {p.Host}:{p.Port}");
+            Bot.Log.Add(LogLevel.System, $"saved server '{p.Name}' ({p.Host}:{p.Port}) from a link");
+            _serverLinkOpen = false; _serverLinkProfile = null;
+        }
+
+        if (!_serverLinkJustOpened && In.LeftPressed && !panel.Contains(In.Mouse)) { _serverLinkOpen = false; _serverLinkProfile = null; }
+        _serverLinkJustOpened = false;
     }
 
     // Stage a community node (from clipboard or a deep link) in the install confirm dialog.
@@ -337,6 +418,15 @@ public sealed partial class MainScreen : IScreen
     public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
     public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh); OpenFileMenu(new Vector2(_vw - 360, _l.Tabs.Bottom + 3)); }
+    public void DebugNotifications()
+    {
+        _l = Layout.Compute(_vw, _vh);
+        PushToast("💾 Workspace saved");
+        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-1), "📤 Exported welcomer"));
+        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-3), "📡 saved server irc.libera.chat:6697"));
+        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-8), "↩ Snapshot restored"));
+        _notifOpen = true; _notifJustOpened = true; _notifUnread = 0;
+    }
     public void DebugMultiServer()
     {
         _l = Layout.Compute(_vw, _vh);
@@ -407,7 +497,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -436,9 +526,9 @@ public sealed partial class MainScreen : IScreen
             if (!Modal)
             {
                 _editor.Update(input, _l.Canvas, _ui.AnyFieldFocused);
-                if (input.Ctrl && input.KeyPressed(Keys.S)) _app.Save();
+                if (input.Ctrl && input.KeyPressed(Keys.S)) { _app.Save(); Notify("💾 Workspace saved"); }
                 if (input.Ctrl && input.KeyPressed(Keys.R)) ToggleRun();
-                if (input.Ctrl && input.KeyPressed(Keys.E)) _app.ExportActive();
+                if (input.Ctrl && input.KeyPressed(Keys.E)) { _app.ExportActive(); Notify($"📤 Exported {Bot.Name}"); }
                 if (input.Ctrl && input.KeyPressed(Keys.H)) OpenHistory();
                 if (input.Ctrl && input.KeyPressed(Keys.L)) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); }
                 if (input.Ctrl && input.Shift && input.KeyPressed(Keys.V)) InstallFromClipboard();
@@ -510,6 +600,7 @@ public sealed partial class MainScreen : IScreen
         HistoryButton(r);
         TestButton(r);
         ApplyButton(r);
+        BellButton(r);
         r.End();
 
         // ---------- palette drag ghost ----------
@@ -632,6 +723,13 @@ public sealed partial class MainScreen : IScreen
             _ui.Enabled = true;
             DrawAchievementsModal(r);
         }
+        else if (_serverLinkOpen)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawServerLinkModal(r);
+            r.End();
+        }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
         DrawTutorial(r, clock);
@@ -639,8 +737,10 @@ public sealed partial class MainScreen : IScreen
         // ---------- update overlay (on top of absolutely everything) ----------
         if (_upState == UpState.Downloading || _upState == UpState.Applying) DrawUpgradeOverlay(r, clock);
 
-        // ---------- achievement toast ----------
+        // ---------- achievement toast + unified notifications ----------
         DrawAchToast(r, clock);
+        DrawToast(r, clock);
+        DrawNotifPopover(r);
 
         _ui.EndFrame(); // blur stale focus (e.g. after switching node/bot) so canvas shortcuts keep working
     }
@@ -802,7 +902,7 @@ public sealed partial class MainScreen : IScreen
         {
             if (y + 36 > panel.Bottom - 52) break;
             string label = "📸  " + System.IO.Path.GetFileNameWithoutExtension(f).Replace("workspace-", "");
-            if (_ui.Button("snap." + f, new RectF(x, y, w, 34), label, Theme.Cyan)) { _app.RestoreSnapshot(f); _snapOpen = false; }
+            if (_ui.Button("snap." + f, new RectF(x, y, w, 34), label, Theme.Cyan)) { _app.RestoreSnapshot(f); _snapOpen = false; Notify("↩ Snapshot restored"); }
             y += 40;
         }
         if (_ui.Button("snap.cancel", new RectF(panel.Right - 130, panel.Bottom - 46, 110, 32), "CANCEL", Theme.Idle)) _snapOpen = false;
@@ -947,11 +1047,11 @@ public sealed partial class MainScreen : IScreen
         _ctxItems.Clear();
         void Item(string icon, string label, string sc, bool en, Action a) => _ctxItems.Add(new CtxItem { Icon = icon, Label = label, Shortcut = sc, Enabled = en, Do = a });
         void Sep() => _ctxItems.Add(new CtxItem { Sep = true });
-        Item("💾", _app.Dirty ? "Save" : "Save (up to date)", "Ctrl+S", true, () => _app.Save());
-        Item("📸", "Save a snapshot", "", true, () => _app.SaveSnapshot());
+        Item("💾", _app.Dirty ? "Save" : "Save (up to date)", "Ctrl+S", true, () => { _app.Save(); Notify("💾 Workspace saved"); });
+        Item("📸", "Save a snapshot", "", true, () => { _app.SaveSnapshot(); Notify("📸 Snapshot saved"); });
         Item("↩", "Restore a snapshot…", "", _app.Snapshots().Length > 0, () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
         Sep();
-        Item("📤", "Export this bot…", "Ctrl+E", true, () => _app.ExportActive());
+        Item("📤", "Export this bot…", "Ctrl+E", true, () => { _app.ExportActive(); Notify($"📤 Exported {Bot.Name}"); });
         Item("📥", "Import a bot…", "", true, () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
         Sep();
         Item("📂", "Show files", "", true, () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
@@ -2223,6 +2323,99 @@ public sealed partial class MainScreen : IScreen
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 16), _achCur.Title, pw - 80), new Vector2(tile.Right + 12, panel.Y + 32), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.Sans, 11), _achCur.Category, new Vector2(tile.Right + 12, panel.Y + 54), Theme.TextDim);
         r.End();
+    }
+
+    // ---- unified notifications (cozy toasts + a bell history dropdown) ----
+    /// <summary>Show a cozy toast and record it in the notification history.</summary>
+    public void PushToast(string msg)
+    {
+        if (string.IsNullOrWhiteSpace(msg)) return;
+        _toasts.Enqueue(msg);
+        _notifLog.Insert(0, (DateTime.Now, msg));
+        while (_notifLog.Count > 100) _notifLog.RemoveAt(_notifLog.Count - 1);
+        _notifUnread++;
+    }
+
+    private void DrawToast(Renderer r, Clock clock)
+    {
+        if (_toastCur == null && _toasts.Count > 0) { _toastCur = _toasts.Dequeue(); _toastUntil = clock.Time + 3.8f; }
+        if (_toastCur == null) return;
+        float life = 3.8f, leftT = _toastUntil - clock.Time;
+        if (leftT <= 0) { _toastCur = null; return; }
+
+        float pw = 326;
+        var bodyF = r.Fonts.Get(FontKind.Sans, 13);
+        var lines = Wrap(bodyF, _toastCur, pw - 30);
+        if (lines.Count > 2) { lines = lines.GetRange(0, 2); lines[1] = r.Ellipsize(bodyF, lines[1] + "…", pw - 30); }
+        float ph = 22 + lines.Count * 17;
+        float appear = Math.Min(1f, (life - leftT) / 0.3f), leave = Math.Min(1f, leftT / 0.3f);
+        float slide = (1f - Math.Min(appear, leave)) * (pw + 30);
+        float top = 70 + (_achCur != null ? 92 : 0);   // stack below an achievement toast
+        var panel = new RectF(_vw - pw - 18 + slide, top, pw, ph);
+
+        r.Begin();
+        r.RoundFill(panel, Theme.PanelHi, 13); r.RoundOutline(panel, Theme.Sky, 13);
+        r.Fill(new RectF(panel.X, panel.Y + 9, 4, panel.H - 18), Theme.Sky);
+        float ty = panel.Y + 11;
+        foreach (var ln in lines) { r.Text(bodyF, ln, new Vector2(panel.X + 16, ty), Theme.Text); ty += 17; }
+        r.End();
+    }
+
+    private void BellButton(Renderer r)
+    {
+        var bar = _l.TopBar;
+        var tf = r.Fonts.Get(FontKind.SansBold, 16);
+        float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
+        float runX = bar.W - 22 - clockW - 16 - 150;
+        float histX = runX - 12 - 128;
+        float applyX = histX - 12 - 94 - 12 - 110;   // stable slot whether or not APPLY is shown
+        var rect = new RectF(applyX - 12 - 40, 12, 40, 32);
+        if (_ui.Button("top.bell", rect, "🔔", _notifUnread > 0 ? Theme.Amber : Theme.Idle))
+        { _notifOpen = !_notifOpen; _notifJustOpened = true; _notifUnread = 0; _notifScroll = 0; }
+        if (_notifUnread > 0)
+        {
+            var c = new Vector2(rect.Right - 8, rect.Y + 8);
+            r.Disc(c, 8f, Theme.Alert);
+            string n = _notifUnread > 9 ? "9+" : _notifUnread.ToString();
+            var nf = r.Fonts.Get(FontKind.SansBold, 9);
+            r.Text(nf, n, new Vector2(c.X - nf.MeasureString(n).X / 2f, c.Y - nf.MeasureString(n).Y / 2f), Theme.Text);
+        }
+    }
+
+    private void DrawNotifPopover(Renderer r)
+    {
+        if (!_notifOpen) return;
+        float pw = 340, ph = MathF.Min(380, 70 + _notifLog.Count * 34f + 12);
+        var panel = new RectF(_vw - pw - 18, _l.TopBar.Bottom + 6, pw, MathF.Max(110, ph));
+        r.Begin();
+        Hud.Panel(r, panel, "🔔 Notifications", Theme.Amber);
+        if (_notifLog.Count == 0)
+            r.Text(r.Fonts.Get(FontKind.Sans, 13), "Nothing yet - saves, runs and links show up here.", new Vector2(panel.X + 18, panel.Y + Hud.HeaderH + 14), Theme.TextDim);
+        r.End();
+
+        var area = new RectF(panel.X + 12, panel.Y + Hud.HeaderH + 10, panel.W - 24, panel.Bottom - (panel.Y + Hud.HeaderH) - 16);
+        if (_notifLog.Count > 0)
+        {
+            if (area.Contains(In.Mouse) && In.ScrollDelta != 0) _notifScroll -= In.ScrollDelta;
+            _notifScroll = Math.Clamp(_notifScroll, 0, MathF.Max(0, _notifLog.Count * 34f - area.H));
+            r.Begin(BlendMode.Alpha, area.ToRectangle());
+            float ny = area.Y - _notifScroll;
+            var tf = r.Fonts.Get(FontKind.Mono, 10);
+            var bf = r.Fonts.Get(FontKind.Sans, 12);
+            foreach (var (time, text) in _notifLog)
+            {
+                if (ny + 30 >= area.Y && ny <= area.Bottom)
+                {
+                    r.Text(tf, time.ToString("HH:mm"), new Vector2(area.X, ny + 8), Theme.TextFaint);
+                    r.Text(bf, r.Ellipsize(bf, text, area.W - 48), new Vector2(area.X + 42, ny + 6), Theme.Text);
+                }
+                ny += 34;
+            }
+            r.End();
+        }
+
+        if (!_notifJustOpened && In.LeftPressed && !panel.Contains(In.Mouse)) _notifOpen = false;
+        _notifJustOpened = false;
     }
 
     private void DrawAchievementsModal(Renderer r)

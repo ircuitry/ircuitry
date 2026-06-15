@@ -13,10 +13,60 @@ namespace Ircuitry.App;
 /// </summary>
 public static class DeepLink
 {
-    /// <summary>True if the arg is one of our scheme links.</summary>
+    /// <summary>True if the arg is one of our scheme links (community install or an irc/ircs server link).</summary>
     public static bool Is(string arg) =>
         arg.StartsWith("ircuitry://", StringComparison.OrdinalIgnoreCase) ||
-        arg.StartsWith("ircbot://", StringComparison.OrdinalIgnoreCase);
+        arg.StartsWith("ircbot://", StringComparison.OrdinalIgnoreCase) ||
+        IsServerLink(arg);
+
+    /// <summary>True for an <c>irc://</c> / <c>ircs://</c> link, which we treat as "save this server".</summary>
+    public static bool IsServerLink(string arg) =>
+        arg.StartsWith("ircs://", StringComparison.OrdinalIgnoreCase) ||
+        arg.StartsWith("irc://", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Parse an <c>irc://host[:port]/[#]chan[,chan]</c> link. <c>ircs://</c> means TLS (default 6697);
+    /// <c>irc://</c> means plaintext (default 6667). Parsed by hand (not System.Uri) because a channel's
+    /// leading '#' would otherwise be read as a URL fragment.
+    /// </summary>
+    public static bool TryParseServer(string link, out string host, out int port, out bool tls, out string channels)
+    {
+        host = ""; port = 6697; tls = true; channels = "";
+        try
+        {
+            int sep = link.IndexOf("://", StringComparison.Ordinal);
+            if (sep < 0) return false;
+            string scheme = link[..sep].ToLowerInvariant();
+            if (scheme is not ("irc" or "ircs")) return false;
+            tls = scheme == "ircs";
+            port = tls ? 6697 : 6667;
+
+            string rest = link[(sep + 3)..];
+            int slash = rest.IndexOf('/');
+            string authority = slash < 0 ? rest : rest[..slash];
+            string path = slash < 0 ? "" : rest[(slash + 1)..];
+
+            // host[:port]  (ignore any user@ prefix)
+            int at = authority.IndexOf('@'); if (at >= 0) authority = authority[(at + 1)..];
+            int colon = authority.LastIndexOf(':');
+            if (colon > 0 && int.TryParse(authority[(colon + 1)..], out var pp) && pp is > 0 and <= 65535) { host = authority[..colon]; port = pp; }
+            else host = authority;
+            if (host.Length == 0) return false;
+
+            // channels: comma-separated path items, '#' added if missing; known IRC-URL flags dropped
+            var flags = new[] { "isnick", "ischannel", "needkey", "needpass", "ispnick" };
+            var chans = new System.Collections.Generic.List<string>();
+            foreach (var raw in Uri.UnescapeDataString(path).Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var t = raw.Trim();
+                if (t.Length == 0 || Array.IndexOf(flags, t.ToLowerInvariant()) >= 0) continue;
+                chans.Add(t.StartsWith('#') || t.StartsWith('&') ? t : "#" + t);
+            }
+            channels = string.Join(' ', chans);
+            return true;
+        }
+        catch { return false; }
+    }
 
     /// <summary>Parse <c>scheme://action?url=...</c> into the action (install-node/install-bot) and target url.</summary>
     public static bool TryParse(string link, out string action, out string url)
@@ -76,12 +126,14 @@ public static class DeepLink
                 "Icon=ircuitry\n" +
                 "Terminal=false\n" +
                 "NoDisplay=true\n" +
-                "MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;\n";
+                "MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;x-scheme-handler/irc;x-scheme-handler/ircs;\n";
             if (!File.Exists(desktop) || File.ReadAllText(desktop) != content)
                 File.WriteAllText(desktop, content);
 
             RunQuiet("xdg-mime", "default ircuitry-url.desktop x-scheme-handler/ircuitry");
             RunQuiet("xdg-mime", "default ircuitry-url.desktop x-scheme-handler/ircbot");
+            RunQuiet("xdg-mime", "default ircuitry-url.desktop x-scheme-handler/irc");
+            RunQuiet("xdg-mime", "default ircuitry-url.desktop x-scheme-handler/ircs");
             RunQuiet("update-desktop-database", appsDir);
         }
         catch { /* registration is best-effort */ }
