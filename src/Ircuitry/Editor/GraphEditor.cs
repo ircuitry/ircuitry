@@ -682,17 +682,35 @@ public sealed class GraphEditor
         if (hot > 0.02f) main = Theme.Mix(col, Color.White, 0.45f + 0.5f * hot);   // light up bright while in use
         DrawTrace(r, pts, main, hot);
 
-        // travelling data-flow dots while a bot is live (brighter on a freshly-fired source)
+        // cozy little shines streaming along the wire while a bot is live (think Pokémon transfer / Animal
+        // Crossing sparkle) - faint and slow at rest, then brighter, bigger and quicker on a fresh fire
         if (Running && !muted)
         {
-            float speed = 0.30f + 0.9f * hot;
-            float dotR = MathF.Max(2f, 2.6f * Cam.Zoom);
+            int seed = WireKey(c).GetHashCode();
+            float speed = 0.32f + 0.8f * hot;
+            float alpha = 0.34f + 0.55f * hot;
+            float zoom = MathF.Max(0.85f, Cam.Zoom);
             for (int d = 0; d < 2; d++)
             {
                 float t = (clock.Time * speed + d * 0.5f) % 1f;
-                r.Disc(PointAlong(pts, t), dotR, Theme.WithAlpha(col, 0.22f + 0.55f * hot));
+                float pulse = 0.72f + 0.28f * MathF.Sin(clock.Time * 7f + d * 2.3f + seed);   // a gentle twinkle
+                float size = (3.2f + 1.8f * hot) * zoom * pulse;
+                DrawTwinkle(r, PointAlong(pts, t), size, col, alpha * pulse);
             }
         }
+    }
+
+    /// <summary>One cozy 4-point shine (Animal-Crossing twinkle): a soft halo, two tapered-feeling arms and a
+    /// bright white centre - the friendly stand-in for a harsh electric spark.</summary>
+    private void DrawTwinkle(Renderer r, Vector2 c, float size, Color col, float alpha)
+    {
+        if (alpha <= 0.02f || size < 0.5f) return;
+        var arm = Theme.Mix(col, Color.White, 0.5f);
+        float w = MathF.Max(1.1f, size * 0.34f);
+        r.Glow(c, size * 1.8f, Theme.WithAlpha(arm, alpha * 0.45f));
+        r.Line(new Vector2(c.X, c.Y - size), new Vector2(c.X, c.Y + size), Theme.WithAlpha(arm, alpha), w);
+        r.Line(new Vector2(c.X - size * 0.72f, c.Y), new Vector2(c.X + size * 0.72f, c.Y), Theme.WithAlpha(arm, alpha), w);
+        r.Disc(c, MathF.Max(0.9f, size * 0.42f), Theme.WithAlpha(Color.White, alpha));
     }
 
     private void DrawDragWire(Renderer r, InputState input)
