@@ -45,6 +45,12 @@ public static class Program
                 Environment.Exit(WorkflowValidator.Run(args[wi + 1]));
                 return;
             }
+            int ni = Array.IndexOf(args, "--validate-node");
+            if (ni >= 0 && ni + 1 < args.Length)
+            {
+                Environment.Exit(NodeValidator.Run(args[ni + 1]));
+                return;
+            }
         }
         if (Array.IndexOf(args, "--schema") >= 0)
         {
