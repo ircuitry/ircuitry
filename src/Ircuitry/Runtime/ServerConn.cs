@@ -368,9 +368,14 @@ public sealed class ServerConn : IRuntimeSink
             var input = new Dictionary<string, object?>();
             bool trunc = false;
             void Put(string k, string v) { if (v.Length > 200) trunc = true; input[k] = Truncate(v, 200); }
+            // Resolved (wired) inputs first - these are the values the node actually ran with. A param
+            // whose key a connected input already supplied must NOT overwrite it: a node reads InOr(pin,
+            // Param(key)) where pin and param share a name, so the static param still holds the DEFAULT.
+            // Clobbering here showed the default instead of the value passed in down the wire.
             foreach (var (pin, val) in t.Inputs) Put(pin, val);
             foreach (var p in node.Def.Params)
-                if (node.GetParam(p.Key).Length > 0 && p.Key != "apiKey") Put(p.Key, node.GetParam(p.Key));
+                if (!input.ContainsKey(p.Key) && node.GetParam(p.Key).Length > 0 && p.Key != "apiKey")
+                    Put(p.Key, node.GetParam(p.Key));
             _c.EmitBotTools(_dest, BotTools.Step(_wid, sidc, "tool-call", "complete", ToolName(node.TypeId), input, label: t.Title, truncated: trunc));
 
             string result = t.Outputs.Count > 0 ? t.Outputs[0].value : "";

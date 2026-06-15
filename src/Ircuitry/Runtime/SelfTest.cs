@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using Microsoft.Xna.Framework;
 using Ircuitry.Core;
@@ -1398,7 +1399,31 @@ public static class SelfTest
                 for (int k = ia + 1; k < ib; k++) if (sent[k].Contains("+draft/bot-tools")) ok = true;
         }
         rt.Stop(); Thread.Sleep(100);
-        return Expect("bottools-live-interleaved", ok, "sent: " + string.Join(" | ", mock.Sent()));
+        int fails = Expect("bottools-live-interleaved", ok, "sent: " + string.Join(" | ", mock.Sent()));
+
+        // Regression: a tool-call step must show the value PASSED IN down the wire (a/b/c), not the
+        // reply node's default "message" param ("pong"). The default used to clobber the wired value.
+        bool sawCall = false, argsOk = false, sawPong = false;
+        foreach (var line in mock.Sent())
+        {
+            int at = line.IndexOf("+draft/bot-tools=", StringComparison.Ordinal);
+            if (at < 0) continue;
+            int v = at + "+draft/bot-tools=".Length;
+            int end = line.IndexOfAny(new[] { ';', ' ' }, v);
+            var b64 = end < 0 ? line[v..] : line[v..end];
+            var e = BotTools.Decode(b64);
+            if (e is not { ValueKind: JsonValueKind.Object } step) continue;
+            if (BotTools.Str(step, "type") != "tool-call") continue;
+            if (!step.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Object) continue;
+            if (!content.TryGetProperty("message", out var msg) || msg.ValueKind != JsonValueKind.String) continue;
+            sawCall = true;
+            var m = msg.GetString();
+            if (m is "a" or "b" or "c") argsOk = true;
+            if (m == "pong") sawPong = true;
+        }
+        fails += Expect("bottools-tool-args-not-default", sawCall && argsOk && !sawPong,
+            $"sawCall={sawCall} argsOk={argsOk} sawPong={sawPong}");
+        return fails;
     }
 
     /// <summary>Stop → restart the same runtime must reconnect, re-join the channel, and reply again
