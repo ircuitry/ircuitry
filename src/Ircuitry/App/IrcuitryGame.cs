@@ -210,17 +210,28 @@ public sealed class IrcuitryGame : Game
         if (_trayTick++ % 20 == 0)   // build immediately on the first tick, then a few times a second
         {
             var model = new TrayMenuModel();
+            var sig = new System.Text.StringBuilder();
             foreach (var b in _app.Bots)
             {
                 var bi = new TrayBotInfo { Name = b.Name };
+                sig.Append(b.Name).Append('{');
                 foreach (var sv in b.Servers)
-                    bi.Servers.Add(new TrayServerInfo { Label = sv.DisplayName, Online = b.Runtime.FindConn(sv.DisplayName)?.Running == true });
+                {
+                    bool on = b.Runtime.FindConn(sv.DisplayName)?.Running == true;
+                    bi.Servers.Add(new TrayServerInfo { Label = sv.DisplayName, Online = on });
+                    sig.Append(sv.DisplayName).Append(on ? '+' : '-').Append(',');
+                }
+                sig.Append('}');
                 model.Bots.Add(bi);
             }
             TrayIcon.Model = model;
+            // only nudge the host to re-fetch when the menu's content actually changed (connect/disconnect, bot add/remove)
+            string s = sig.ToString();
+            if (s != _traySig) { _traySig = s; TrayIcon.MenuChanged(); }
         }
         while (TrayIcon.Commands.TryDequeue(out var cmd)) HandleTray(cmd);
     }
+    private string _traySig = " ";   // force a MenuChanged on the first populated build
 
     private void HandleTray(TrayCommand cmd)
     {

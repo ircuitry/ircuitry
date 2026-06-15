@@ -20,6 +20,9 @@ public static class TrayIcon
 
     /// <summary>Snapshot of bots/servers the game loop keeps current, for building the right-click menu.</summary>
     public static volatile TrayMenuModel Model = new();
+
+    /// <summary>Tell the tray host the menu changed so it re-fetches (servers connect/disconnect, bots added).</summary>
+    public static void MenuChanged() { try { _menu?.EmitLayoutUpdated(); } catch { } }
     /// <summary>Menu choices the game loop drains and executes on its own thread.</summary>
     public static readonly ConcurrentQueue<TrayCommand> Commands = new();
 

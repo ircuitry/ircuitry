@@ -1499,25 +1499,37 @@ public static class SelfTest
     private static int TrayMenuTest()
     {
         var menu = new Ircuitry.App.TrayMenu();
+
+        var pairs = new List<(int id, string label)>();
+        void Walk((int, System.Collections.Generic.IDictionary<string, object>, object[]) n)
+        {
+            if (n.Item2.TryGetValue("label", out var l)) pairs.Add((n.Item1, l?.ToString() ?? ""));
+            foreach (var k in n.Item3) Walk(((int, System.Collections.Generic.IDictionary<string, object>, object[]))k);
+        }
+        int IdOf(string label) { foreach (var p in pairs) if (p.label == label) return p.id; return -1; }
+
+        // 1) build once with no bots (mirrors the menu being fetched before anything connects)
+        Ircuitry.App.TrayIcon.Model = new Ircuitry.App.TrayMenuModel();
+        var (_, l0) = menu.GetLayoutAsync(0, 1, System.Array.Empty<string>()).GetAwaiter().GetResult();
+        pairs.Clear(); Walk(l0);
+        int discEmpty = IdOf("Disconnect"), reconEmpty = IdOf("Reconnect");
+
+        // 2) now bots connect - the ids of the static items must NOT move (hosts cache them for lazy fetch)
         Ircuitry.App.TrayIcon.Model = new Ircuitry.App.TrayMenuModel
         {
             Bots = { new Ircuitry.App.TrayBotInfo { Name = "alpha", Servers = {
                 new Ircuitry.App.TrayServerInfo { Label = "Libera", Online = true },
                 new Ircuitry.App.TrayServerInfo { Label = "OFTC", Online = false } } } }
         };
-        var (_, layout) = menu.GetLayoutAsync(0, 1, System.Array.Empty<string>()).GetAwaiter().GetResult();   // shallow request, full reply expected
+        var (_, l1) = menu.GetLayoutAsync(0, 1, System.Array.Empty<string>()).GetAwaiter().GetResult();   // shallow request, full reply expected
+        pairs.Clear(); Walk(l1);
 
-        var labels = new List<string>();
-        void Walk((int, System.Collections.Generic.IDictionary<string, object>, object[]) n)
-        {
-            if (n.Item2.TryGetValue("label", out var l)) labels.Add(l?.ToString() ?? "");
-            foreach (var k in n.Item3) Walk(((int, System.Collections.Generic.IDictionary<string, object>, object[]))k);
-        }
-        Walk(layout);
-        bool ok = labels.Contains("Disconnect") && labels.Contains("Reconnect")
+        bool stable = discEmpty > 0 && discEmpty == IdOf("Disconnect") && reconEmpty == IdOf("Reconnect");
+        var labels = pairs.ConvertAll(p => p.label);
+        bool listed = labels.Contains("Disconnect") && labels.Contains("Reconnect")
             && labels.Count(s => s == "Libera") == 2 && labels.Count(s => s == "OFTC") == 2   // once under each group
             && labels.Count(s => s == "All servers") == 2;
-        return Expect("tray-menu-lists-servers", ok, string.Join(" | ", labels));
+        return Expect("tray-menu-lists-servers", stable && listed, $"stable={stable} listed={listed} | " + string.Join(",", labels));
     }
 
     private static string Dump(FakeSink s) => "sent=[" + string.Join(", ", s.Sent.ConvertAll(t => $"{t.target}:{t.text}")) + "]";

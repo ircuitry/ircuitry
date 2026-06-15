@@ -1485,7 +1485,14 @@ public sealed partial class MainScreen : IScreen
         r.Begin();
         float bh = 30, by = top - 2, gap = 10, bx = panel.Right - 20;
         bx -= 138; if (_ui.Button("nm.browse", new RectF(bx, by, 138, bh), "🌐 Browse library ↗", Theme.Lime)) Ircuitry.App.DeepLink.OpenUrl(NodeLibraryUrl);
-        bx -= gap + 176; if (_ui.Button("nm.paste", new RectF(bx, by, 176, bh), "⎘  Install from clipboard", Theme.Cyan)) { _nodeMgrOpen = false; InstallFromClipboard(); }
+        // only offer clipboard install when an actual .ircnode manifest is sitting in the clipboard, and name it
+        if (_clipNodeTitle != null)
+        {
+            string cn = _clipNodeTitle.Length > 16 ? _clipNodeTitle[..15] + "…" : _clipNodeTitle;
+            string clabel = $"⎘  Install {cn} (from clipboard)";
+            float cw = r.Fonts.Get(FontKind.SansBold, 13).MeasureString(clabel).X + 30;
+            bx -= gap + cw; if (_ui.Button("nm.paste", new RectF(bx, by, cw, bh), clabel, Theme.Cyan, primary: true)) { _nodeMgrOpen = false; InstallFromClipboard(); }
+        }
         if (updates > 0) { bx -= gap + 138; if (_ui.Button("nm.updateall", new RectF(bx, by, 138, bh), $"⤓ Update all ({updates})", Theme.Amber, primary: true)) foreach (var tid in _nodeMgrUpdates.Keys.ToList()) UpdateNode(tid); }
         r.End();
 

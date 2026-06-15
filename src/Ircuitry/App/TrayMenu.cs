@@ -60,24 +60,28 @@ public sealed class TrayMenu : IDbusMenu
     // the last-built tree: id → (properties, child ids); plus id → command for clickable leaves
     private Dictionary<int, (IDictionary<string, object> props, List<int> kids)> _items = new();
     private Dictionary<int, TrayCommand> _actions = new();
-    private int _nextId;
+    // STABLE ids: a logical item (e.g. "disconnect", "disconnect.bot.h4ks") always keeps the same numeric id
+    // across rebuilds, even as bots connect/disconnect. Hosts cache ids and lazily fetch submenus by id, so a
+    // renumbering after the model changes was making them fetch the wrong (empty) item - the empty-submenu bug.
+    private readonly Dictionary<string, int> _ids = new();
+    private int _idSeq = 1;   // 0 is reserved for the root
+    private int IdFor(string key) { if (!_ids.TryGetValue(key, out var id)) { id = _idSeq++; _ids[key] = id; } return id; }
 
     // ---- tree building (from the pushed model) ----
     private void Rebuild()
     {
         var items = new Dictionary<int, (IDictionary<string, object>, List<int>)>();
         var actions = new Dictionary<int, TrayCommand>();
-        _nextId = 1;   // 0 is reserved for the root, by convention
 
-        int New(IDictionary<string, object> props, List<int> kids) { int id = _nextId++; items[id] = (props, kids); return id; }
-        int Leaf(string label, bool enabled, TrayCommand? cmd)
+        int New(string key, IDictionary<string, object> props, List<int> kids) { int id = IdFor(key); items[id] = (props, kids); return id; }
+        int Leaf(string key, string label, bool enabled, TrayCommand? cmd)
         {
-            int id = New(Std(label, enabled), new List<int>());
-            if (cmd is { } c) actions[id] = c;
+            int id = New(key, Std(label, enabled), new List<int>());
+            if (cmd is { } c) actions[id] = c; else actions.Remove(id);
             return id;
         }
-        int Sep() => New(new Dictionary<string, object> { ["type"] = "separator" }, new List<int>());
-        int Sub(string label, List<int> kids) => New(SubProps(label, kids.Count > 0), kids);
+        int Sep(string key) => New(key, new Dictionary<string, object> { ["type"] = "separator" }, new List<int>());
+        int Sub(string key, string label, List<int> kids) => New(key, SubProps(label, kids.Count > 0), kids);
 
         var model = TrayIcon.Model;
         var bots = model.Bots;
@@ -86,7 +90,7 @@ public sealed class TrayMenu : IDbusMenu
         {
             // wantOnlineEnabled: Disconnect enables online servers; Reconnect enables offline ones
             var top = new List<int>();
-            if (bots.Count == 0) { top.Add(Leaf("(no bots)", false, null)); return top; }
+            if (bots.Count == 0) { top.Add(Leaf($"{kind}.nobots", "(no bots)", false, null)); return top; }
 
             List<int> ServersOf(TrayBotInfo b)
             {
@@ -94,28 +98,28 @@ public sealed class TrayMenu : IDbusMenu
                 foreach (var sv in b.Servers)
                 {
                     bool enabled = wantOnlineEnabled ? sv.Online : !sv.Online;
-                    kids.Add(Leaf(sv.Label, enabled, new TrayCommand(kind, b.Name, sv.Label)));
+                    kids.Add(Leaf($"{kind}.bot.{b.Name}.sv.{sv.Label}", sv.Label, enabled, new TrayCommand(kind, b.Name, sv.Label)));
                 }
-                kids.Add(Leaf("All servers", b.Servers.Count > 0, new TrayCommand(kind, b.Name, "*")));
+                kids.Add(Leaf($"{kind}.bot.{b.Name}.all", "All servers", b.Servers.Count > 0, new TrayCommand(kind, b.Name, "*")));
                 return kids;
             }
 
             if (bots.Count == 1)
                 return ServersOf(bots[0]);   // one bot → list its servers directly
 
-            foreach (var b in bots) top.Add(Sub(b.Name, ServersOf(b)));
-            top.Add(Sep());
-            top.Add(Leaf("All bots", true, new TrayCommand(kind, "*", "*")));
+            foreach (var b in bots) top.Add(Sub($"{kind}.bot.{b.Name}", b.Name, ServersOf(b)));
+            top.Add(Sep($"{kind}.sep"));
+            top.Add(Leaf($"{kind}.allbots", "All bots", true, new TrayCommand(kind, "*", "*")));
             return top;
         }
 
         var root = new List<int>
         {
-            Sub("Disconnect", ActionGroup("disconnect", true)),
-            Sub("Reconnect", ActionGroup("reconnect", false)),
-            Leaf("Open ircuitry", true, new TrayCommand("open", "", "")),
-            Sep(),
-            Leaf("Exit", true, new TrayCommand("exit", "", "")),
+            Sub("disconnect", "Disconnect", ActionGroup("disconnect", true)),
+            Sub("reconnect", "Reconnect", ActionGroup("reconnect", false)),
+            Leaf("open", "Open ircuitry", true, new TrayCommand("open", "", "")),
+            Sep("rootsep"),
+            Leaf("exit", "Exit", true, new TrayCommand("exit", "", "")),
         };
         items[0] = (new Dictionary<string, object> { ["children-display"] = "submenu" }, root);   // root is id 0
 
@@ -201,8 +205,23 @@ public sealed class TrayMenu : IDbusMenu
 
     private static readonly IDisposable Noop = new NoopDisposable();
     public Task<IDisposable> WatchItemsPropertiesUpdatedAsync(Action<((int, IDictionary<string, object>)[], (int, string[])[])> h) => Task.FromResult(Noop);
-    public Task<IDisposable> WatchLayoutUpdatedAsync(Action<(uint, int)> h) => Task.FromResult(Noop);
     public Task<IDisposable> WatchItemActivationRequestedAsync(Action<(int, uint)> h) => Task.FromResult(Noop);
+
+    // LayoutUpdated: hosts (libdbusmenu / AppIndicator) cache the menu and only re-fetch GetLayout when this
+    // signal fires. Without it the first (often empty) layout sticks and submenus never fill in. We keep the
+    // subscriber handler and raise it whenever the bots/servers actually change.
+    private Action<(uint, int)>? _layoutUpdated;
+    public Task<IDisposable> WatchLayoutUpdatedAsync(Action<(uint, int)> h)
+    {
+        _layoutUpdated = h;
+        return Task.FromResult<IDisposable>(new NoopDisposable());
+    }
+
+    public void EmitLayoutUpdated()
+    {
+        uint rev; lock (_lock) rev = ++_revision;
+        try { _layoutUpdated?.Invoke((rev, 0)); } catch { /* no subscriber / bus busy - host will still re-fetch on open */ }
+    }
 
     private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
 }
