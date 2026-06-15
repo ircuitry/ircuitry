@@ -199,6 +199,58 @@ public sealed class IrcuitryGame : Game
         bot.Runtime.Start(bot.Graph, bot.Settings);
     }
 
+    private int _trayTick;
+    // keep the tray menu's model current and run whatever the user picked from it (on the game thread)
+    private void PumpTray()
+    {
+        if (!TrayIcon.Available) return;
+        if (++_trayTick % 20 == 0)
+        {
+            var model = new TrayMenuModel();
+            foreach (var b in _app.Bots)
+            {
+                var bi = new TrayBotInfo { Name = b.Name };
+                foreach (var sv in b.Servers)
+                    bi.Servers.Add(new TrayServerInfo { Label = sv.DisplayName, Online = b.Runtime.FindConn(sv.DisplayName)?.Running == true });
+                model.Bots.Add(bi);
+            }
+            TrayIcon.Model = model;
+        }
+        while (TrayIcon.Commands.TryDequeue(out var cmd)) HandleTray(cmd);
+    }
+
+    private void HandleTray(TrayCommand cmd)
+    {
+        switch (cmd.Kind)
+        {
+            case "open":
+                Ircuitry.Core.Sdl.Restore(Window.Handle); Ircuitry.Core.Sdl.Show(Window.Handle);
+                break;
+            case "exit":
+                Ircuitry.Core.Sdl.Restore(Window.Handle); Ircuitry.Core.Sdl.Show(Window.Handle);
+                (_screen as MainScreen)?.RequestClosePrompt();   // open the app + the "are you sure?" prompt
+                break;
+            case "disconnect":
+                foreach (var b in _app.Bots)
+                {
+                    if (cmd.Bot != "*" && !b.Name.Equals(cmd.Bot, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (cmd.Server == "*") b.Runtime.Stop();
+                    else b.Runtime.DisconnectServer(cmd.Server);
+                }
+                break;
+            case "reconnect":
+                foreach (var b in _app.Bots)
+                {
+                    if (cmd.Bot != "*" && !b.Name.Equals(cmd.Bot, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (cmd.Server == "*")
+                    { foreach (var sv in b.Servers) if (sv.Host.Length > 0) b.Runtime.ConnectServer(b.Graph, sv); }
+                    else
+                    { var sv = System.Linq.Enumerable.FirstOrDefault(b.Servers, s => s.DisplayName == cmd.Server); if (sv != null) b.Runtime.ConnectServer(b.Graph, sv); }
+                }
+                break;
+        }
+    }
+
     private void OnText(char c)
     {
         // forward printable characters; editing keys are handled via InputState edges
@@ -320,6 +372,7 @@ public sealed class IrcuitryGame : Game
         if (_input.KeyPressed(Keys.F12)) SaveScreenshot(Path.Combine(AppContext.BaseDirectory, $"ircuitry-{++_screenshotSeq:000}.png"));
 
         if (TrayIcon.RestoreRequested) { TrayIcon.RestoreRequested = false; Ircuitry.Core.Sdl.Show(Window.Handle); }
+        PumpTray();
 
         // while the splash is up it swallows input - a key/click skips it, and the editor underneath
         // is fed inert input so nothing registers. The screen still updates (keeps its layout/state live).

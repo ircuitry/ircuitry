@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Threading.Tasks;
 using Tmds.DBus;
@@ -7,17 +8,24 @@ namespace Ircuitry.App;
 
 /// <summary>
 /// A Linux system-tray icon via the StatusNotifierItem (SNI) spec over D-Bus - the modern tray
-/// protocol KDE/GNOME(AppIndicator)/Zorin use. Left-clicking the icon requests the window be
-/// restored. Everything is best-effort and guarded: if there's no tray host (or no D-Bus), it
-/// silently no-ops and the app falls back to a normal minimise.
+/// protocol KDE/GNOME(AppIndicator)/Zorin use. Left-clicking the icon restores the window; right-click
+/// shows a native menu (see <see cref="TrayMenu"/>) to connect/disconnect servers, open, or exit.
+/// Everything is best-effort and guarded: if there's no tray host (or no D-Bus), it silently no-ops and
+/// the app falls back to a normal minimise.
 /// </summary>
 public static class TrayIcon
 {
     public static volatile bool Available;
     public static volatile bool RestoreRequested;   // host clears it after showing the window
 
+    /// <summary>Snapshot of bots/servers the game loop keeps current, for building the right-click menu.</summary>
+    public static volatile TrayMenuModel Model = new();
+    /// <summary>Menu choices the game loop drains and executes on its own thread.</summary>
+    public static readonly ConcurrentQueue<TrayCommand> Commands = new();
+
     private static Connection? _conn;
     private static StatusNotifierItem? _item;
+    private static TrayMenu? _menu;
 
     public static void Start()
     {
@@ -29,6 +37,8 @@ public static class TrayIcon
                 InstallThemeIcon();
                 _conn = new Connection(Address.Session ?? throw new InvalidOperationException("no session bus"));
                 var info = await _conn.ConnectAsync();
+                _menu = new TrayMenu();
+                await _conn.RegisterObjectAsync(_menu);
                 _item = new StatusNotifierItem();
                 await _conn.RegisterObjectAsync(_item);
                 var watcher = _conn.CreateProxy<IStatusNotifierWatcher>("org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher");
@@ -70,8 +80,8 @@ public class SniProperties
     public string Status = "Active";
     public string IconName = "ircuitry";
     public int WindowId = 0;
-    public bool ItemIsMenu = false;
-    public ObjectPath Menu = new("/NO_DBUSMENU");
+    public bool ItemIsMenu = false;          // left-click activates (restores), right-click shows Menu
+    public ObjectPath Menu = new("/MenuBar");
 }
 
 [DBusInterface("org.kde.StatusNotifierItem")]
@@ -99,7 +109,7 @@ public sealed class StatusNotifierItem : IStatusNotifierItem
 
     public Task ActivateAsync(int x, int y) { TrayIcon.RestoreRequested = true; return Task.CompletedTask; }
     public Task SecondaryActivateAsync(int x, int y) { TrayIcon.RestoreRequested = true; return Task.CompletedTask; }
-    public Task ContextMenuAsync(int x, int y) { TrayIcon.RestoreRequested = true; return Task.CompletedTask; }
+    public Task ContextMenuAsync(int x, int y) => Task.CompletedTask;   // the host renders our Menu (dbusmenu)
     public Task ScrollAsync(int delta, string orientation) => Task.CompletedTask;
 
     public Task<object> GetAsync(string prop) => Task.FromResult<object>(prop switch
