@@ -174,6 +174,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showpalette") >= 0) ms?.DebugCommandPalette();
         if (Array.IndexOf(_args, "--showlibprefs") >= 0) ms?.DebugLibraryPrefs();
         if (Array.IndexOf(_args, "--shownodebuilder") >= 0) ms?.DebugOpenNodeBuilder();
+        if (Array.IndexOf(_args, "--showwfinstall") >= 0) ms?.DebugWorkflowInstall();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();
@@ -250,12 +251,15 @@ public sealed class IrcuitryGame : Game
         switch (cmd.Kind)
         {
             case "open":
-                Ircuitry.Core.Sdl.Restore(Window.Handle); Ircuitry.Core.Sdl.Show(Window.Handle);
+                Ircuitry.Core.Sdl.BringToFront(Window.Handle);   // surface + focus, keep maximised state
                 break;
             case "exit":
-                Ircuitry.Core.Sdl.Restore(Window.Handle); Ircuitry.Core.Sdl.Show(Window.Handle);
-                (_screen as MainScreen)?.RequestClosePrompt();   // open the app + the "are you sure?" prompt
+            {
+                var m = _screen as MainScreen;
+                m?.RequestClosePrompt();                          // asks only if bots are live, else just quits
+                if (m?.ClosePromptOpen == true) Ircuitry.Core.Sdl.BringToFront(Window.Handle);   // bring the prompt to the front
                 break;
+            }
             case "disconnect":
                 foreach (var b in _app.Bots)
                 {
@@ -422,14 +426,20 @@ public sealed class IrcuitryGame : Game
         // poll the deep-link inbox every frame (a cheap File.Exists): inotify/FileSystemWatcher drops
         // events under rapid open-link clicks, which made links need many tries. Polling never misses.
         if (_inboxDir != null) DrainInbox();
-        // process one deep-link install per frame, only when no modal is open (so dialogs do not stack)
-        if (!_deepLinks.IsEmpty && _screen is MainScreen dlScreen && dlScreen.CanAcceptDeepLink && _deepLinks.TryDequeue(out var link))
+        // process one deep-link install per frame. Its confirm modal stacks over any open modal, and we
+        // just bring the window to the front (no unmaximise/resize - Restore() used to shrink it).
+        if (!_deepLinks.IsEmpty && _screen is MainScreen dlScreen && _deepLinks.TryDequeue(out var link))
         {
-            Ircuitry.Core.Sdl.Restore(Window.Handle);
-            Ircuitry.Core.Sdl.Show(Window.Handle);   // surface the window (it may be minimised or in the tray)
+            Ircuitry.Core.Sdl.BringToFront(Window.Handle);   // surface + focus, keep maximised state
             dlScreen.HandleDeepLink(link);
         }
-        if (Ircuitry.Core.Sdl.CloseRequested) { Ircuitry.Core.Sdl.CloseRequested = false; (_screen as MainScreen)?.RequestClosePrompt(); }
+        if (Ircuitry.Core.Sdl.CloseRequested)
+        {
+            Ircuitry.Core.Sdl.CloseRequested = false;
+            var m = _screen as MainScreen;
+            m?.RequestClosePrompt();
+            if (m?.ClosePromptOpen == true) Ircuitry.Core.Sdl.BringToFront(Window.Handle);   // show the "are you sure?" if we're in the background
+        }
         UpdateWindowTitle();
 
         // autosave on blur (not mid-typing): save when there are changes and no text field is being edited

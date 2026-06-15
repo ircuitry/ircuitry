@@ -64,6 +64,11 @@ public sealed partial class MainScreen : IScreen
         else OnExitRequested?.Invoke();
     }
 
+    /// <summary>True while the "are you sure you want to quit?" prompt is showing (the host raises the window for it).</summary>
+    public bool ClosePromptOpen => _closePromptOpen;
+
+    public void DebugWorkflowInstall() { _l = Layout.Compute(_vw, _vh); StageWorkflowInstall("{\"format\":\"ircuitry.workflow.v1\",\"name\":\"Greeter Bot\",\"description\":\"Welcomes people when they join your channel and answers a friendly !hi command.\",\"nodes\":[{\"id\":\"a\",\"type\":\"event.join\"},{\"id\":\"b\",\"type\":\"action.say\"}],\"connections\":[]}"); }
+
     // inline tab rename (double-click a tab)
     private Bot? _renamingBot;
     private float _tabClickTime;
@@ -135,6 +140,11 @@ public sealed partial class MainScreen : IScreen
     private bool _uninstallOpen, _uninstallJustOpened;
     private NodeDef? _uninstallDef;
 
+    // confirm installing a community workflow (it becomes a new bot tab) before importing it
+    private bool _wfInstallOpen, _wfInstallJustOpened;
+    private string _wfInstallText = "", _wfInstallName = "", _wfInstallDesc = "";
+    private int _wfInstallNodes;
+
     // community node manager
     private bool _nodeMgrOpen, _nodeMgrJustOpened;
     private float _nodeMgrScroll;
@@ -171,7 +181,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -264,8 +274,7 @@ public sealed partial class MainScreen : IScreen
 
         if (action == "install-bot")
         {
-            var bot = _app.ImportText(text);
-            if (bot != null) Bot.Log.Add(LogLevel.System, $"imported workflow “{bot.Name}” - set your server/nick/channels, then RUN BOT");
+            StageWorkflowInstall(text);   // confirm first, like nodes - it becomes a new bot tab
             return;
         }
         StageInstall(text, "link");   // default action: install-node
@@ -351,6 +360,55 @@ public sealed partial class MainScreen : IScreen
         _installDef = def;
         _installPreview = NodePreview(text);
         _installOpen = true; _installJustOpened = true;
+    }
+
+    // Stage a community workflow for a confirm (mirrors the node install): it becomes a new bot tab.
+    private void StageWorkflowInstall(string text)
+    {
+        string name = "workflow", desc = ""; int nodes = 0;
+        try
+        {
+            using var d = System.Text.Json.JsonDocument.Parse(text);
+            var r = d.RootElement;
+            if (r.ValueKind != System.Text.Json.JsonValueKind.Object || !r.TryGetProperty("nodes", out var ns) || ns.ValueKind != System.Text.Json.JsonValueKind.Array)
+            { Bot.Log.Add(LogLevel.Error, "link is not a workflow (.ircbot)"); return; }
+            nodes = ns.GetArrayLength();
+            if (r.TryGetProperty("name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String) name = n.GetString() ?? name;
+            if (r.TryGetProperty("description", out var dd) && dd.ValueKind == System.Text.Json.JsonValueKind.String) desc = dd.GetString() ?? "";
+        }
+        catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "invalid workflow: " + ex.Message); return; }
+        _wfInstallText = text; _wfInstallName = name; _wfInstallDesc = desc; _wfInstallNodes = nodes;
+        _wfInstallOpen = true; _wfInstallJustOpened = true;
+    }
+
+    private void DrawWorkflowInstallModal(Renderer r)
+    {
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
+        float pw = 560, ph = 300;
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Install community workflow?", Theme.Sky);
+
+        float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 16), "🤖  " + _wfInstallName, new Vector2(x, y), Theme.Text); y += 26;
+        r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{_wfInstallNodes} node(s) · adds a new bot tab", new Vector2(x, y), Theme.TextDim); y += 24;
+        if (_wfInstallDesc.Length > 0)
+            foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), _wfInstallDesc, w))
+            { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 17; }
+        y += 8;
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), "⚠  A workflow can include Code nodes that run on your machine. Review it before you press RUN BOT.", w))
+        { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.Alert); y += 17; }
+
+        var goR = new RectF(panel.Right - 22 - 130, panel.Bottom - 50, 130, 34);
+        var cancelR = new RectF(goR.X - 12 - 110, panel.Bottom - 50, 110, 34);
+        if (_ui.Button("wfinstall.cancel", cancelR, "CANCEL", Theme.Idle)) _wfInstallOpen = false;
+        if (_ui.Button("wfinstall.go", goR, "INSTALL", Theme.Sky, primary: true))
+        {
+            var bot = _app.ImportText(_wfInstallText);
+            if (bot != null) { Bot.Log.Add(LogLevel.System, $"imported workflow “{bot.Name}” - set your server/nick/channels, then RUN BOT"); PushToast($"✓ {bot.Name} added as a new bot tab"); }
+            _wfInstallOpen = false;
+        }
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_wfInstallJustOpened) _wfInstallOpen = false;
+        _wfInstallJustOpened = false;
     }
 
     // A short preview of what a dropped node will run, shown in the install confirm dialog.
@@ -532,7 +590,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -648,7 +706,29 @@ public sealed partial class MainScreen : IScreen
         r.End();
 
         // ---------- modals (on top, capture input) ----------
-        if (_importOpen)
+        // install confirms take priority so a deep-link install overlays whatever modal is already open
+        if (_installOpen)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawInstallModal(r);
+            r.End();
+        }
+        else if (_uninstallOpen)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawUninstallModal(r);
+            r.End();
+        }
+        else if (_wfInstallOpen)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawWorkflowInstallModal(r);
+            r.End();
+        }
+        else if (_importOpen)
         {
             _ui.Enabled = true;
             r.Begin();
@@ -719,20 +799,6 @@ public sealed partial class MainScreen : IScreen
         {
             _ui.Enabled = true;
             DrawNodeBuilder(r);
-        }
-        else if (_installOpen)
-        {
-            _ui.Enabled = true;
-            r.Begin();
-            DrawInstallModal(r);
-            r.End();
-        }
-        else if (_uninstallOpen)
-        {
-            _ui.Enabled = true;
-            r.Begin();
-            DrawUninstallModal(r);
-            r.End();
         }
         else if (_nodeMgrOpen)
         {

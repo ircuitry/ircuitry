@@ -30,6 +30,26 @@ public static class Sdl
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_HideWindow(IntPtr w);
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_ShowWindow(IntPtr w);
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_RaiseWindow(IntPtr w);
+    [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern uint SDL_GetWindowFlags(IntPtr w);
+
+    private const uint SDL_WINDOW_MINIMIZED = 0x40;
+
+    /// <summary>True if the window is minimised - so a caller can un-minimise WITHOUT also unmaximising it.</summary>
+    public static bool IsMinimized(IntPtr w) { try { return w != IntPtr.Zero && (SDL_GetWindowFlags(w) & SDL_WINDOW_MINIMIZED) != 0; } catch { return false; } }
+
+    /// <summary>Bring the window to the front and focus it WITHOUT changing its size/maximised state. Only
+    /// un-minimises when it is actually minimised (Restore() would otherwise unmaximise a maximised window).</summary>
+    public static void BringToFront(IntPtr w)
+    {
+        try
+        {
+            if (w == IntPtr.Zero) return;
+            if (IsMinimized(w)) SDL_RestoreWindow(w);
+            SDL_ShowWindow(w);
+            SDL_RaiseWindow(w);
+        }
+        catch { }
+    }
 
     public static void Maximize(IntPtr w) { try { if (w != IntPtr.Zero) SDL_MaximizeWindow(w); } catch { } }
     public static void Minimize(IntPtr w) { try { if (w != IntPtr.Zero) SDL_MinimizeWindow(w); } catch { } }
