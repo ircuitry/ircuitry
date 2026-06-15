@@ -1995,10 +1995,7 @@ public sealed partial class MainScreen : IScreen
 
         if (clock.Time - _achEvalAt < 2f) return;
         _achEvalAt = clock.Time;
-        var snapshot = _app.Bots
-            .Select(b => (b.Name, (IReadOnlyCollection<string>)b.Graph.Nodes.Select(n => n.TypeId).ToHashSet()))
-            .ToList();
-        foreach (var d in Ircuitry.Core.Achievements.Evaluate(snapshot)) _achToasts.Enqueue(d);
+        foreach (var d in Ircuitry.Core.Achievements.Evaluate()) _achToasts.Enqueue(d);
         Ircuitry.Core.Achievements.Save();
     }
 
@@ -2039,8 +2036,7 @@ public sealed partial class MainScreen : IScreen
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, "Achievements", Theme.Amber);
 
-        var snapshot = _app.Bots.Select(b => (b.Name, (IReadOnlyCollection<string>)b.Graph.Nodes.Select(n => n.TypeId).ToHashSet())).ToList();
-        var defs = Ircuitry.Core.Achievements.AllDefs(snapshot);
+        var defs = Ircuitry.Core.Achievements.AllDefs();
         int got = defs.Count(d => d.Unlocked);
         r.TextRight(r.Fonts.Get(FontKind.Mono, 12), $"{got}/{defs.Count} unlocked", panel.Right - 18, panel.Y + 14, Theme.TextFaint);
         r.End();

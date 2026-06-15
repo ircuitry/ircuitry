@@ -26,6 +26,7 @@ public sealed class TestSink : IRuntimeSink
     public void StopTyping(string t) => Sent.Add(("TYPING", "stop " + t));
     public void Log(string m, LogLevel lvl) => Sent.Add(("LOG", m));
     public void NodeFired(string id) { }
+    public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes) { }   // dry run: no achievement credit
     public string GetState(string key) => _state.TryGetValue(key, out var v) ? v : "";
     public void SetState(string key, string value) => _state[key] = value;
 }

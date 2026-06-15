@@ -34,6 +34,8 @@ public static class SelfTest
         public void StopTyping(string t) => Logs.Add("TYPING stop " + t);
         public void Log(string m, LogLevel lvl) => Logs.Add(m);
         public void NodeFired(string id) { }
+        public System.Collections.Generic.List<string> LastRun = new();
+        public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes) { LastRun = new(executedTypes); }
     }
 
     private static Node N(NodeGraph g, string type, float x, float y)
@@ -122,6 +124,7 @@ public static class SelfTest
         fails += WorkspaceTest();
         fails += TextSafetyTest();
         fails += SignalTest();
+        fails += RunCompletedTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -157,6 +160,26 @@ public static class SelfTest
             if (HasLoneSurrogate(s[..Ircuitry.Render.Renderer.CutAt(s, n)])) { anyLone = true; break; }
         fails += Expect("ellipsize-cut-surrogate-safe", !anyLone, "a CutAt slice split an emoji");
         return fails;
+    }
+
+    /// <summary>A run reports exactly the node types that executed (not muted, not unreached) - the basis
+    /// for spec-compliance achievements only counting nodes that actually ran in one fire.</summary>
+    private static int RunCompletedTest()
+    {
+        var g = new NodeGraph();
+        var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "go");
+        var a = N(g, "action.reply", 250, 0); a.SetParam("message", "hi");
+        var b = N(g, "action.say", 250, 120); b.SetParam("channel", "#x"); b.SetParam("message", "yo");
+        var muted = N(g, "irc.typing.start", 250, 240); muted.Muted = true;
+        g.Connect(cmd.Id, 0, a.Id, 0);
+        g.Connect(a.Id, 0, b.Id, 0);
+        g.Connect(b.Id, 0, muted.Id, 0);   // wired but muted -> must not be reported
+
+        var s = new FakeSink();
+        GraphExecutor.Fire(g, s, cmd, Vars("!go", "alice", "#x"));
+        bool ok = s.LastRun.Contains("event.command") && s.LastRun.Contains("action.reply")
+               && s.LastRun.Contains("action.say") && !s.LastRun.Contains("irc.typing.start");
+        return Expect("run-executed-types", ok, string.Join(",", s.LastRun));
     }
 
     /// <summary>Emit Signal fires a matching On Signal flow (one workflow triggering another), carrying data.</summary>

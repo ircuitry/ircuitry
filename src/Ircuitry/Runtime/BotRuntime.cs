@@ -560,6 +560,13 @@ public sealed class BotRuntime : IRuntimeSink
     private void StopAllTyping() { foreach (var t in new System.Collections.Generic.List<string>(_typing.Keys)) StopTyping(t); }
     public void Log(string message, LogLevel level) => _log.Add(level, message);
     public void NodeFired(string nodeId) { _activity[nodeId] = DateTime.Now; _fireCounts.AddOrUpdate(nodeId, 1, (_, n) => n + 1); }
+
+    /// <summary>The owning bot's name, kept in sync by <see cref="Ircuitry.App.Bot"/> for achievement crediting.</summary>
+    public string OwnerName = "";
+    public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes)
+    {
+        if (OwnerName.Length > 0) Ircuitry.Core.Achievements.MarkRun(executedTypes);
+    }
     public string GetState(string key) => _state.TryGetValue(key, out var v) ? v : "";
     public void SetState(string key, string value) => _state[key] = value;
 }

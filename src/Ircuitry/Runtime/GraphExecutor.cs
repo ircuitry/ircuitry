@@ -20,6 +20,7 @@ public static class GraphExecutor
     {
         var run = new Run(graph, sink, vars, trace, onNode);
         run.RunExec(trigger);
+        if (run.ExecutedTypes.Count > 0) sink.RunCompleted(run.ExecutedTypes);   // spec-compliance achievements
     }
 
     private sealed class Run
@@ -28,6 +29,7 @@ public static class GraphExecutor
         public readonly IRuntimeSink Sink;
         public readonly Dictionary<string, string> Vars;
         public readonly Dictionary<(string, int), string> Outputs = new();
+        public readonly HashSet<string> ExecutedTypes = new();   // node typeIds that ran without throwing, this run
         public readonly RunRecord? Trace;
         public readonly Action<NodeTrace>? OnNode;   // fired the instant a node finishes (live bot-tools streaming)
         private int _steps;
@@ -42,8 +44,10 @@ public static class GraphExecutor
             if (node.Muted) return;                 // disabled nodes are skipped entirely
             Sink.NodeFired(node.Id);
             var ctx = new NodeCtx(this, node);
+            bool ok = true;
             try { node.Def.Exec(ctx); }
-            catch (Exception ex) { Sink.Log($"node '{node.DisplayTitle}' error: {ex.Message}", LogLevel.Error); }
+            catch (Exception ex) { ok = false; Sink.Log($"node '{node.DisplayTitle}' error: {ex.Message}", LogLevel.Error); }
+            if (ok) ExecutedTypes.Add(node.TypeId);   // only a successful execution counts toward spec achievements
 
             Record(node, ctx.Pulses);
             foreach (int pin in ctx.Pulses) RunOutput(node, pin);
@@ -96,7 +100,12 @@ public static class GraphExecutor
             if (_depth >= 16) { Sink.Log("subflow nesting too deep - aborted", LogLevel.Error); return child; }
             Node? entry = null;
             foreach (var n in sub.Nodes) if (n.TypeId == "flow.in") { entry = n; break; }
-            if (entry != null) new Run(sub, Sink, child, Trace, OnNode, _depth + 1).RunExec(entry);
+            if (entry != null)
+            {
+                var cr = new Run(sub, Sink, child, Trace, OnNode, _depth + 1);
+                cr.RunExec(entry);
+                foreach (var t in cr.ExecutedTypes) ExecutedTypes.Add(t);   // count subflow nodes toward this run
+            }
             return child;
         }
 

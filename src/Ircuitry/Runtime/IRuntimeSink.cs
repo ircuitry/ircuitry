@@ -24,6 +24,11 @@ public interface IRuntimeSink
     /// <summary>Signals that a node just executed (for canvas activity feedback).</summary>
     void NodeFired(string nodeId);
 
+    /// <summary>Fired once when a run finishes, with the set of node typeIds that executed without
+    /// throwing during it. Drives spec-compliance achievements: a multi-node spec only counts when all
+    /// of its nodes succeeded in the same run. Dry runs/tests no-op this so only real runs count.</summary>
+    void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes);
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);

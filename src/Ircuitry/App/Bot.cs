@@ -8,7 +8,8 @@ namespace Ircuitry.App;
 /// <summary>One bot in the workspace: its workflow, connection, log, persistent variables and live runtime.</summary>
 public sealed class Bot
 {
-    public string Name;
+    private string _name = "";
+    public string Name { get => _name; set { _name = value; if (Runtime != null) Runtime.OwnerName = value; } }
     public NodeGraph Graph = new();
     public IrcSettings Settings = new();
     public readonly ConsoleLog Log = new();
@@ -17,7 +18,7 @@ public sealed class Bot
 
     public Bot(string name)
     {
+        Runtime = new BotRuntime(Log, State);   // assign before Name so the setter can sync OwnerName
         Name = name;
-        Runtime = new BotRuntime(Log, State);
     }
 }

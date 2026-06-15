@@ -38,6 +38,7 @@ public static class Achievements
         public Dictionary<string, double> Online { get; set; } = new();
         public Dictionary<string, string> Unlocked { get; set; } = new();
         public HashSet<string> Caps { get; set; } = new(StringComparer.OrdinalIgnoreCase);   // caps ever negotiated
+        public HashSet<string> Specs { get; set; } = new();   // spec ids satisfied by a successful run
     }
 
     private static readonly object Gate = new();
@@ -128,6 +129,7 @@ public static class Achievements
             try { _s = File.Exists(FilePath) ? JsonSerializer.Deserialize<Store>(File.ReadAllText(FilePath)) ?? new() : new(); }
             catch { _s = new(); }
             _s.Caps ??= new(StringComparer.OrdinalIgnoreCase);
+            _s.Specs ??= new();
             return _s;
         }
     }
@@ -151,20 +153,34 @@ public static class Achievements
         lock (Gate) { var s = S(); foreach (var c in caps) if (!string.IsNullOrWhiteSpace(c) && s.Caps.Add(c.Trim())) _dirty = true; }
     }
 
+    /// <summary>Record one successful run: a spec is satisfied only when ALL its nodes ran in this run.</summary>
+    public static void MarkRun(IReadOnlyCollection<string> executedTypes)
+    {
+        if (executedTypes == null || executedTypes.Count == 0) return;
+        lock (Gate)
+        {
+            var s = S();
+            foreach (var sp in SpecList)
+                if (sp.Nodes.Length > 0 && sp.Nodes.All(t => executedTypes.Contains(t)))
+                    if (s.Specs.Add(sp.Id)) _dirty = true;
+            if (DraftNodes.Any(t => executedTypes.Contains(t)) && s.Specs.Add("spec.pioneer")) _dirty = true;
+        }
+    }
+
     private static bool Unlock(string id, string detail)
     {
         lock (Gate) { var s = S(); if (s.Unlocked.ContainsKey(id)) return false; s.Unlocked[id] = detail; _dirty = true; return true; }
     }
 
-    public static List<AchDef> Evaluate(IReadOnlyList<(string name, IReadOnlyCollection<string> types)> bots)
+    public static List<AchDef> Evaluate()
     {
         var fresh = new List<AchDef>();
-        foreach (var d in AllDefs(bots))
+        foreach (var d in AllDefs())
             if (d.Unlocked && Unlock(d.Id, d.Detail)) fresh.Add(d);
         return fresh;
     }
 
-    public static List<AchDef> AllDefs(IReadOnlyList<(string name, IReadOnlyCollection<string> types)>? bots = null)
+    public static List<AchDef> AllDefs()
     {
         var list = new List<AchDef>();
         int bc = BotsCreated;
@@ -178,31 +194,29 @@ public static class Achievements
                 maxSecs >= h * 3600.0, FormatDur(maxSecs) + " best", (float)Math.Min(1.0, maxSecs / (h * 3600.0))));
 
         var caps = S().Caps;
-        // draft pioneer (special): use any draft-spec node
-        int draftUsed = bots == null ? 0 : DraftNodes.Count(t => bots.Any(b => b.types.Contains(t)));
-        bool pioneer = IsUnlocked("spec.pioneer") || draftUsed > 0;
-        list.Add(Mk("spec.pioneer", "IRCv3 drafts", "Living on the Edge", "Use any draft-spec node (react, typing, redaction, chathistory, multiline...).", "🌟",
-            pioneer, draftUsed > 0 ? draftUsed + " draft nodes" : "use a draft node", DraftNodes.Length == 0 ? 1 : Math.Min(1f, draftUsed / 3f)));
+        var specs = S().Specs;   // satisfied by a successful run (all the spec's nodes ran in one fire)
+        bool pioneer = specs.Contains("spec.pioneer");
+        list.Add(Mk("spec.pioneer", "IRCv3 drafts", "Living on the Edge", "Run any draft-spec node (react, typing, redaction, chathistory, multiline...).", "🌟",
+            pioneer, pioneer ? "unlocked" : "run a draft node", pioneer ? 1 : 0));
 
         foreach (var sp in SpecList)
         {
-            bool unlocked = IsUnlocked(sp.Id);
-            string detail; float prog;
+            bool unlocked; string detail; float prog;
             if (sp.Cap.Length > 0)
             {
-                if (caps.Contains(sp.Cap)) unlocked = true;
+                unlocked = caps.Contains(sp.Cap);
                 detail = unlocked ? "negotiated" : "connect to a server with it";
                 prog = unlocked ? 1f : 0f;
             }
             else
             {
-                int best = (bots == null || bots.Count == 0) ? 0 : bots.Max(b => sp.Nodes.Count(t => b.types.Contains(t)));
-                if (best == sp.Nodes.Length && sp.Nodes.Length > 0) unlocked = true;
-                detail = $"{(unlocked ? sp.Nodes.Length : best)}/{sp.Nodes.Length} nodes";
-                prog = sp.Nodes.Length == 0 ? 0 : Math.Min(1f, best / (float)sp.Nodes.Length);
+                unlocked = specs.Contains(sp.Id);
+                detail = unlocked ? "done" : sp.Nodes.Length > 1 ? $"run all {sp.Nodes.Length} in one fire" : "run it once";
+                prog = unlocked ? 1f : 0f;
             }
             string desc = sp.Cap.Length > 0 ? $"Connect to a server offering the {sp.Cap} capability."
-                : "Use this spec on a bot: " + string.Join(", ", sp.Nodes) + ".";
+                : sp.Nodes.Length > 1 ? "Run all of these successfully in one fire: " + string.Join(", ", sp.Nodes) + "."
+                : "Successfully run " + string.Join(", ", sp.Nodes) + ".";
             list.Add(Mk(sp.Id, sp.Group, sp.Title + (sp.Draft ? "  ·  draft" : ""), desc, sp.Icon, unlocked, detail, prog));
         }
         return list;
