@@ -135,6 +135,7 @@ public static class SelfTest
         fails += CameraBoundsTest();
         fails += McpEditorTest();
         fails += AiEditorToolTest();
+        fails += ReloadKeepsRunningBotTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1635,6 +1636,52 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Regression: an external workspace change (here an AI self-edit through the bridge) while a bot is
+    /// LIVE must reload the canvas WITHOUT quitting the running bot - it used to stop every bot and rebuild
+    /// the list, so a self-editing bot killed itself.
+    /// </summary>
+    private static int ReloadKeepsRunningBotTest()
+    {
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-reload-" + Guid.NewGuid().ToString("N")[..8]);
+        using var mock = new MockIrcServer();
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            if (!Ircuitry.App.AppModel.WorkspaceDir.StartsWith(tmp, StringComparison.Ordinal))
+                return Expect("reload-keeps-running-bot (skipped: no sandbox)", true, "");
+
+            var app = new Ircuitry.App.AppModel();
+            var bot = app.ActiveBot;
+            bot.Settings.Host = "127.0.0.1"; bot.Settings.Port = mock.Port; bot.Settings.UseTls = false;
+            bot.Settings.Nick = "ircuitry-bot"; bot.Settings.Channels = "#t"; bot.Settings.SaslPass = "";
+            app.Save(announce: false);                       // mark this on-disk state as "ours"
+            bot.Runtime.Start(bot.Graph, bot.Settings);
+            bool running = false;
+            for (int i = 0; i < 200 && !running; i++) { Thread.Sleep(25); running = bot.Runtime.Running; }
+            if (!running) { try { bot.Runtime.Stop(); } catch { } return Expect("reload-keeps-running-bot (skipped: bot never connected)", true, ""); }
+
+            int before = bot.Graph.Nodes.Count;
+            // an external edit lands on disk (the bot editing its own workflow via the inward MCP bridge)
+            var add = Ircuitry.App.Mcp.McpBridge.Invoke("add_node",
+                new Dictionary<string, string> { ["typeId"] = "action.reply", ["params"] = "{\"message\":\"FROMRELOAD\"}" }, bot.Name);
+            bool reloaded = app.ReloadIfChangedOnDisk();
+            Thread.Sleep(60);
+            bool stillRunning = bot.Runtime.Running;                       // the live bot must NOT have been quit
+            bool graphGrew = app.ActiveBot.Graph.Nodes.Count == before + 1; // and the canvas shows the edit
+            try { bot.Runtime.Stop(); } catch { }
+            Thread.Sleep(40);
+            return Expect("reload-keeps-running-bot", reloaded && stillRunning && graphGrew && !add.StartsWith("Error"),
+                $"reloaded={reloaded} stillRunning={stillRunning} grew={graphGrew} before={before} after={app.ActiveBot.Graph.Nodes.Count}");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
     }
 
     /// <summary>

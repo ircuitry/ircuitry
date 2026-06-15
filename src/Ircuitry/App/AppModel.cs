@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Ircuitry.Core;
 using Ircuitry.Graph;
@@ -256,13 +257,31 @@ public sealed class AppModel
             var (bots, active) = WorkspaceSerializer.Load(text);
             if (bots.Count == 0) return false;
 
-            foreach (var b in Bots) { try { b.Runtime.Stop(); } catch { } }   // stop live bots before swapping
+            // Never quit a LIVE bot just because the workspace changed on disk - an AI self-edit, the MCP
+            // server, git or another editor. A running bot keeps its own in-memory graph, so we keep the
+            // live instance and fold the reloaded definition into its (editor) graph in place: the canvas
+            // shows the change and a restart picks it up. Only stopped bots are swapped out wholesale.
+            int keptLive = 0;
+            var merged = new List<Bot>();
+            var consumed = new HashSet<Bot>();
+            foreach (var cur in Bots)
+            {
+                if (!cur.Runtime.Running) { try { cur.Runtime.Stop(); } catch { } continue; }
+                var match = bots.FirstOrDefault(nb => nb.Name == cur.Name && !consumed.Contains(nb));
+                if (match != null) { consumed.Add(match); try { cur.Graph.ReplaceWith(match.Graph); } catch { } }
+                merged.Add(cur);
+                keptLive++;
+            }
+            foreach (var nb in bots) if (!consumed.Contains(nb)) merged.Add(nb);
+
             Bots.Clear();
-            Bots.AddRange(bots);
+            Bots.AddRange(merged);
             Active = Math.Clamp(active, 0, Bots.Count - 1);
             _lastPersisted = text;
             Dirty = false;
-            ActiveBot.Log.Add(LogLevel.System, "⟳ reloaded workspace from disk (external change)");
+            ActiveBot.Log.Add(LogLevel.System, keptLive > 0
+                ? $"⟳ reloaded workspace from disk (external change; {keptLive} running bot(s) kept live - restart to apply)"
+                : "⟳ reloaded workspace from disk (external change)");
             return true;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "reload failed: " + ex.Message); return false; }
