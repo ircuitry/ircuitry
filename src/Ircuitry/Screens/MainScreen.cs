@@ -35,6 +35,7 @@ public sealed partial class MainScreen : IScreen
     private float _paletteScroll;
     private float _inspScroll;        // inspector panel scroll (the connection panel can run long)
     private string _inspKey = "";     // what the inspector is showing, to reset scroll on change
+    private string _nodeTestId = "", _nodeTestResult = "";   // last "test this node" result
     private string _paletteSearch = "";
     private float _clipCheckAt = -1f;     // throttle clipboard polling
     private string? _clipNodeTitle;        // title of an installable .ircnode currently in the clipboard, or null
@@ -1991,13 +1992,77 @@ public sealed partial class MainScreen : IScreen
                     next = _ui.TextField(id, new RectF(x, y, w, 30), cur, pdef.Placeholder); y += 40; break;
             }
             if (next != cur) { n.SetParam(pdef.Key, next); _app.MarkDirty(); }
+
+            string hint = ParamHint(pdef.Key, next);
+            if (hint.Length > 0)
+                foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 10), "⚠ " + hint, w))
+                { r.Text(r.Fonts.Get(FontKind.Sans, 10), line, new Vector2(x, y - 2), Theme.Amber); y += 13; }
         }
 
         y += 8;
+        // dry-run just this node and report whether it ran (and its output)
+        if (_ui.Button("insp.testnode." + n.Id, new RectF(x, y, w, 30), "🧪 Test this node", Theme.Cyan))
+        { _nodeTestId = n.Id; _nodeTestResult = TestNode(n); }
+        y += 36;
+        if (_nodeTestId == n.Id && _nodeTestResult.Length > 0)
+        {
+            foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 11), _nodeTestResult, w))
+            { r.Text(r.Fonts.Get(FontKind.Sans, 11), line, new Vector2(x, y), Theme.TextDim); y += 14; }
+            y += 6;
+        }
+
         if (!_tut.Active && _ui.Button("insp.del", new RectF(x, y, w, 32), "✕  DELETE NODE", Theme.Alert))
         { Bot.Graph.Remove(n); _editor.Selection.Clear(); _app.MarkDirty(); }
         return y + 40;
     }
+
+    // A gentle, non-blocking hint for a param value that looks off (never prevents anything).
+    private string ParamHint(string key, string val)
+    {
+        val = (val ?? "").Trim();
+        if (val.Length == 0 || val.StartsWith("{")) return "";   // blank or a {token}/template - don't second-guess
+        if (key is "channel" or "channels")
+        {
+            var toks = val.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (toks.Length > 0 && toks.All(t => !t.StartsWith("#") && !t.StartsWith("&") && !t.StartsWith("{")))
+                return "channels usually start with #";
+        }
+        if (key == "server" && Bot.Servers.Count > 1)
+        {
+            bool known = Bot.Servers.Any(s => string.Equals(s.DisplayName, val, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(s.Label, val, StringComparison.OrdinalIgnoreCase) || string.Equals(s.Host, val, StringComparison.OrdinalIgnoreCase));
+            if (!known) return $"no server “{val}” on this bot (blank = reply on the origin server)";
+        }
+        return "";
+    }
+
+    /// <summary>Dry-run the graph from each trigger with the test-bench event and report whether this node ran.</summary>
+    private string TestNode(Node n)
+    {
+        var graph = Bot.Graph;
+        var sink = new TestSink(new Dictionary<string, string>(Bot.State));
+        var baseVars = new Dictionary<string, string>
+        {
+            ["botnick"] = Bot.Settings.Nick, ["nick"] = _testNick, ["user"] = "tester", ["host"] = "test.host",
+            ["channel"] = _testChan, ["target"] = _testChan, ["message"] = _testMsg, ["replyto"] = _testChan,
+            ["args"] = "", ["command"] = "", ["account"] = "", ["isbot"] = "false", ["msgid"] = "test-msg", ["__reply"] = "test-msg",
+        };
+        NodeTrace? found = null;
+        foreach (var trig in graph.Nodes.Where(t => t.Def.IsTrigger))
+        {
+            var rec = new RunRecord { Time = DateTime.Now, Trigger = trig.DisplayTitle, Icon = trig.Def.Icon };
+            try { GraphExecutor.Fire(graph, sink, trig, new Dictionary<string, string>(baseVars), rec); } catch { }
+            found = rec.Nodes.FirstOrDefault(x => x.NodeId == n.Id);
+            if (found != null) break;
+        }
+        if (found == null)
+            return $"✗ didn't run for a test message “{_testMsg}”. Open 🧪 TEST to change the event, or check the wires/filters above it.";
+        string outs = found.Outputs.Count > 0 ? "  ·  out: " + string.Join(", ", found.Outputs.Select(o => $"{o.pin}={Trunc(o.value, 40)}")) : "";
+        string fired = found.Pulsed.Count > 0 ? "  ·  → " + string.Join(", ", found.Pulsed) : "";
+        return $"✓ ran{outs}{fired}";
+    }
+
+    private static string Trunc(string s, int n) => s.Length <= n ? s : s[..n] + "…";
 
     // A growable list param: one row to start, an "Add" button to add more, and a per-row remove.
     private string DrawListParam(Renderer r, string idBase, ref float y, float x, float w, string cur, bool pair, string addLabel)
