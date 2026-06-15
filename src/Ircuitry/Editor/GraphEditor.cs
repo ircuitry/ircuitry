@@ -35,6 +35,7 @@ public sealed class GraphEditor
     private RectF _mmBox;
     private Vector2 _mmMin, _mmOrigin;
     private float _mmScale;
+    private Vector2 _mmContentMin, _mmContentMax;   // node bbox only (no viewport) - bounds a minimap drag
     private string? _hoverWire;             // connection key the cursor is closest to (for hover highlight)
 
     // undo / redo (graph-JSON snapshots) + node clipboard (shared across bots)
@@ -308,7 +309,19 @@ public sealed class GraphEditor
             if (input.LeftPressed && _mmBox.Contains(input.Mouse)) _minimapDrag = true;
             if (_minimapDrag)
             {
-                if (input.LeftDown) Cam.CenterOn(_mmMin + (input.Mouse - _mmOrigin) / _mmScale, canvas.Center);
+                if (input.LeftDown)
+                {
+                    // Clamp the target to the node bbox (+ a small margin) so the view stays tethered
+                    // to content. Without this the minimap bounds include the viewport, so dragging at
+                    // the edge pushed the view out, which grew the bounds, which flung it further still -
+                    // a runaway that ended in a frozen machine.
+                    var target = _mmMin + (input.Mouse - _mmOrigin) / _mmScale;
+                    var m = (_mmContentMax - _mmContentMin) * 0.15f + new Vector2(120);
+                    var lo = _mmContentMin - m; var hi = _mmContentMax + m;
+                    target = Vector2.Clamp(target, lo, hi);
+                    Cam.CenterOn(target, canvas.Center);
+                    Cam.Sanitize(canvas);
+                }
                 else _minimapDrag = false;
                 _hoverPort = null;
                 return;   // the minimap owns the mouse this frame
@@ -371,6 +384,8 @@ public sealed class GraphEditor
             ToggleMuteSelection();
         if (!uiCapturing && !input.Ctrl && _mode == Mode.Idle && input.KeyPressed(Keys.F))
             FrameSelection(canvas);
+
+        Cam.Sanitize(canvas);   // last line of defence: keep the camera finite and within world bounds
     }
 
     private static Vector2 SnapPos(Vector2 v) { const float g = 28f; return new(MathF.Round(v.X / g) * g, MathF.Round(v.Y / g) * g); }
@@ -601,6 +616,7 @@ public sealed class GraphEditor
             var l = NodeLayout.For(n);
             min = Vector2.Min(min, l.Card.Pos); max = Vector2.Max(max, new Vector2(l.Card.Right, l.Card.Bottom));
         }
+        _mmContentMin = min; _mmContentMax = max;   // node bbox before we fold in the (movable) viewport
         var vtl = Cam.ScreenToWorld(new Vector2(canvas.Left, canvas.Top));
         var vbr = Cam.ScreenToWorld(new Vector2(canvas.Right, canvas.Bottom));
         min = Vector2.Min(min, vtl); max = Vector2.Max(max, vbr);
@@ -642,19 +658,22 @@ public sealed class GraphEditor
 
         Vector2 tl = Cam.ScreenToWorld(new Vector2(c.Left, c.Top));
         Vector2 br = Cam.ScreenToWorld(new Vector2(c.Right, c.Bottom));
-        float x0 = MathF.Floor(tl.X / step) * step;
-        for (float x = x0; x <= br.X; x += step)
+        // Integer-indexed, NOT `for (float x...; x += step)`: a float counter never advances once |x|
+        // grows past the point where `step` is below its ULP, which spun this loop forever and froze
+        // the whole machine. The count guard is a further backstop for any absurd range.
+        if (!(float.IsFinite(tl.X) && float.IsFinite(tl.Y) && float.IsFinite(br.X) && float.IsFinite(br.Y)) || step <= 0f) return;
+        int ix0 = (int)MathF.Floor(tl.X / step), ix1 = (int)MathF.Ceiling(br.X / step);
+        int iy0 = (int)MathF.Floor(tl.Y / step), iy1 = (int)MathF.Ceiling(br.Y / step);
+        if (ix1 - ix0 > 4000 || iy1 - iy0 > 4000) return;   // nothing sane ever draws this many lines
+        for (int i = ix0; i <= ix1; i++)
         {
-            int idx = (int)MathF.Round(x / step);
-            float sx = MathF.Round(Cam.WorldToScreen(new Vector2(x, 0)).X);
-            r.VLine(sx, c.Top, c.Bottom, idx % major == 0 ? Theme.GridMajor : Theme.GridMinor, 1f);
+            float sx = MathF.Round(Cam.WorldToScreen(new Vector2(i * step, 0)).X);
+            r.VLine(sx, c.Top, c.Bottom, i % major == 0 ? Theme.GridMajor : Theme.GridMinor, 1f);
         }
-        float y0 = MathF.Floor(tl.Y / step) * step;
-        for (float y = y0; y <= br.Y; y += step)
+        for (int j = iy0; j <= iy1; j++)
         {
-            int idx = (int)MathF.Round(y / step);
-            float sy = MathF.Round(Cam.WorldToScreen(new Vector2(0, y)).Y);
-            r.HLine(c.Left, c.Right, sy, idx % major == 0 ? Theme.GridMajor : Theme.GridMinor, 1f);
+            float sy = MathF.Round(Cam.WorldToScreen(new Vector2(0, j * step)).Y);
+            r.HLine(c.Left, c.Right, sy, j % major == 0 ? Theme.GridMajor : Theme.GridMinor, 1f);
         }
         Vector2 o = Cam.WorldToScreen(Vector2.Zero);
         if (o.X >= c.Left && o.X <= c.Right) r.VLine(MathF.Round(o.X), c.Top, c.Bottom, Theme.GridAxis, 1.5f);

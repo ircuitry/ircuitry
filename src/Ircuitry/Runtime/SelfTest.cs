@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.Xna.Framework;
 using Ircuitry.Core;
+using Ircuitry.Editor;
 using Ircuitry.Graph;
 using Ircuitry.Irc;
 
@@ -129,6 +130,7 @@ public static class SelfTest
         fails += MultiServerTest();
         fails += TrayMenuTest();
         fails += ShortcodeTest();
+        fails += CameraBoundsTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1538,5 +1540,69 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Regression for the minimap over-scroll freeze: the camera centre must stay finite and within
+    /// +-WorldLimit no matter how hard it is pushed, so world coords never reach the float range where
+    /// the grid loop stalled forever and locked up the whole machine.
+    /// </summary>
+    private static int CameraBoundsTest()
+    {
+        int fails = 0;
+        var canvas = new RectF(0, 0, 1600, 900);
+
+        // (a) one absurd over-scroll (what a far minimap drag produced) is clamped, not propagated
+        {
+            var cam = new Camera();
+            cam.CenterOn(new Vector2(1e30f, -1e25f), canvas.Center);
+            cam.Sanitize(canvas);
+            var c = cam.ScreenToWorld(canvas.Center);
+            bool ok = float.IsFinite(c.X) && float.IsFinite(c.Y)
+                      && MathF.Abs(c.X) <= Camera.WorldLimit + 1f && MathF.Abs(c.Y) <= Camera.WorldLimit + 1f;
+            fails += Expect("cam-clamp-overscroll", ok, $"center={c}");
+        }
+
+        // (b) the geometric runaway (centre grows ~5%/frame, the old feedback loop) stays bounded
+        {
+            var cam = new Camera();
+            for (int i = 0; i < 2000; i++)
+            {
+                var c = cam.ScreenToWorld(canvas.Center);
+                cam.CenterOn(new Vector2(c.X * 1.05f + 1000f, c.Y * 1.05f + 1000f), canvas.Center);
+                cam.Sanitize(canvas);
+            }
+            var fin = cam.ScreenToWorld(canvas.Center);
+            bool ok = float.IsFinite(fin.X) && float.IsFinite(cam.Pan.X)
+                      && MathF.Abs(fin.X) <= Camera.WorldLimit + 1f;
+            fails += Expect("cam-clamp-runaway", ok, $"center={fin} pan={cam.Pan}");
+        }
+
+        // (c) non-finite pan/zoom (e.g. a divide-by-zero scale) is repaired, never left as NaN/Inf
+        {
+            var cam = new Camera { Pan = new Vector2(float.NaN, float.PositiveInfinity), Zoom = float.NaN };
+            cam.Sanitize(canvas);
+            bool ok = float.IsFinite(cam.Pan.X) && float.IsFinite(cam.Pan.Y)
+                      && cam.Zoom >= Camera.MinZoom && cam.Zoom <= Camera.MaxZoom;
+            fails += Expect("cam-repair-nonfinite", ok, $"pan={cam.Pan} zoom={cam.Zoom}");
+        }
+
+        // (d) at the world limit the grid index span is small and finite - the loop can't run away
+        {
+            var cam = new Camera { Zoom = Camera.MinZoom };
+            cam.CenterOn(new Vector2(Camera.WorldLimit, Camera.WorldLimit), canvas.Center);
+            cam.Sanitize(canvas);
+            const float baseStep = 28f; const int major = 4;
+            float step = baseStep;
+            while (step * cam.Zoom < 13f) step *= major;
+            while (step * cam.Zoom > 96f) step /= major;
+            var tl = cam.ScreenToWorld(new Vector2(canvas.Left, canvas.Top));
+            var br = cam.ScreenToWorld(new Vector2(canvas.Right, canvas.Bottom));
+            int span = (int)MathF.Ceiling(br.X / step) - (int)MathF.Floor(tl.X / step);
+            bool ok = step > 0f && span > 0 && span < 4000;
+            fails += Expect("grid-span-bounded", ok, $"span={span} step={step}");
+        }
+
+        return fails;
     }
 }
