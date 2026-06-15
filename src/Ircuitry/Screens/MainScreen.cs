@@ -42,6 +42,8 @@ public sealed partial class MainScreen : IScreen
     private bool _importOpen;
     private bool _importJustOpened;     // suppress the opening click from closing the modal
     private string[] _importFiles = Array.Empty<string>();
+    private bool _snapOpen, _snapJustOpened;
+    private string[] _snapFiles = Array.Empty<string>();
     private NodeGraph? _lastGraph;
 
     // delete-bot confirmation
@@ -140,7 +142,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -330,6 +332,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugShowServers() { _l = Layout.Compute(_vw, _vh); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
     public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
+    public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh); OpenFileMenu(new Vector2(_vw - 360, _l.Tabs.Bottom + 3)); }
     public void DebugShowNetwork()
     {
         _l = Layout.Compute(_vw, _vh);
@@ -389,7 +392,7 @@ public sealed partial class MainScreen : IScreen
 
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
         }
         else if (_renamingBot != null)
         {
@@ -490,6 +493,7 @@ public sealed partial class MainScreen : IScreen
         r.Begin();
         RunButton(r, clock);
         HistoryButton(r);
+        TestButton(r);
         ApplyButton(r);
         r.End();
 
@@ -514,6 +518,13 @@ public sealed partial class MainScreen : IScreen
             _ui.Enabled = true;
             r.Begin();
             DrawConfirmModal(r);
+            r.End();
+        }
+        else if (_snapOpen)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawSnapshotModal(r);
             r.End();
         }
         else if (_historyOpen)
@@ -761,6 +772,29 @@ public sealed partial class MainScreen : IScreen
         _confirmJustOpened = false;
     }
 
+    private void DrawSnapshotModal(Renderer r)
+    {
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
+        float pw = 540, ph = Math.Min(480, 150 + _snapFiles.Length * 44 + 60);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Restore a snapshot", Theme.Lime);
+        float x = panel.X + 20, w = panel.W - 40, y = panel.Y + Hud.HeaderH + 16;
+        r.Text(r.Fonts.Get(FontKind.Sans, 13), "Load a saved snapshot of the whole workspace. Your current state is saved first.", new Vector2(x, y), Theme.TextDim);
+        y += 28;
+        if (_snapFiles.Length == 0)
+            r.Text(r.Fonts.Get(FontKind.Sans, 14), "No snapshots yet - use File ▸ Save a snapshot.", new Vector2(x, y + 8), Theme.TextFaint);
+        foreach (var f in _snapFiles)
+        {
+            if (y + 36 > panel.Bottom - 52) break;
+            string label = "📸  " + System.IO.Path.GetFileNameWithoutExtension(f).Replace("workspace-", "");
+            if (_ui.Button("snap." + f, new RectF(x, y, w, 34), label, Theme.Cyan)) { _app.RestoreSnapshot(f); _snapOpen = false; }
+            y += 40;
+        }
+        if (_ui.Button("snap.cancel", new RectF(panel.Right - 130, panel.Bottom - 46, 110, 32), "CANCEL", Theme.Idle)) _snapOpen = false;
+        if (!_snapJustOpened && In.LeftPressed && !panel.Contains(In.Mouse)) _snapOpen = false;
+        _snapJustOpened = false;
+    }
+
     private void DrawImportModal(Renderer r)
     {
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
@@ -881,17 +915,51 @@ public sealed partial class MainScreen : IScreen
         if (_ui.Button("tab.add", new RectF(x, bar.Y, 36, bar.H), "+", Theme.Cyan))
         { _templateOpen = true; _templateJustOpened = true; }
 
-        // right cluster: import / export / save
+        // right cluster: two cozy dropdowns instead of a row of big buttons
         float rx = bar.Right;
         RectF Slot(float ww) { var rr = new RectF(rx - ww, bar.Y, ww, bar.H); rx -= ww + 6; return rr; }
-        if (_ui.Button("tab.tidy", Slot(80), "⤢ TIDY", Theme.Lime)) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); }
-        if (_ui.Button("tab.test", Slot(86), "▶ TEST", Theme.Cyan)) { _testOpen = true; _testJustOpened = true; RunTest(); }
-        if (_ui.Button("tab.secrets", Slot(86), "🔑 KEYS", Theme.Violet)) { _secretsOpen = true; _secretsJustOpened = true; }
-        if (_ui.Button("tab.save", Slot(92), _app.Dirty ? "● SAVE" : "SAVE", _app.Dirty ? Theme.Amber : Theme.Ok)) _app.Save();
-        if (_ui.Button("tab.export", Slot(96), "EXPORT", Theme.Cyan)) _app.ExportActive();
-        if (_ui.Button("tab.import", Slot(96), "IMPORT", Theme.Cyan)) { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; }
-        if (_ui.Button("tab.help", Slot(40), "?", Theme.Amber)) ForceStartTutorial();
-        if (_ui.Button("tab.ach", Slot(44), "🏆", Theme.Amber)) { _achOpen = true; _achJustOpened = true; _achScroll = 0; }
+        var moreR = Slot(78);
+        if (_ui.Button("tab.more", moreR, "⋯ More", Theme.Violet)) OpenMoreMenu(new Vector2(moreR.X, moreR.Bottom + 3));
+        var fileR = Slot(84);
+        if (_ui.Button("tab.file", fileR, _app.Dirty ? "📁 File ●" : "📁 File", _app.Dirty ? Theme.Amber : Theme.Cyan))
+            OpenFileMenu(new Vector2(fileR.X, fileR.Bottom + 3));
+    }
+
+    // The File dropdown: workspace save/snapshots + per-bot export/import. Reuses the context-menu popover.
+    private void OpenFileMenu(Vector2 anchor)
+    {
+        _ctxAnchor = anchor;
+        _ctxItems.Clear();
+        void Item(string icon, string label, string sc, bool en, Action a) => _ctxItems.Add(new CtxItem { Icon = icon, Label = label, Shortcut = sc, Enabled = en, Do = a });
+        void Sep() => _ctxItems.Add(new CtxItem { Sep = true });
+        Item("💾", _app.Dirty ? "Save" : "Save (up to date)", "Ctrl+S", true, () => _app.Save());
+        Item("📸", "Save a snapshot", "", true, () => _app.SaveSnapshot());
+        Item("↩", "Restore a snapshot…", "", _app.Snapshots().Length > 0, () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
+        Sep();
+        Item("📤", "Export this bot…", "Ctrl+E", true, () => _app.ExportActive());
+        Item("📥", "Import a bot…", "", true, () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
+        Sep();
+        Item("📂", "Show files", "", true, () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
+        _ctxOpen = true; _ctxJustOpened = true;
+    }
+
+    // The More dropdown: secrets, achievements and canvas helpers.
+    private void OpenMoreMenu(Vector2 anchor)
+    {
+        _ctxAnchor = anchor;
+        _ctxItems.Clear();
+        void Item(string icon, string label, string sc, bool en, Action a) => _ctxItems.Add(new CtxItem { Icon = icon, Label = label, Shortcut = sc, Enabled = en, Do = a });
+        void Sep() => _ctxItems.Add(new CtxItem { Sep = true });
+        bool hasNodes = Bot.Graph.Nodes.Count > 0;
+        Item("🔑", "Secret keys…", "", true, () => { _secretsOpen = true; _secretsJustOpened = true; });
+        Item("🏆", "Achievements", "", true, () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
+        Item("🧩", "Community nodes…", "", true, OpenNodeManager);
+        Sep();
+        Item("📐", "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
+        Item("🔍", "Fit to view", "", hasNodes, () => _editor.FocusContent(_l.Canvas));
+        Sep();
+        Item("🎓", "Tutorial", "", true, ForceStartTutorial);
+        _ctxOpen = true; _ctxJustOpened = true;
     }
 
     // ===================================================================
@@ -2170,6 +2238,17 @@ public sealed partial class MainScreen : IScreen
             ToggleRun();
     }
 
+    private void TestButton(Renderer r)
+    {
+        var bar = _l.TopBar;
+        var tf = r.Fonts.Get(FontKind.SansBold, 16);
+        float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
+        float runX = bar.W - 22 - clockW - 16 - 150;
+        float histX = runX - 12 - 128;
+        var rect = new RectF(histX - 12 - 94, 12, 94, 32);   // dry-run test, sat next to RUN BOT
+        if (_ui.Button("top.test", rect, "🧪 TEST", Theme.Cyan)) { _testOpen = true; _testJustOpened = true; RunTest(); }
+    }
+
     private void ApplyButton(Renderer r)
     {
         if (!Bot.Runtime.Running) return;   // only meaningful on a live bot
@@ -2178,7 +2257,7 @@ public sealed partial class MainScreen : IScreen
         float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
         float runX = bar.W - 22 - clockW - 16 - 150;
         float histX = runX - 12 - 128;
-        var rect = new RectF(histX - 12 - 116, 12, 116, 32);
+        var rect = new RectF(histX - 12 - 94 - 12 - 110, 12, 110, 32);
         if (_ui.Button("top.apply", rect, "⟲ APPLY", Theme.Ok, primary: true))
             Bot.Runtime.ApplyGraph(Bot.Graph);
     }

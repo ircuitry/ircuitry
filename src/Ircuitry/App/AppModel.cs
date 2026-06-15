@@ -256,6 +256,55 @@ public sealed class AppModel
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "reload failed: " + ex.Message); return false; }
     }
 
+    // ---- snapshots: named copies of the whole workspace (the File menu's Save As / Load) ----
+    public string SnapshotDir => Path.Combine(WorkspaceDir, "snapshots");
+
+    public string SaveSnapshot()
+    {
+        try
+        {
+            Save(announce: false);                       // flush live state to disk first
+            Directory.CreateDirectory(SnapshotDir);
+            string name = "workspace-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".ircuitry";
+            string path = Path.Combine(SnapshotDir, name);
+            File.Copy(WorkspacePath, path, true);
+            ActiveBot.Log.Add(LogLevel.System, "📸 snapshot saved → " + name);
+            return path;
+        }
+        catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "snapshot failed: " + ex.Message); return ""; }
+    }
+
+    public string[] Snapshots()
+    {
+        try
+        {
+            if (!Directory.Exists(SnapshotDir)) return Array.Empty<string>();
+            var files = Directory.GetFiles(SnapshotDir, "*.ircuitry");
+            Array.Sort(files); Array.Reverse(files);     // newest first
+            return files;
+        }
+        catch { return Array.Empty<string>(); }
+    }
+
+    public bool RestoreSnapshot(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return false;
+            Save(announce: false);                       // keep current state recoverable
+            var (bots, active) = WorkspaceSerializer.Load(File.ReadAllText(path));
+            if (bots.Count == 0) return false;
+            foreach (var b in Bots) { try { b.Runtime.Stop(); } catch { } }
+            Bots.Clear();
+            Bots.AddRange(bots);
+            Active = Math.Clamp(active, 0, Bots.Count - 1);
+            Dirty = true;
+            ActiveBot.Log.Add(LogLevel.System, "↩ restored snapshot " + Path.GetFileName(path));
+            return true;
+        }
+        catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "restore failed: " + ex.Message); return false; }
+    }
+
     private bool TryLoad()
     {
         try
