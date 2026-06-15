@@ -140,6 +140,7 @@ public static class SelfTest
         fails += HumanNodesTest();
         fails += HumanLoopApproveTest();
         fails += ConcurrentExecutorTest();
+        fails += JsonAndLoopsTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1640,6 +1641,56 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>n8n-style data plumbing: {var.path} dot-notation into JSON, For-Each over a JSON array with
+    /// {item.field}, and a counted Repeat loop.</summary>
+    private static int JsonAndLoopsTest()
+    {
+        int fails = 0;
+
+        // dotted JSON token: {var.path} including a nested object and an array index
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "j");
+            var setv = N(g, "data.setvar", 200, 0); setv.SetParam("name", "data");
+            setv.SetParam("value", "{\"user\":{\"name\":\"alice\",\"id\":7},\"items\":[\"x\",\"y\"]}");
+            var reply = N(g, "action.reply", 400, 0); reply.SetParam("message", "{data.user.name}-{data.user.id}-{data.items.1}");
+            g.Connect(cmd.Id, 0, setv.Id, 0);
+            g.Connect(setv.Id, 0, reply.Id, 0);
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!j", "u", "#x"));
+            fails += Expect("json-dotted-token", s.Sent.Count == 1 && s.Sent[0].text == "alice-7-y", Dump(s));
+        }
+
+        // For-Each over a JSON array, dotting into each element via {item.field}
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "f");
+            var src = N(g, "data.format", 180, 0); src.SetParam("template", "[{\"name\":\"al\"},{\"name\":\"bo\"}]");
+            var fe = N(g, "logic.forEach", 360, 0); fe.SetParam("sep", "json");
+            var reply = N(g, "action.reply", 540, 0); reply.SetParam("message", "{item.name}");
+            g.Connect(cmd.Id, 0, fe.Id, 0);
+            g.Connect(src.Id, 0, fe.Id, 1);     // JSON array -> forEach.list
+            g.Connect(fe.Id, 0, reply.Id, 0);   // each -> reply
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!f", "u", "#x"));
+            fails += Expect("foreach-json-item-field", s.Sent.Select(t => t.text).SequenceEqual(new[] { "al", "bo" }), Dump(s));
+        }
+
+        // counted Repeat loop exposes the iteration as {i}
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "r");
+            var rep = N(g, "logic.repeat", 200, 0); rep.SetParam("times", "3");
+            var reply = N(g, "action.reply", 400, 0); reply.SetParam("message", "{i}");
+            g.Connect(cmd.Id, 0, rep.Id, 0);
+            g.Connect(rep.Id, 0, reply.Id, 0);   // each -> reply
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!r", "u", "#x"));
+            fails += Expect("repeat-counts", s.Sent.Select(t => t.text).SequenceEqual(new[] { "0", "1", "2" }), Dump(s));
+        }
+        return fails;
     }
 
     /// <summary>Workflow runs execute off the IRC read thread: a 2s Delay run does NOT block PING/PONG

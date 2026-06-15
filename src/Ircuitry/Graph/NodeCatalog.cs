@@ -1243,16 +1243,45 @@ public static class NodeCatalog
             {
                 TypeId = "logic.forEach", Icon = "🔁", Title = "For Each", Subtitle = "logic",
                 Category = NodeCategory.Logic,
-                Description = "Splits a list and runs 'each' once per item (with item + index), then 'done'.",
+                Description = "Runs 'each' once per list item, then 'done'. Splits text by a separator, or set Separator to 'json' to iterate a JSON array. Each item is on the 'item' pin and in a var (default {item}) so {item.field} works for JSON elements.",
                 Inputs = new[] { Ex(), Tx("list") },
                 Outputs = new[] { Ex("each"), Ex("done"), Tx("item"), Nm("index") },
-                Params = new[] { P("sep", "Separator", ParamType.Choice, "newline", "", new[] { "newline", "comma", "space" }) },
+                Params = new[]
+                {
+                    P("sep", "Separator", ParamType.Choice, "newline", "", new[] { "newline", "comma", "space", "json" }),
+                    P("var", "Item var", ParamType.Text, "item", "reference items as {item} / {item.field}"),
+                },
                 SummaryParam = "sep",
                 Exec = c =>
                 {
-                    char[] seps = c.Param("sep") switch { "comma" => new[] { ',' }, "space" => new[] { ' ', '\t' }, _ => new[] { '\n' } };
-                    var items = c.InOr(1, "").Split(seps, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
-                    for (int i = 0; i < items.Length; i++) { c.SetOut(2, items[i]); c.SetOut(3, i.ToString()); c.Run(0); }
+                    string raw = c.InOr(1, "");
+                    string varName = c.Param("var"); if (varName.Length == 0) varName = "item";
+                    string[] items = c.Param("sep") == "json"
+                        ? Json.ArrayItems(raw)
+                        : raw.Split(c.Param("sep") switch { "comma" => new[] { ',' }, "space" => new[] { ' ', '\t' }, _ => new[] { '\n' } },
+                              StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+                    for (int i = 0; i < items.Length; i++)
+                    {
+                        c.SetOut(2, items[i]); c.SetOut(3, i.ToString());
+                        c.SetVar(varName, items[i]); c.SetVar("index", i.ToString());
+                        c.Run(0);
+                    }
+                    c.Pulse(1);
+                },
+            },
+            new()
+            {
+                TypeId = "logic.repeat", Icon = "🔂", Title = "Repeat", Subtitle = "logic",
+                Category = NodeCategory.Logic,
+                Description = "Runs 'each' a fixed number of times (the 0-based count on 'i' and as {i}), then 'done'. Bounded so it can never loop forever.",
+                Inputs = new[] { Ex(), Nm("times") },
+                Outputs = new[] { Ex("each"), Ex("done"), Nm("i") },
+                Params = new[] { P("times", "Times", ParamType.Int, "3", "how many iterations") },
+                SummaryParam = "times",
+                Exec = c =>
+                {
+                    int times = Math.Clamp(int.TryParse(c.InOr(1, c.Param("times")), out var t) ? t : 0, 0, 10000);
+                    for (int i = 0; i < times; i++) { c.SetOut(2, i.ToString()); c.SetVar("i", i.ToString()); c.Run(0); }
                     c.Pulse(1);
                 },
             },

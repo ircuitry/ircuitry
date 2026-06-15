@@ -229,6 +229,16 @@ public static class GraphExecutor
                         var parts = (Vars.TryGetValue("args", out var a) ? a : "").Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
                         return n <= parts.Length ? parts[n - 1] : "";
                     }
+                    // dotted JSON path: {var.a.b.0.c} - if `var` holds JSON (a run var, or a stored value
+                    // from Set Var), walk the path (n8n's $json.x). A flat var with dots, e.g. {tag.account},
+                    // already matched above.
+                    int dot = name.IndexOf('.');
+                    if (dot > 0)
+                    {
+                        var head = name[..dot];
+                        string doc = Vars.TryGetValue(head, out var rv) ? rv : Sink.GetState(head);
+                        if (doc.Length > 0) return Ircuitry.Net.Json.Extract(doc, name[(dot + 1)..]);
+                    }
                     return "";
             }
         }

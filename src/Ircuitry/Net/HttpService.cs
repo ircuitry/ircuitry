@@ -235,6 +235,28 @@ public static class Ai
 /// <summary>Minimal dotted-path extraction from a JSON string for the JSON Field node.</summary>
 public static class Json
 {
+    /// <summary>Split a JSON array into element strings: scalars as their text, objects/arrays as raw JSON
+    /// (so a downstream {item.field} can dot into them). Empty array if the input isn't a JSON array.</summary>
+    public static string[] ArrayItems(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return System.Array.Empty<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return System.Array.Empty<string>();
+            var list = new System.Collections.Generic.List<string>();
+            foreach (var el in doc.RootElement.EnumerateArray())
+                list.Add(el.ValueKind switch
+                {
+                    JsonValueKind.String => el.GetString() ?? "",
+                    JsonValueKind.Null => "",
+                    _ => el.GetRawText(),
+                });
+            return list.ToArray();
+        }
+        catch { return System.Array.Empty<string>(); }
+    }
+
     public static string Extract(string json, string path)
     {
         if (json.Length == 0) return "";
