@@ -6,27 +6,38 @@ using System.Text.Json;
 
 namespace Ircuitry.Core;
 
-/// <summary>One achievement definition (with its current unlocked status filled in for display).</summary>
+/// <summary>One achievement definition with its current unlocked status filled in for display.</summary>
 public sealed class AchDef
 {
     public string Id = "", Category = "", Title = "", Desc = "", Icon = "🏆";
     public bool Unlocked;
-    public string Detail = "";       // e.g. progress, or which bot earned it
-    public float Progress;           // 0..1 toward the next/this tier (for locked ones)
+    public string Detail = "";
+    public float Progress;
 }
 
 /// <summary>
-/// Stackable gamification: bot-count milestones, per-bot uptime tiers, and IRCv3 spec compliance (use every
-/// node in a spec on one bot). State persists to ~/ircuitry/achievements.json. The evaluator is fed the
-/// current bots' node-type sets so it has no dependency on the graph layer.
+/// An IRCv3 specification we award an achievement for. Cap specs unlock when the bot negotiates the cap;
+/// node specs unlock when the bot's graph uses the spec's node(s). Mirrors the spec list at ircv3.net.
+/// </summary>
+public sealed class SpecDef
+{
+    public string Id = "", Group = "", Title = "", Icon = "🌐", Cap = "";
+    public string[] Nodes = Array.Empty<string>();
+    public bool Draft;
+}
+
+/// <summary>
+/// Stackable gamification: bot-count milestones, per-bot uptime tiers, and a long list of IRCv3 spec
+/// achievements (every ratified + draft spec). State persists to ~/ircuitry/achievements.json.
 /// </summary>
 public static class Achievements
 {
     private sealed class Store
     {
         public int BotsCreated { get; set; }
-        public Dictionary<string, double> Online { get; set; } = new();      // bot name -> accumulated online seconds
-        public Dictionary<string, string> Unlocked { get; set; } = new();    // id -> "earned" detail
+        public Dictionary<string, double> Online { get; set; } = new();
+        public Dictionary<string, string> Unlocked { get; set; } = new();
+        public HashSet<string> Caps { get; set; } = new(StringComparer.OrdinalIgnoreCase);   // caps ever negotiated
     }
 
     private static readonly object Gate = new();
@@ -36,16 +47,78 @@ public static class Achievements
     private static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry");
     private static string FilePath => Path.Combine(Dir, "achievements.json");
 
-    // ---- definitions ----
     public static readonly int[] BotTiers = { 1, 10, 100, 1000 };
-    public static readonly long[] OnlineTiers = { 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000 };  // hours
-    public static readonly (string key, string title, string icon, string[] nodes)[] Specs =
+    public static readonly long[] OnlineTiers = { 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000 };
+
+    // every IRCv3 spec from ircv3.net: ratified caps, the nodes that exercise a spec, and drafts.
+    public static readonly SpecDef[] SpecList = BuildSpecs();
+
+    // node typeIds that exercise a draft spec (for the "draft pioneer" award)
+    private static readonly string[] DraftNodes =
+        { "action.react", "action.replythread", "irc.typing.start", "irc.typing.stop",
+          "action.redact", "action.chathistory", "action.rename", "action.metadata", "action.multiline" };
+
+    private static SpecDef[] BuildSpecs()
     {
-        ("tags", "Tag Whisperer", "🔖", new[] { "data.gettag", "filter.fromAccount", "filter.isBot" }),
-        ("react", "Threadsmith", "🧵", new[] { "action.react", "action.replythread" }),
-        ("typing", "Now Typing…", "✍️", new[] { "irc.typing.start", "irc.typing.stop" }),
-        ("raw", "Down to the Metal", "📡", new[] { "irc.raw" }),
-    };
+        var l = new List<SpecDef>();
+        void Node(string id, string title, string icon, bool draft, params string[] nodes)
+            => l.Add(new SpecDef { Id = "spec.node." + id, Group = draft ? "IRCv3 drafts" : "IRCv3 toolkit", Title = title, Icon = icon, Nodes = nodes, Draft = draft });
+        void Cap(string id, string title, string icon, string cap, bool draft = false)
+            => l.Add(new SpecDef { Id = "spec.cap." + id, Group = draft ? "IRCv3 drafts" : "IRCv3 caps", Title = title, Icon = icon, Cap = cap, Draft = draft });
+
+        // node-based (ratified)
+        Node("tags", "Tag Whisperer", "🔖", false, "data.gettag");
+        Node("account", "From Account", "🪪", false, "filter.fromAccount");
+        Node("botmode", "Know Your Bots", "🤖", false, "filter.isBot");
+        Node("raw", "Down to the Metal", "📡", false, "irc.raw");
+        Node("setname", "Name Changer", "✏️", false, "action.setname");
+        Node("away", "Gone Fishing", "🌙", false, "action.away");
+        Node("tagmsg", "Tag, You're It", "🏷️", false, "action.tagmsg");
+        Node("monitor", "Lookout", "👀", false, "action.monitor");
+        // node-based (draft)
+        Node("react", "Reactive", "💜", true, "action.react");
+        Node("reply", "Threadsmith", "🧵", true, "action.replythread");
+        Node("typing", "Now Typing…", "✍️", true, "irc.typing.start", "irc.typing.stop");
+        Node("redact", "Eraser", "🩹", true, "action.redact");
+        Node("chathistory", "Time Traveller", "📜", true, "action.chathistory");
+        Node("rename", "Renamer", "🔤", true, "action.rename");
+        Node("metadata", "Librarian", "🗂️", true, "action.metadata");
+        Node("multiline", "Poet", "📃", true, "action.multiline");
+
+        // cap-based (ratified)
+        Cap("sasl", "SASL", "🔐", "sasl");
+        Cap("servertime", "Server Time", "🕒", "server-time");
+        Cap("messagetags", "Message Tags", "🔖", "message-tags");
+        Cap("accounttag", "Account Tag", "🪪", "account-tag");
+        Cap("accountnotify", "Account Notify", "📒", "account-notify");
+        Cap("awaynotify", "Away Notify", "🚶", "away-notify");
+        Cap("extjoin", "Extended Join", "👋", "extended-join");
+        Cap("chghost", "Chghost", "🔁", "chghost");
+        Cap("multiprefix", "Multi-Prefix", "➕", "multi-prefix");
+        Cap("uhnames", "Userhost in Names", "🧑", "userhost-in-names");
+        Cap("echo", "Echo Message", "🪞", "echo-message");
+        Cap("labeled", "Labeled Response", "🏷️", "labeled-response");
+        Cap("batch", "Batch", "📦", "batch");
+        Cap("capnotify", "Cap Notify", "📣", "cap-notify");
+        Cap("invitenotify", "Invite Notify", "✉️", "invite-notify");
+        Cap("setnamecap", "Setname (cap)", "📝", "setname");
+        Cap("stdreplies", "Standard Replies", "📨", "standard-replies");
+        Cap("sts", "Strict Transport", "🔒", "sts");
+        Cap("utf8only", "UTF8ONLY", "🔤", "utf8only");
+        Cap("extmonitor", "Extended Monitor", "🔭", "extended-monitor");
+        // cap-based (draft)
+        Cap("d_chathistory", "Chathistory (cap)", "📜", "draft/chathistory", true);
+        Cap("d_redaction", "Message Redaction (cap)", "🩹", "draft/message-redaction", true);
+        Cap("d_multiline", "Multiline (cap)", "📃", "draft/multiline", true);
+        Cap("d_rename", "Channel Rename (cap)", "🔤", "draft/channel-rename", true);
+        Cap("d_metadata", "Metadata (cap)", "🗂️", "draft/metadata", true);
+        Cap("d_readmarker", "Read Marker", "✅", "draft/read-marker", true);
+        Cap("d_preaway", "Pre-Away", "🌙", "draft/pre-away", true);
+        Cap("d_accreg", "Account Registration", "📝", "draft/account-registration", true);
+        Cap("d_extisupport", "Extended ISUPPORT", "📐", "draft/extended-isupport", true);
+
+        return l.ToArray();
+    }
 
     private static Store S()
     {
@@ -54,14 +127,15 @@ public static class Achievements
             if (_s != null) return _s;
             try { _s = File.Exists(FilePath) ? JsonSerializer.Deserialize<Store>(File.ReadAllText(FilePath)) ?? new() : new(); }
             catch { _s = new(); }
+            _s.Caps ??= new(StringComparer.OrdinalIgnoreCase);
             return _s;
         }
     }
 
     public static int BotsCreated => S().BotsCreated;
-    public static bool IsUnlocked(string id) => S().Unlocked.ContainsKey(id);
-    public static double OnlineSeconds(string bot) => S().Online.TryGetValue(bot, out var v) ? v : 0;
     public static double MaxOnlineSeconds() { var o = S().Online; return o.Count == 0 ? 0 : o.Values.Max(); }
+    public static int UnlockedCount => S().Unlocked.Count;
+    public static int TotalCount => BotTiers.Length + OnlineTiers.Length + SpecList.Length + 1;
 
     public static void BotCreated() { lock (Gate) { S().BotsCreated++; _dirty = true; } }
 
@@ -71,61 +145,73 @@ public static class Achievements
         lock (Gate) { var s = S(); s.Online.TryGetValue(bot, out var v); s.Online[bot] = v + secs; _dirty = true; }
     }
 
+    public static void AddCaps(IEnumerable<string> caps)
+    {
+        if (caps == null) return;
+        lock (Gate) { var s = S(); foreach (var c in caps) if (!string.IsNullOrWhiteSpace(c) && s.Caps.Add(c.Trim())) _dirty = true; }
+    }
+
     private static bool Unlock(string id, string detail)
     {
         lock (Gate) { var s = S(); if (s.Unlocked.ContainsKey(id)) return false; s.Unlocked[id] = detail; _dirty = true; return true; }
     }
 
-    /// <summary>Check every achievement against current state + bots; returns the ones newly unlocked.</summary>
     public static List<AchDef> Evaluate(IReadOnlyList<(string name, IReadOnlyCollection<string> types)> bots)
     {
         var fresh = new List<AchDef>();
         foreach (var d in AllDefs(bots))
-        {
-            if (d.Unlocked && Unlock(d.Id, d.Detail)) fresh.Add(d);   // Unlock returns true only the first time
-        }
+            if (d.Unlocked && Unlock(d.Id, d.Detail)) fresh.Add(d);
         return fresh;
     }
 
-    /// <summary>All achievement definitions with unlocked status + progress, for the trophy case.</summary>
     public static List<AchDef> AllDefs(IReadOnlyList<(string name, IReadOnlyCollection<string> types)>? bots = null)
     {
         var list = new List<AchDef>();
         int bc = BotsCreated;
         foreach (var n in BotTiers)
             list.Add(Mk("bots." + n, "Bots", n == 1 ? "First bot" : $"{n} bots", $"Create {n} bot{(n == 1 ? "" : "s")}.", "🤖",
-                bc >= n || IsUnlocked("bots." + n), $"{Math.Min(bc, n)}/{n}", n == 0 ? 1 : Math.Min(1f, bc / (float)n)));
+                bc >= n, $"{Math.Min(bc, n)}/{n}", Math.Min(1f, bc / (float)n)));
 
         double maxSecs = MaxOnlineSeconds();
         foreach (var h in OnlineTiers)
-        {
-            double need = h * 3600.0;
             list.Add(Mk("online." + h, "Uptime", Hours(h) + " online", $"Keep one bot connected for {Hours(h)}.", "⏱️",
-                maxSecs >= need || IsUnlocked("online." + h), FormatDur(maxSecs) + " best", (float)Math.Min(1.0, maxSecs / need)));
-        }
+                maxSecs >= h * 3600.0, FormatDur(maxSecs) + " best", (float)Math.Min(1.0, maxSecs / (h * 3600.0))));
 
-        foreach (var sp in Specs)
+        var caps = S().Caps;
+        // draft pioneer (special): use any draft-spec node
+        int draftUsed = bots == null ? 0 : DraftNodes.Count(t => bots.Any(b => b.types.Contains(t)));
+        bool pioneer = IsUnlocked("spec.pioneer") || draftUsed > 0;
+        list.Add(Mk("spec.pioneer", "IRCv3 drafts", "Living on the Edge", "Use any draft-spec node (react, typing, redaction, chathistory, multiline...).", "🌟",
+            pioneer, draftUsed > 0 ? draftUsed + " draft nodes" : "use a draft node", DraftNodes.Length == 0 ? 1 : Math.Min(1f, draftUsed / 3f)));
+
+        foreach (var sp in SpecList)
         {
-            bool met = IsUnlocked("spec." + sp.key);
-            int best = 0;
-            if (bots != null)
-                foreach (var b in bots)
-                {
-                    int have = sp.nodes.Count(t => b.types.Contains(t));
-                    best = Math.Max(best, have);
-                    if (have == sp.nodes.Length) met = true;
-                }
-            list.Add(Mk("spec." + sp.key, "IRCv3 specs", sp.title, "Use every node of the " + sp.key + " spec on one bot: " + string.Join(", ", sp.nodes) + ".", sp.icon,
-                met, $"{(met ? sp.nodes.Length : best)}/{sp.nodes.Length} nodes", sp.nodes.Length == 0 ? 1 : Math.Min(1f, best / (float)sp.nodes.Length)));
+            bool unlocked = IsUnlocked(sp.Id);
+            string detail; float prog;
+            if (sp.Cap.Length > 0)
+            {
+                if (caps.Contains(sp.Cap)) unlocked = true;
+                detail = unlocked ? "negotiated" : "connect to a server with it";
+                prog = unlocked ? 1f : 0f;
+            }
+            else
+            {
+                int best = (bots == null || bots.Count == 0) ? 0 : bots.Max(b => sp.Nodes.Count(t => b.types.Contains(t)));
+                if (best == sp.Nodes.Length && sp.Nodes.Length > 0) unlocked = true;
+                detail = $"{(unlocked ? sp.Nodes.Length : best)}/{sp.Nodes.Length} nodes";
+                prog = sp.Nodes.Length == 0 ? 0 : Math.Min(1f, best / (float)sp.Nodes.Length);
+            }
+            string desc = sp.Cap.Length > 0 ? $"Connect to a server offering the {sp.Cap} capability."
+                : "Use this spec on a bot: " + string.Join(", ", sp.Nodes) + ".";
+            list.Add(Mk(sp.Id, sp.Group, sp.Title + (sp.Draft ? "  ·  draft" : ""), desc, sp.Icon, unlocked, detail, prog));
         }
         return list;
     }
 
+    public static bool IsUnlocked(string id) => S().Unlocked.ContainsKey(id);
+
     private static AchDef Mk(string id, string cat, string title, string desc, string icon, bool unlocked, string detail, float prog)
         => new() { Id = id, Category = cat, Title = title, Desc = desc, Icon = icon, Unlocked = unlocked, Detail = detail, Progress = prog };
-
-    public static int UnlockedCount => S().Unlocked.Count;
-    public static int TotalCount => BotTiers.Length + OnlineTiers.Length + Specs.Length;
 
     public static void Save()
     {
@@ -133,7 +219,7 @@ public static class Achievements
         {
             if (!_dirty || _s == null) return;
             try { Directory.CreateDirectory(Dir); File.WriteAllText(FilePath, JsonSerializer.Serialize(_s, new JsonSerializerOptions { WriteIndented = true })); _dirty = false; }
-            catch { /* best effort */ }
+            catch { }
         }
     }
 

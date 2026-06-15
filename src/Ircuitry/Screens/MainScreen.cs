@@ -329,6 +329,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugOpenSecretPick() { _l = Layout.Compute(_vw, _vh); OpenSecretPicker("", "API key", _ => { }); }
     public void DebugShowServers() { _l = Layout.Compute(_vw, _vh); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
     public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
+    public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
     public void DebugShowNetwork()
     {
         _l = Layout.Compute(_vw, _vh);
@@ -903,6 +904,7 @@ public sealed partial class MainScreen : IScreen
         NodeCategory.Ai => "AI",
         NodeCategory.Storage => "Files & Database",
         NodeCategory.Action => "Actions",
+        NodeCategory.Ircv3 => "IRCv3",
         _ => c.ToString(),
     };
 
@@ -915,6 +917,7 @@ public sealed partial class MainScreen : IScreen
         NodeCategory.Ai => "🤖",
         NodeCategory.Storage => "💾",
         NodeCategory.Action => "💬",
+        NodeCategory.Ircv3 => "📡",
         _ => "🧩",
     };
 
@@ -1983,7 +1986,12 @@ public sealed partial class MainScreen : IScreen
         double dt = _achLastTick < 0 ? 0 : Math.Max(0, clock.Time - _achLastTick);
         _achLastTick = clock.Time;
         if (dt > 0 && dt < 5)   // ignore big gaps (the app was paused/asleep)
-            foreach (var b in _app.Bots) if (b.Runtime.Running) Ircuitry.Core.Achievements.AddOnline(b.Name, dt);
+            foreach (var b in _app.Bots)
+                if (b.Runtime.Running)
+                {
+                    Ircuitry.Core.Achievements.AddOnline(b.Name, dt);
+                    if (b.Runtime.EnabledCaps.Count > 0) Ircuitry.Core.Achievements.AddCaps(b.Runtime.EnabledCaps);   // unlock cap specs
+                }
 
         if (clock.Time - _achEvalAt < 2f) return;
         _achEvalAt = clock.Time;

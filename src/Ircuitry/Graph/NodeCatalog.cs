@@ -299,7 +299,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "filter.fromAccount", Icon = "🪪", Title = "From Account", Subtitle = "ircv3",
-                Category = NodeCategory.Filter,
+                Category = NodeCategory.Ircv3,
                 Description = "Branches on the sender's logged-in account (IRCv3 account-tag). Blank = anyone logged in.",
                 Inputs = new[] { Ex() },
                 Outputs = new[] { Ex("match"), Ex("else") },
@@ -316,7 +316,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "filter.isBot", Icon = "🤖", Title = "Is Bot", Subtitle = "ircv3",
-                Category = NodeCategory.Filter,
+                Category = NodeCategory.Ircv3,
                 Description = "Branches on whether the sender is flagged as a bot (IRCv3 bot mode/tag).",
                 Inputs = new[] { Ex() },
                 Outputs = new[] { Ex("bot"), Ex("human") },
@@ -463,7 +463,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "irc.raw", Icon = "📡", Title = "Raw IRC", Subtitle = "ircv3",
-                Category = NodeCategory.Action,
+                Category = NodeCategory.Ircv3,
                 Description = "Sends a raw IRC line, with up to 4 IRCv3 client-tags composed for you. Tag keys may omit the leading '+'. The line is the rest of the protocol, e.g. PRIVMSG #lobby :lmao",
                 Inputs = new[] { Ex(), Tx("line") },
                 Outputs = new[] { Ex("then") },
@@ -495,7 +495,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "irc.typing.start", Icon = "✍️", Title = "Start Typing", Subtitle = "ircv3",
-                Category = NodeCategory.Action,
+                Category = NodeCategory.Ircv3,
                 Description = "Shows an IRCv3 typing indicator (+typing=active) on the target, refreshed every few seconds until Stop Typing or the workflow ends. Great before a slow AI reply. Needs a server with message-tags.",
                 Inputs = new[] { Ex(), Tx("target") },
                 Outputs = new[] { Ex("then") },
@@ -514,7 +514,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "irc.typing.stop", Icon = "🛑", Title = "Stop Typing", Subtitle = "ircv3",
-                Category = NodeCategory.Action,
+                Category = NodeCategory.Ircv3,
                 Description = "Stops the IRCv3 typing indicator (+typing=done) on the target.",
                 Inputs = new[] { Ex(), Tx("target") },
                 Outputs = new[] { Ex("then") },
@@ -533,7 +533,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "action.react", Icon = "💜", Title = "Add Reaction", Subtitle = "ircv3",
-                Category = NodeCategory.Action,
+                Category = NodeCategory.Ircv3,
                 Description = "Reacts to the triggering message with an emoji (IRCv3 +draft/react). Needs a server that supports message tags.",
                 Inputs = new[] { Ex(), Tx("emoji") },
                 Outputs = new[] { Ex("then") },
@@ -544,13 +544,165 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "action.replythread", Icon = "🧵", Title = "Reply (threaded)", Subtitle = "ircv3",
-                Category = NodeCategory.Action,
+                Category = NodeCategory.Ircv3,
                 Description = "Replies threaded to the triggering message (IRCv3 +draft/reply), so clients show it as a reply.",
                 Inputs = new[] { Ex(), Tx("message") },
                 Outputs = new[] { Ex("then") },
                 Params = new[] { P("message", "Message", ParamType.Multiline, "", "supports {nick} {args}") },
                 SummaryParam = "message",
                 Exec = c => { var t = c.InOr(1, c.Resolve(c.Param("message"))); if (t.Length > 0) c.ReplyThreaded(t); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.setname", Icon = "✏️", Title = "Set Name", Subtitle = "ircv3",
+                Category = NodeCategory.Ircv3,
+                Description = "Changes the bot's realname live (IRCv3 setname). No reconnect needed on servers that support it.",
+                Inputs = new[] { Ex(), Tx("name") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("name", "Real name", ParamType.Text, "", "ircuitry • cozy bot") },
+                SummaryParam = "name",
+                Exec = c => { var n = c.InOr(1, c.Resolve(c.Param("name"))).Trim(); if (n.Length > 0) c.Raw("SETNAME :" + n); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.away", Icon = "🌙", Title = "Set Away", Subtitle = "ircv3",
+                Category = NodeCategory.Ircv3,
+                Description = "Sets or clears the bot's away status (away-notify / pre-away). Blank message = back.",
+                Inputs = new[] { Ex(), Tx("message") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("message", "Away message", ParamType.Text, "", "blank = mark as back") },
+                SummaryParam = "message",
+                Exec = c => { var m = c.InOr(1, c.Resolve(c.Param("message"))).Trim(); c.Raw(m.Length > 0 ? "AWAY :" + m : "AWAY"); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.tagmsg", Icon = "🏷️", Title = "Send TAGMSG", Subtitle = "ircv3",
+                Category = NodeCategory.Ircv3,
+                Description = "Sends a tags-only message (IRCv3 TAGMSG) - client tags with no text, e.g. a reaction or typing hint.",
+                Inputs = new[] { Ex(), Ch("target") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("target", "Target", ParamType.Text, "", "blank = where it came from"), PL("tags", "Client tags", true, "Add tag") },
+                SummaryParam = "target",
+                Exec = c =>
+                {
+                    var tags = new System.Text.StringBuilder();
+                    foreach (var (rk, rv) in Ircuitry.Core.ParamList.Pairs(c.Param("tags")))
+                    {
+                        var k = c.Resolve(rk).Trim(); if (k.Length == 0) continue; if (k[0] != '+') k = "+" + k;
+                        var v = c.Resolve(rv); if (tags.Length > 0) tags.Append(';'); tags.Append(k); if (v.Length > 0) tags.Append('=').Append(v);
+                    }
+                    var target = c.InOr(1, c.Resolve(c.Param("target"))); if (target.Length == 0) target = c.Var("replyto");
+                    if (target.Length > 0 && tags.Length > 0) c.Raw("@" + tags + " TAGMSG " + target);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.redact", Icon = "🩹", Title = "Redact Message", Subtitle = "draft",
+                Category = NodeCategory.Ircv3,
+                Description = "Deletes/hides a message by id (draft/message-redaction REDACT). Needs the target message's id (msgid).",
+                Inputs = new[] { Ex(), Ch("target"), Tx("msgid") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("target", "Target", ParamType.Text, "", "blank = where it came from"), P("msgid", "Message id", ParamType.Text, "", "{msgid}"), P("reason", "Reason", ParamType.Text, "", "optional") },
+                SummaryParam = "msgid",
+                Exec = c =>
+                {
+                    var target = c.InOr(1, c.Resolve(c.Param("target"))); if (target.Length == 0) target = c.Var("replyto");
+                    var mid = c.InOr(2, c.Resolve(c.Param("msgid"))).Trim();
+                    var reason = c.Resolve(c.Param("reason"));
+                    if (target.Length > 0 && mid.Length > 0) c.Raw("REDACT " + target + " " + mid + (reason.Length > 0 ? " :" + reason : ""));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.monitor", Icon = "👀", Title = "Monitor User", Subtitle = "ircv3",
+                Category = NodeCategory.Ircv3,
+                Description = "Watches nicks for online/offline (IRCv3 MONITOR). Add or remove a comma-separated list.",
+                Inputs = new[] { Ex(), Us("nicks") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("nicks", "Nicks", ParamType.Text, "", "alice,bob"), P("mode", "Mode", ParamType.Choice, "add", choices: new[] { "add", "remove" }) },
+                SummaryParam = "nicks",
+                Exec = c =>
+                {
+                    var nicks = c.InOr(1, c.Resolve(c.Param("nicks"))).Trim();
+                    if (nicks.Length > 0) c.Raw("MONITOR " + (c.Param("mode") == "remove" ? "-" : "+") + " " + nicks);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.chathistory", Icon = "📜", Title = "Request History", Subtitle = "draft",
+                Category = NodeCategory.Ircv3,
+                Description = "Asks the server for recent messages of a target (draft/chathistory CHATHISTORY LATEST).",
+                Inputs = new[] { Ex(), Ch("target") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("target", "Target", ParamType.Text, "", "#channel or nick"), P("count", "How many", ParamType.Int, "50", "50") },
+                SummaryParam = "target",
+                Exec = c =>
+                {
+                    var target = c.InOr(1, c.Resolve(c.Param("target"))); if (target.Length == 0) target = c.Var("replyto");
+                    int n = c.ParamInt("count", 50);
+                    if (target.Length > 0) c.Raw($"CHATHISTORY LATEST {target} * {n}");
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.rename", Icon = "🔤", Title = "Rename Channel", Subtitle = "draft",
+                Category = NodeCategory.Ircv3,
+                Description = "Renames a channel in place (draft/channel-rename RENAME), keeping members. Needs the right privileges.",
+                Inputs = new[] { Ex(), Ch("channel") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("channel", "Channel", ParamType.Text, "", "#old"), P("newname", "New name", ParamType.Text, "", "#new"), P("reason", "Reason", ParamType.Text, "", "optional") },
+                SummaryParam = "newname",
+                Exec = c =>
+                {
+                    var ch = c.Resolve(c.Param("channel")).Trim(); var nn = c.Resolve(c.Param("newname")).Trim();
+                    var reason = c.Resolve(c.Param("reason"));
+                    if (ch.Length > 0 && nn.Length > 0) c.Raw("RENAME " + ch + " " + nn + (reason.Length > 0 ? " :" + reason : ""));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.metadata", Icon = "🗂️", Title = "Set Metadata", Subtitle = "draft",
+                Category = NodeCategory.Ircv3,
+                Description = "Sets a metadata key on a target (draft/metadata METADATA SET), e.g. an avatar or status URL.",
+                Inputs = new[] { Ex(), Tx("value") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("target", "Target", ParamType.Text, "*", "* = self, or #chan / nick"), P("key", "Key", ParamType.Text, "", "url / avatar / ..."), P("value", "Value", ParamType.Text, "", "blank = clear the key") },
+                SummaryParam = "key",
+                Exec = c =>
+                {
+                    var target = c.Resolve(c.Param("target")).Trim(); if (target.Length == 0) target = "*";
+                    var key = c.Resolve(c.Param("key")).Trim();
+                    var val = c.InOr(1, c.Resolve(c.Param("value")));
+                    if (key.Length > 0) c.Raw("METADATA " + target + " SET " + key + (val.Length > 0 ? " :" + val : ""));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.multiline", Icon = "📃", Title = "Send Multiline", Subtitle = "draft",
+                Category = NodeCategory.Ircv3,
+                Description = "Sends several lines as one logical message (draft/multiline batch). One line per row in the text.",
+                Inputs = new[] { Ex(), Ch("target"), Tx("text") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("target", "Target", ParamType.Text, "", "blank = where it came from"), P("text", "Text", ParamType.Multiline, "", "line one\nline two") },
+                SummaryParam = "text",
+                Exec = c =>
+                {
+                    var target = c.InOr(1, c.Resolve(c.Param("target"))); if (target.Length == 0) target = c.Var("replyto");
+                    var text = c.InOr(2, c.Resolve(c.Param("text")));
+                    var lines = text.Replace("\r", "").Split('\n');
+                    if (target.Length == 0 || lines.Length == 0) { c.Pulse(0); return; }
+                    string refid = "ml" + c.Node.Id;
+                    c.Raw("BATCH +" + refid + " draft/multiline " + target);
+                    foreach (var l in lines) c.Raw("@batch=" + refid + " PRIVMSG " + target + " :" + l);
+                    c.Raw("BATCH -" + refid);
+                    c.Pulse(0);
+                },
             },
             new()
             {
@@ -820,7 +972,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "data.gettag", Icon = "🔖", Title = "Get Tag", Subtitle = "ircv3",
-                Category = NodeCategory.Data,
+                Category = NodeCategory.Ircv3,
                 Description = "Reads any IRCv3 message tag from the triggering message (e.g. account, time, msgid).",
                 Outputs = new[] { Tx("value") },
                 Params = new[] { P("name", "Tag", ParamType.Text, "account", "account · time · msgid …") },

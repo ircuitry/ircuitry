@@ -160,6 +160,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showservers") >= 0) ms?.DebugShowServers();
         if (Array.IndexOf(_args, "--shownetwork") >= 0) ms?.DebugShowNetwork();
         if (Array.IndexOf(_args, "--showach") >= 0) ms?.DebugShowAchievements();
+        if (Array.IndexOf(_args, "--showircv3") >= 0) ms?.DebugOpenIrcv3Cat();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();
