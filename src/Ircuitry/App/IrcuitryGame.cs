@@ -207,7 +207,7 @@ public sealed class IrcuitryGame : Game
     private void PumpTray()
     {
         if (!TrayIcon.Available) return;
-        if (++_trayTick % 20 == 0)
+        if (_trayTick++ % 20 == 0)   // build immediately on the first tick, then a few times a second
         {
             var model = new TrayMenuModel();
             foreach (var b in _app.Bots)

@@ -127,6 +127,8 @@ public static class SelfTest
         fails += RunCompletedTest();
         fails += FanInTest();
         fails += MultiServerTest();
+        fails += TrayMenuTest();
+        fails += ShortcodeTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1478,6 +1480,44 @@ public static class SelfTest
             fails += Expect("multiserver-node-override", onB && !onA, $"onA={onA} onB={onB}");
         }
         return fails;
+    }
+
+    /// <summary>Template shortcodes resolve: {me} = our nick, {argN} = the Nth command word, plus context vars.</summary>
+    private static int ShortcodeTest()
+    {
+        var g = new NodeGraph();
+        var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "say");
+        var reply = N(g, "action.reply", 300, 0); reply.SetParam("message", "{me}|{arg1}|{arg2}|{channel}");
+        g.Connect(cmd.Id, 0, reply.Id, 0);
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, cmd, Vars("!say hello world", "alice", "#x"));
+        return Expect("shortcodes", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "ircuitry|hello|world|#x"), Dump(sink));
+    }
+
+    /// <summary>The tray right-click menu must list each bot's servers under Disconnect/Reconnect (regression:
+    /// submenus came back empty when a host asked for a shallow layout depth).</summary>
+    private static int TrayMenuTest()
+    {
+        var menu = new Ircuitry.App.TrayMenu();
+        Ircuitry.App.TrayIcon.Model = new Ircuitry.App.TrayMenuModel
+        {
+            Bots = { new Ircuitry.App.TrayBotInfo { Name = "alpha", Servers = {
+                new Ircuitry.App.TrayServerInfo { Label = "Libera", Online = true },
+                new Ircuitry.App.TrayServerInfo { Label = "OFTC", Online = false } } } }
+        };
+        var (_, layout) = menu.GetLayoutAsync(0, 1, System.Array.Empty<string>()).GetAwaiter().GetResult();   // shallow request, full reply expected
+
+        var labels = new List<string>();
+        void Walk((int, System.Collections.Generic.IDictionary<string, object>, object[]) n)
+        {
+            if (n.Item2.TryGetValue("label", out var l)) labels.Add(l?.ToString() ?? "");
+            foreach (var k in n.Item3) Walk(((int, System.Collections.Generic.IDictionary<string, object>, object[]))k);
+        }
+        Walk(layout);
+        bool ok = labels.Contains("Disconnect") && labels.Contains("Reconnect")
+            && labels.Count(s => s == "Libera") == 2 && labels.Count(s => s == "OFTC") == 2   // once under each group
+            && labels.Count(s => s == "All servers") == 2;
+        return Expect("tray-menu-lists-servers", ok, string.Join(" | ", labels));
     }
 
     private static string Dump(FakeSink s) => "sent=[" + string.Join(", ", s.Sent.ConvertAll(t => $"{t.target}:{t.text}")) + "]";

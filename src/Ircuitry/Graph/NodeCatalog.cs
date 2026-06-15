@@ -402,7 +402,7 @@ public static class NodeCatalog
                 Description = "Replies in the channel/PM the triggering message came from.",
                 Inputs = new[] { Ex(), Tx("message") },
                 Outputs = new[] { Ex("then") },
-                Params = new[] { P("message", "Message", ParamType.Multiline, "pong", "supports {nick} {args} {channel}") },
+                Params = new[] { P("message", "Message", ParamType.Multiline, "pong", "supports {me} {nick} {args} {arg1} {channel} {time} …") },
                 SummaryParam = "message",
                 Exec = c =>
                 {
@@ -421,7 +421,7 @@ public static class NodeCatalog
                 Params = new[]
                 {
                     P("channel", "Target", ParamType.Text, "#channel", "#channel or nick"),
-                    P("message", "Message", ParamType.Multiline, "", "supports {nick} {args}"),
+                    P("message", "Message", ParamType.Multiline, "", "supports {me} {nick} {args} {arg1} …"),
                 },
                 SummaryParam = "message",
                 Exec = c =>
@@ -557,7 +557,7 @@ public static class NodeCatalog
                 Description = "Replies threaded to the triggering message (IRCv3 +draft/reply), so clients show it as a reply.",
                 Inputs = new[] { Ex(), Tx("message") },
                 Outputs = new[] { Ex("then") },
-                Params = new[] { P("message", "Message", ParamType.Multiline, "", "supports {nick} {args}") },
+                Params = new[] { P("message", "Message", ParamType.Multiline, "", "supports {me} {nick} {args} {arg1} …") },
                 SummaryParam = "message",
                 Exec = c => { var t = c.InOr(1, c.Resolve(c.Param("message"))); if (t.Length > 0) c.ReplyThreaded(t); c.Pulse(0); },
             },
@@ -1247,7 +1247,7 @@ public static class NodeCatalog
                 Description = "Sets a channel's topic (needs the right channel privileges). Blank channel = the triggering channel.",
                 Inputs = new[] { Ex(), Tx("topic") },
                 Outputs = new[] { Ex("then") },
-                Params = new[] { P("channel", "Channel", ParamType.Text, "", "blank = current"), P("topic", "Topic", ParamType.Text, "", "supports {nick} {args}") },
+                Params = new[] { P("channel", "Channel", ParamType.Text, "", "blank = current"), P("topic", "Topic", ParamType.Text, "", "supports {me} {nick} {args} {arg1} …") },
                 SummaryParam = "topic",
                 Exec = c =>
                 {

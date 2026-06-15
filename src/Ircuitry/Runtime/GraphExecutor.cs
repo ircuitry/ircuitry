@@ -168,7 +168,7 @@ public static class GraphExecutor
                     int j = template.IndexOf('}', i + 1);
                     if (j > i && Ircuitry.Core.Tokens.IsName(template, i + 1, j))   // {name} only; leave JSON/code braces ({}, {"k":"v"}) alone
                     {
-                        sb.Append(Vars.TryGetValue(template[(i + 1)..j], out var val) ? val : "");
+                        sb.Append(ResolveToken(template[(i + 1)..j]));
                         i = j;
                         continue;
                     }
@@ -176,6 +176,47 @@ public static class GraphExecutor
                 sb.Append(template[i]);
             }
             return sb.ToString();
+        }
+
+        // Resolve a single {token}: a context variable if set, else a handy computed/alias shortcode.
+        private string ResolveToken(string name)
+        {
+            if (Vars.TryGetValue(name, out var v)) return v;
+            var now = System.DateTime.Now;
+            switch (name)
+            {
+                // who we are
+                case "me": case "self": case "bot": return Vars.TryGetValue("botnick", out var bn) ? bn : "";
+                // date & time (live, unless a scheduled fire already pinned them above)
+                case "time": return now.ToString("HH:mm");
+                case "time12": return now.ToString("h:mm tt");
+                case "date": return now.ToString("yyyy-MM-dd");
+                case "datetime": return now.ToString("yyyy-MM-dd HH:mm:ss");
+                case "weekday": return now.DayOfWeek.ToString();
+                case "day": return now.Day.ToString();
+                case "month": return now.Month.ToString();
+                case "monthname": return now.ToString("MMMM");
+                case "year": return now.Year.ToString();
+                case "hour": return now.ToString("HH");
+                case "minute": return now.ToString("mm");
+                case "second": return now.ToString("ss");
+                case "unixtime": return ((long)(System.DateTime.UtcNow - System.DateTime.UnixEpoch).TotalSeconds).ToString();
+                // little extras
+                case "rand": return System.Random.Shared.Next(0, 100).ToString();
+                case "rand1000": return System.Random.Shared.Next(0, 1000).ToString();
+                case "dice": return System.Random.Shared.Next(1, 7).ToString();
+                case "coin": return System.Random.Shared.Next(2) == 0 ? "heads" : "tails";
+                case "nl": return "\n";
+                case "version": return Ircuitry.App.AppInfo.Version;
+                default:
+                    // {arg1}, {arg2}, ... → the Nth word of the command args
+                    if (name.Length > 3 && name.StartsWith("arg") && int.TryParse(name[3..], out var n) && n > 0)
+                    {
+                        var parts = (Vars.TryGetValue("args", out var a) ? a : "").Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
+                        return n <= parts.Length ? parts[n - 1] : "";
+                    }
+                    return "";
+            }
         }
     }
 

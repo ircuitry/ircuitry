@@ -149,7 +149,9 @@ public sealed class TrayMenu : IDbusMenu
     public Task<(uint revision, (int, IDictionary<string, object>, object[]) layout)> GetLayoutAsync(int parentId, int recursionDepth, string[] propertyNames)
     {
         Rebuild();
-        return Task.FromResult((_revision, Build(parentId, recursionDepth)));
+        // always return the full subtree (ignore the requested depth): some hosts ask for depth 1 and never
+        // re-fetch deeper, which left submenus (the per-server lists) looking empty.
+        return Task.FromResult((_revision, Build(parentId, -1)));
     }
 
     public Task<(int, IDictionary<string, object>)[]> GetGroupPropertiesAsync(int[] ids, string[] propertyNames)
