@@ -170,6 +170,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showmultiserver") >= 0) ms?.DebugMultiServer();
         if (Array.IndexOf(_args, "--shownotifs") >= 0) ms?.DebugNotifications();
         if (Array.IndexOf(_args, "--showpalette") >= 0) ms?.DebugCommandPalette();
+        if (Array.IndexOf(_args, "--showlibprefs") >= 0) ms?.DebugLibraryPrefs();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();

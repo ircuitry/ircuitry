@@ -424,6 +424,12 @@ public sealed partial class MainScreen : IScreen
     public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
     public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh); OpenFileMenu(new Vector2(_vw - 360, _l.Tabs.Bottom + 3)); }
     public void DebugCommandPalette() { OpenCommandPalette(); _cmdkQuery = "se"; _cmdkJustOpened = true; }
+    public void DebugLibraryPrefs()
+    {
+        foreach (var t in new[] { "action.reply", "event.command" }) if (!Ircuitry.Core.NodePrefs.IsFavorite(t)) Ircuitry.Core.NodePrefs.ToggleFavorite(t);
+        foreach (var t in new[] { "filter.contains", "ai.reply", "logic.forEach" }) Ircuitry.Core.NodePrefs.RecordUse(t);
+        _openCat = null;
+    }
     public void DebugNotifications()
     {
         _l = Layout.Compute(_vw, _vh);
@@ -477,6 +483,14 @@ public sealed partial class MainScreen : IScreen
         _editor.Graph = g;
         _demoShotFit = true;
     }
+    /// <summary>Add a node the user chose (drag/quick-add/palette/install) and remember it as recently used.</summary>
+    private Node SpawnNode(NodeDef def, Vector2 world)
+    {
+        var n = _editor.Spawn(def, world);
+        Ircuitry.Core.NodePrefs.RecordUse(def.TypeId);
+        return n;
+    }
+
     public void DebugSpawnSelect(string typeId)
     {
         if (!NodeCatalog.TryGet(typeId, out _)) return;
@@ -837,7 +851,7 @@ public sealed partial class MainScreen : IScreen
                 else
                     System.IO.File.Copy(_installPath, System.IO.Path.Combine(NodeCatalog.CustomDir, System.IO.Path.GetFileName(_installPath)), overwrite: true);
                 NodeCatalog.LoadCustom();
-                if (d != null && NodeCatalog.TryGet(d.TypeId, out var inst)) { _editor.Spawn(inst, _editor.Cam.ScreenToWorld(_installScreen)); _app.MarkDirty(); }
+                if (d != null && NodeCatalog.TryGet(d.TypeId, out var inst)) { SpawnNode(inst, _editor.Cam.ScreenToWorld(_installScreen)); _app.MarkDirty(); }
                 Bot.Log.Add(LogLevel.System, $"installed “{d?.Title}” ({d?.TypeId})");
             }
             catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "install failed: " + ex.Message); }
@@ -1150,10 +1164,43 @@ public sealed partial class MainScreen : IScreen
         r.Begin(BlendMode.Alpha, listClip.ToRectangle());
         float y = listClip.Y - _paletteScroll;
 
+        // a simple pinned/recent section (no collapse), drawn above the categories when not searching
+        void Section(string title, string icon, Color col, IEnumerable<NodeDef> defs)
+        {
+            var items = defs.ToList();
+            if (items.Count == 0) return;
+            const float hh = 30f;
+            var hdr = new RectF(x, y, w, hh);
+            r.RoundFill(hdr, Theme.Mix(Theme.PanelHi, col, 0.16f), 10f);
+            r.RoundOutline(hdr, Theme.WithAlpha(col, 0.35f), 10f);
+            var icf = r.Fonts.Get(FontKind.Display, 14);
+            r.Text(icf, icon, new Vector2(hdr.X + 10, hdr.Center.Y - icf.MeasureString(icon).Y / 2f), col);
+            var nf = r.Fonts.Get(FontKind.SansBold, 13);
+            r.Text(nf, title, new Vector2(hdr.X + 34, hdr.Center.Y - nf.MeasureString("M").Y / 2f - 1), Theme.Text);
+            y += hh + 7;
+            foreach (var def in items)
+            {
+                var chip = new RectF(x + 6, y, w - 6, 40);
+                if (chip.Bottom > listClip.Y && chip.Y < listClip.Bottom) DrawPaletteChip(r, chip, def, Theme.Category(def.Category), listClip);
+                y += 46;
+            }
+            y += 10;
+        }
+
+        if (!searching)
+        {
+            var favs = Ircuitry.Core.NodePrefs.Favorites.Select(t => NodeCatalog.TryGet(t, out var d) ? d : null).Where(d => d != null).Cast<NodeDef>();
+            var favSet = Ircuitry.Core.NodePrefs.Favorites.ToHashSet();
+            var recents = Ircuitry.Core.NodePrefs.Recents.Where(t => !favSet.Contains(t)).Take(6)
+                .Select(t => NodeCatalog.TryGet(t, out var d) ? d : null).Where(d => d != null).Cast<NodeDef>();
+            Section("Favorites", "★", Theme.Amber, favs);
+            Section("Recent", "🕘", Theme.Sky, recents);
+        }
+
         foreach (var group in NodeCatalog.ByCategory())
         {
             var matches = searching
-                ? group.Where(d => Has(d.Title, q) || Has(d.Subtitle, q) || Has(d.TypeId, q)).ToList()
+                ? group.Where(d => Has(d.Title, q) || Has(d.Subtitle, q) || Has(d.TypeId, q) || Has(d.Description, q)).ToList()
                 : group.ToList();
             if (matches.Count == 0) continue;
 
@@ -1236,9 +1283,21 @@ public sealed partial class MainScreen : IScreen
             var iconF = r.Fonts.Get(FontKind.Display, 17);
             r.Text(iconF, def.Icon, new Vector2(chip.X + 13, chip.Center.Y - iconF.MeasureString(def.Icon).Y / 2f), col);
         }
-        r.Text(r.Fonts.Get(FontKind.SansBold, 13), def.Title, new Vector2(chip.X + 42, chip.Y + 6), Theme.Text);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 13), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 13), def.Title, chip.W - 70), new Vector2(chip.X + 42, chip.Y + 6), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.Sans, 10), def.Subtitle, new Vector2(chip.X + 42, chip.Y + 23), Theme.TextFaint);
 
+        // pin/unpin: a star at the right edge (shown on hover, or always when favourited)
+        bool fav = Ircuitry.Core.NodePrefs.IsFavorite(def.TypeId);
+        var starHit = new RectF(chip.Right - 30, chip.Y, 30, chip.H);
+        bool starHover = starHit.Contains(In.Mouse) && content.Contains(In.Mouse);
+        if (fav || hover)
+        {
+            var sf = r.Fonts.Get(FontKind.Display, 15);
+            string star = fav ? "★" : "☆";
+            r.Text(sf, star, new Vector2(chip.Right - 24, chip.Center.Y - sf.MeasureString(star).Y / 2f), fav ? Theme.Amber : Theme.WithAlpha(Theme.Text, starHover ? 0.8f : 0.4f));
+        }
+
+        if (starHover && In.LeftPressed && !Modal) { Ircuitry.Core.NodePrefs.ToggleFavorite(def.TypeId); return; }   // pin toggles, never starts a drag
         if (hover && In.LeftPressed && !Modal) { _dragDef = def; _dragStart = In.Mouse; _dragging = false; }
     }
 
@@ -1794,7 +1853,7 @@ public sealed partial class MainScreen : IScreen
         if (!In.LeftDown)
         {
             bool spawned = false;
-            if (_l.Canvas.Contains(In.Mouse)) { _editor.Spawn(_dragDef, _editor.Cam.ScreenToWorld(In.Mouse)); spawned = true; }
+            if (_l.Canvas.Contains(In.Mouse)) { SpawnNode(_dragDef, _editor.Cam.ScreenToWorld(In.Mouse)); spawned = true; }
             else if (!_dragging) { _editor.Spawn(_dragDef, _editor.Cam.ScreenToWorld(_l.Canvas.Center)); spawned = true; }
             if (spawned) _app.MarkDirty();
             _dragDef = null; _dragging = false;
@@ -2475,7 +2534,7 @@ public sealed partial class MainScreen : IScreen
             A(d.Icon, "Add: " + d.Title, d.Category.ToString().ToLowerInvariant(), () =>
             {
                 var world = _editor.Cam.ScreenToWorld(new Vector2(_l.Canvas.Center.X, _l.Canvas.Center.Y));
-                var n = _editor.Spawn(d, world);
+                var n = SpawnNode(d, world);
                 _editor.Selection.Clear(); _editor.Selection.Add(n.Id); _app.MarkDirty();
             });
         }
@@ -3002,7 +3061,7 @@ public sealed partial class MainScreen : IScreen
                 r.Text(icf, def.Icon, new Vector2(row.X + 6, row.Y + 4), col);
                 r.Text(tf, r.Ellipsize(tf, def.Title, row.W - 84), new Vector2(row.X + 30, row.Y + 6), Theme.Text);
                 r.TextRight(cf, def.Category.ToString().ToLowerInvariant(), row.Right - 8, row.Y + 8, Theme.WithAlpha(col, 0.9f));
-                if (hover && In.LeftPressed) { _editor.Spawn(def, _quickWorld); _app.MarkDirty(); _quickOpen = false; }
+                if (hover && In.LeftPressed) { SpawnNode(def, _quickWorld); _app.MarkDirty(); _quickOpen = false; }
             }
             ry += rowH;
         }
