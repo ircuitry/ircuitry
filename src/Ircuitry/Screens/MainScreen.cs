@@ -69,6 +69,15 @@ public sealed partial class MainScreen : IScreen
 
     public void DebugWorkflowInstall() { _l = Layout.Compute(_vw, _vh); StageWorkflowInstall("{\"format\":\"ircuitry.workflow.v1\",\"name\":\"Greeter Bot\",\"description\":\"Welcomes people when they join your channel and answers a friendly !hi command.\",\"nodes\":[{\"id\":\"a\",\"type\":\"event.join\"},{\"id\":\"b\",\"type\":\"action.say\"}],\"connections\":[]}"); }
 
+    public void DebugOpenBake()
+    {
+        _l = Layout.Compute(_vw, _vh);
+        _editor.Selection.Clear();
+        foreach (var n in _app.ActiveBot.Graph.Nodes.Where(n => !n.Def.IsTrigger).Take(2)) _editor.Selection.Add(n.Id);
+        _saveNodeName = "Greeting Macro"; _saveNodeIcon = "🧩"; _saveNodeCat = "Action"; _saveNodeDesc = "";
+        _saveNodeOpen = true; _saveNodeJustOpened = true;
+    }
+
     // inline tab rename (double-click a tab)
     private Bot? _renamingBot;
     private float _tabClickTime;
@@ -130,6 +139,8 @@ public sealed partial class MainScreen : IScreen
     // save-selection-as-reusable-node
     private bool _saveNodeOpen, _saveNodeJustOpened;
     private string _saveNodeName = "My Node";
+    private string _saveNodeIcon = "🧩", _saveNodeCat = "Logic", _saveNodeDesc = "";
+    private static readonly string[] _bakeCats = { "Action", "Data", "Logic", "Ai", "Filter", "Storage" };
 
     // confirm installing a dropped community .ircnode (it runs code) before it's installed
     private bool _installOpen, _installJustOpened;
@@ -860,25 +871,39 @@ public sealed partial class MainScreen : IScreen
     private void DrawSaveNodeModal(Renderer r)
     {
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
-        float pw = 480, ph = 236;
+        float pw = 520, ph = 320;
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
-        Hud.Panel(r, panel, "Save selection as a node", Theme.Violet);
+        int count = _editor.Selection.Count;
+        Hud.Panel(r, panel, "Bake nodes into one", Theme.Violet);
 
-        float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
-        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), "Bundles the selected nodes into one reusable node. Use a Subflow Start as the entry, and Subflow Input/Output nodes to define its pins. Installs into ~/ircuitry/nodes.", w))
-        { r.Text(r.Fonts.Get(FontKind.Sans, 13), line, new Vector2(x, y), Theme.TextDim); y += 18; }
-        y += 10;
-        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "NODE NAME", new Vector2(x, y), Theme.TextDim); y += 18;
-        _saveNodeName = _ui.TextField("savenode.name", new RectF(x, y, w, 30), _saveNodeName, "My Node");
+        float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 14;
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), $"Bundles your {count} selected node(s) into one reusable node. Its inputs and outputs are worked out from the wires crossing the selection - no extra setup. It joins your Node Library.", w))
+        { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 17; }
+        y += 8;
+
+        float catW = 130, iconW = 50, gap = 10, nameW = w - catW - iconW - 2 * gap;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 10), "NAME", new Vector2(x, y), Theme.TextDim);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 10), "ICON", new Vector2(x + nameW + gap, y), Theme.TextDim);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 10), "CATEGORY", new Vector2(x + nameW + gap + iconW + gap, y), Theme.TextDim);
+        y += 15;
+        _saveNodeName = _ui.TextField("savenode.name", new RectF(x, y, nameW, 28), _saveNodeName, "My Node");
+        _saveNodeIcon = _ui.TextField("savenode.icon", new RectF(x + nameW + gap, y, iconW, 28), _saveNodeIcon, "🧩");
+        _saveNodeCat = _ui.Choice("savenode.cat", new RectF(x + nameW + gap + iconW + gap, y, catW, 28), _bakeCats, _saveNodeCat);
+        y += 28 + 12;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 10), "DESCRIPTION", new Vector2(x, y), Theme.TextDim); y += 15;
+        _saveNodeDesc = _ui.TextField("savenode.desc", new RectF(x, y, w, 28), _saveNodeDesc, "what this node does");
 
         var saveR = new RectF(panel.Right - 22 - 132, panel.Bottom - 50, 132, 34);
         var cancelR = new RectF(saveR.X - 12 - 110, panel.Bottom - 50, 110, 34);
         if (_ui.Button("savenode.cancel", cancelR, "CANCEL", Theme.Idle)) _saveNodeOpen = false;
-        if (_ui.Button("savenode.save", saveR, "SAVE NODE", Theme.Violet, primary: true))
+        if (_ui.Button("savenode.save", saveR, "🧁  BAKE", Theme.Violet, primary: true))
         {
             var name = _saveNodeName.Trim(); if (name.Length == 0) name = "My Node";
-            var manifest = _editor.SaveSelectionAsNode(name);
-            if (manifest == null) Bot.Log.Add(LogLevel.Error, "Add a 'Subflow Start' node to your selection first.");
+            // an explicit Subflow Start means the author defined the pins by hand; otherwise auto-wrap them
+            string? manifest = _editor.SelectionIsSubflow
+                ? _editor.SaveSelectionAsNode(name)
+                : _editor.BuildCompositeFromSelection(name, _saveNodeIcon, _saveNodeCat, _saveNodeDesc, out _);
+            if (manifest == null) { Bot.Log.Add(LogLevel.Error, "Select a couple of wired-up nodes to bake first."); PushToast("⚠ nothing to bake - select some nodes"); }
             else
             {
                 try
@@ -887,11 +912,12 @@ public sealed partial class MainScreen : IScreen
                     System.IO.Directory.CreateDirectory(NodeCatalog.CustomDir);
                     System.IO.File.WriteAllText(System.IO.Path.Combine(NodeCatalog.CustomDir, def.TypeId + ".ircnode"), manifest);
                     NodeCatalog.LoadCustom();
-                    Bot.Log.Add(LogLevel.System, $"saved reusable node “{name}” → Node Library ▸ Logic & Flow");
+                    Bot.Log.Add(LogLevel.System, $"baked node “{name}” → Node Library ▸ {def.Category}");
+                    PushToast($"🧁 {name} baked into your library");
+                    _saveNodeOpen = false;
                 }
-                catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "save node failed: " + ex.Message); }
+                catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "bake failed: " + ex.Message); PushToast("⚠ bake failed: " + ex.Message); }
             }
-            _saveNodeOpen = false;
         }
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_saveNodeJustOpened) _saveNodeOpen = false;
         _saveNodeJustOpened = false;
@@ -1250,7 +1276,7 @@ public sealed partial class MainScreen : IScreen
         int customCount = NodeCatalog.Custom.Count;
         float footY = content.Bottom - 102;
         r.Begin(BlendMode.Alpha, content.ToRectangle());
-        if (_ui.Button("palette.build", new RectF(x, footY, w, 30), "🛠️  Build a node…", Theme.Violet, primary: true))
+        if (_ui.Button("palette.build", new RectF(x, footY, w, 30), "🧁  Bake a node…", Theme.Violet, primary: true))
             OpenNodeBuilder();
         if (_ui.Button("palette.manage", new RectF(x, footY + 34, w, 30), customCount > 0 ? $"🧩  Community nodes · {customCount}" : "🧩  Community nodes", Theme.Berry))
             OpenNodeManager();

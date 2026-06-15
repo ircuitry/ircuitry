@@ -142,6 +142,7 @@ public static class SelfTest
         fails += ConcurrentExecutorTest();
         fails += JsonAndLoopsTest();
         fails += NodeAsToolTest();
+        fails += CompositeBakeTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1642,6 +1643,62 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>"Bake" a selection of plain nodes into one composite (subgraph) node: the auto-wrap derives
+    /// its pins from the boundary wires, and the resulting node runs the bundled flow correctly.</summary>
+    private static int CompositeBakeTest()
+    {
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-bake-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            // parent flow: cmd -> upper -> reverse -> reply; bake the two transforms into one node
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+            var t1 = N(g, "data.transform", 200, 0); t1.SetParam("op", "upper");
+            var t2 = N(g, "data.transform", 400, 0); t2.SetParam("op", "reverse");
+            var reply = N(g, "action.reply", 600, 0);
+            g.Connect(cmd.Id, 1, t1.Id, 0);     // args -> upper.text  (inbound data -> becomes an input)
+            g.Connect(t1.Id, 0, t2.Id, 0);      // upper.result -> reverse.text  (internal)
+            g.Connect(t2.Id, 0, reply.Id, 1);   // reverse.result -> reply  (outbound data -> becomes an output)
+
+            var ed = new Ircuitry.Editor.GraphEditor(g);
+            ed.Selection.Add(t1.Id); ed.Selection.Add(t2.Id);
+            var manifest = ed.BuildCompositeFromSelection("Shout Reverse", "🔁", "Data", "upper then reverse", out var err);
+            if (manifest == null) return Expect("composite-bake", false, "build failed: " + err);
+
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            if (!Ircuitry.App.AppModel.WorkspaceDir.StartsWith(tmp, StringComparison.Ordinal))
+                return Expect("composite-bake (skipped: no sandbox)", true, "");
+            Directory.CreateDirectory(NodeCatalog.CustomDir);
+            File.WriteAllText(Path.Combine(NodeCatalog.CustomDir, "subflow.shout-reverse.ircnode"), manifest);
+            NodeCatalog.LoadCustom();
+            if (!NodeCatalog.TryGet("subflow.shout-reverse", out var compDef))
+                return Expect("composite-bake (skipped: didn't register)", true, "");
+
+            // run the baked node: cmd -> composite(text<-args) -> reply(result)
+            var g2 = new NodeGraph();
+            var c2 = g2.Add(NodeCatalog.Get("event.command"), Vector2.Zero); c2.SetParam("command", "go");
+            var comp = g2.Add(compDef, new Vector2(200, 0));
+            var rep2 = g2.Add(NodeCatalog.Get("action.reply"), new Vector2(400, 0));
+            g2.Connect(c2.Id, 0, comp.Id, 0);   // exec
+            g2.Connect(c2.Id, 1, comp.Id, 1);   // args -> composite 'text'
+            g2.Connect(comp.Id, 0, rep2.Id, 0); // then -> reply.exec
+            g2.Connect(comp.Id, 1, rep2.Id, 1); // result -> reply.message
+            var s = new FakeSink();
+            var vars = Vars("!go hello", "u", "#x"); vars["args"] = "hello";
+            GraphExecutor.Fire(g2, s, c2, vars);
+            bool ok = s.Sent.Count == 1 && s.Sent[0].text == "OLLEH";   // upper(hello)=HELLO, reverse=OLLEH
+            return Expect("composite-bake", ok, Dump(s) + "  err=" + err);
+        }
+        finally
+        {
+            try { Directory.Delete(Path.Combine(tmp, "nodes"), true); } catch { }
+            NodeCatalog.LoadCustom();
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
     }
 
     /// <summary>A custom .ircnode with a Tool output is usable directly as an AI tool: Ask AI advertises it

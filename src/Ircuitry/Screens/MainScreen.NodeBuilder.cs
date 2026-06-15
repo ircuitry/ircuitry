@@ -122,7 +122,7 @@ public partial class MainScreen
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
         float pw = Math.Min(860, _vw - 60), ph = Math.Min(680, _vh - 60);
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
-        Hud.Panel(r, panel, "Build a node", Theme.Violet);
+        Hud.Panel(r, panel, "Bake a node", Theme.Violet);
 
         var sans = r.Fonts.Get(FontKind.Sans, 12);
         var lbl = r.Fonts.Get(FontKind.SansBold, 10);
@@ -176,14 +176,14 @@ public partial class MainScreen
         ly += 40;
 
         // LEFT: templates
-        Label("START FROM A TEMPLATE", cx, ly); ly += 16;
+        Label("START FROM A RECIPE", cx, ly); ly += 16;
         if (_ui.Button("nb.tpl.simple", new RectF(cx, ly, 120, 26), "Simple", Theme.Idle)) ApplyNodeTemplate("simple");
         if (_ui.Button("nb.tpl.aitool", new RectF(cx + 128, ly, 150, 26), "🔎 AI web tool", Theme.Idle)) ApplyNodeTemplate("aitool");
 
         // RIGHT: language + code
         Label("LANGUAGE", rightX, colTop);
         _nbLang = _ui.Choice("nb.lang", new RectF(rightX, colTop + 15, 120, 26), NbLangs, _nbLang);
-        Label("CODE  (inputs arrive as UPPERCASE vars; print the result)", rightX, colTop + 50);
+        Label("RECIPE  (inputs arrive as UPPERCASE vars; print the result)", rightX, colTop + 50);
         float codeY = colTop + 66;
         float codeH = (panel.Bottom - 56) - codeY;
         _nbCode = _ui.TextArea("nb.code", new RectF(rightX, codeY, rightW, codeH), _nbCode, "print('hello')");
@@ -192,11 +192,11 @@ public partial class MainScreen
         string manifest = NbBuildManifest();
         string err = NbValidate(manifest);
         bool ok = err.Length == 0;
-        string status = _nbStatus.Length > 0 ? _nbStatus : (ok ? "✓ ready  ·  " + NbTypeId() : "⚠ " + err);
+        string status = _nbStatus.Length > 0 ? _nbStatus : (ok ? "✓ ready to bake  ·  " + NbTypeId() : "⚠ " + err);
         r.Text(sans, status, new Vector2(cx, panel.Bottom - 44), ok ? Theme.Lime : Theme.Amber);
 
-        float bw = 132, bh = 34, bx = panel.Right - pad - bw, by = panel.Bottom - bh - 8;
-        if (_ui.Button("nb.save", new RectF(bx, by, bw, bh), "SAVE TO LIBRARY", Theme.Violet, primary: true, enabled: ok))
+        float bw = 150, bh = 34, bx = panel.Right - pad - bw, by = panel.Bottom - bh - 8;
+        if (_ui.Button("nb.save", new RectF(bx, by, bw, bh), "🧁  BAKE", Theme.Violet, primary: true, enabled: ok))
             NbSave(manifest);
         if (_ui.Button("nb.submit", new RectF(bx - 10 - 118, by, 118, bh), "SUBMIT ↗", Theme.Berry, enabled: ok))
             NbSubmit(manifest);
@@ -218,8 +218,8 @@ public partial class MainScreen
             System.IO.Directory.CreateDirectory(NodeCatalog.CustomDir);
             System.IO.File.WriteAllText(System.IO.Path.Combine(NodeCatalog.CustomDir, def.TypeId + ".ircnode"), manifest);
             NodeCatalog.LoadCustom();
-            Bot.Log.Add(LogLevel.System, $"built node “{def.Title}” → Node Library ▸ {def.Category}");
-            PushToast($"✓ {def.Title} saved to your library");
+            Bot.Log.Add(LogLevel.System, $"baked node “{def.Title}” → Node Library ▸ {def.Category}");
+            PushToast($"🧁 {def.Title} baked into your library");
             _nbOpen = false;
         }
         catch (Exception ex) { _nbStatus = "save failed: " + ex.Message; }

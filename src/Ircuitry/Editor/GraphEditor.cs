@@ -188,6 +188,104 @@ public sealed class GraphEditor
             + "\"subgraph\":" + GraphSerializer.Save(sub, title) + "}";
     }
 
+    /// <summary>True once at least one ordinary node is selected (so it can be baked into a composite).</summary>
+    public bool SelectionCanBake => Selection.Count > 0 && Graph.Nodes.Any(n => Selection.Contains(n.Id) && !n.Def.IsTrigger);
+
+    /// <summary>
+    /// "Bake" a selection of ordinary nodes into ONE reusable composite (subgraph) node, deriving its pins
+    /// from the wires that cross the selection boundary - so you never have to place Subflow Input/Output
+    /// nodes by hand. Returns the .ircnode manifest, or null with a reason in <paramref name="error"/>.
+    /// </summary>
+    public string? BuildCompositeFromSelection(string title, string icon, string category, string description, out string error)
+    {
+        error = "";
+        var sel = Selection.ToHashSet();
+        // a composite runs as a subflow (from flow.in), so drop triggers and any existing subflow boundary nodes
+        var nodes = Graph.Nodes.Where(n => sel.Contains(n.Id) && !n.Def.IsTrigger
+            && n.TypeId is not ("flow.in" or "flow.arg" or "flow.return")).ToList();
+        if (nodes.Count == 0) { error = "Pick a few wired-up nodes to bake together first (triggers can't go inside)."; return null; }
+        var ids = nodes.Select(n => n.Id).ToHashSet();
+
+        PinKind? InKind(string id, int p) { var n = nodes.FirstOrDefault(x => x.Id == id); return n != null && p >= 0 && p < n.Def.Inputs.Length ? n.Def.Inputs[p].Kind : null; }
+        PinKind? OutKind(string id, int p) { var n = nodes.FirstOrDefault(x => x.Id == id); return n != null && p >= 0 && p < n.Def.Outputs.Length ? n.Def.Outputs[p].Kind : null; }
+
+        var sub = new NodeGraph();
+        foreach (var n in nodes) sub.Nodes.Add(CloneForClip(n));
+        foreach (var c in Graph.Connections)
+            if (ids.Contains(c.FromNode) && ids.Contains(c.ToNode))
+                sub.Connections.Add(new Connection(c.FromNode, c.FromPin, c.ToNode, c.ToPin));
+
+        var inbound = Graph.Connections.Where(c => !ids.Contains(c.FromNode) && ids.Contains(c.ToNode)).ToList();
+        var outbound = Graph.Connections.Where(c => ids.Contains(c.FromNode) && !ids.Contains(c.ToNode)).ToList();
+
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string Uniq(string b) { var nm = b.Length > 0 ? b : "x"; var s = nm; int i = 2; while (!used.Add(s)) s = nm + i++; return s; }
+
+        var inPins = new List<(string name, PinKind kind)>();
+        var outPins = new List<(string name, PinKind kind)>();
+
+        var flowIn = sub.Add(NodeCatalog.Get("flow.in"), new Vector2(-280, 0));
+        // exec-in pins with nothing feeding them (internally) are the entry points the Start drives
+        var fedExec = new HashSet<(string, int)>(sub.Connections.Where(c => InKind(c.ToNode, c.ToPin) == PinKind.Exec).Select(c => (c.ToNode, c.ToPin)));
+        foreach (var n in nodes)
+            for (int p = 0; p < n.Def.Inputs.Length; p++)
+                if (n.Def.Inputs[p].Kind == PinKind.Exec && !fedExec.Contains((n.Id, p)))
+                    sub.Connect(flowIn.Id, 0, n.Id, p);
+
+        float ay = -160;
+        foreach (var c in inbound)
+        {
+            if (InKind(c.ToNode, c.ToPin) is not { } k || k == PinKind.Exec) continue;   // exec inbound -> flow.in already
+            var pinName = nodes.First(n => n.Id == c.ToNode).Def.Inputs[c.ToPin].Name;
+            var name = Uniq(pinName.Length > 0 ? pinName : "in");
+            var arg = sub.Add(NodeCatalog.Get("flow.arg"), new Vector2(-280, ay)); ay += 64;
+            arg.SetParam("name", name);
+            sub.Connect(arg.Id, 0, c.ToNode, c.ToPin);
+            inPins.Add((name, k));
+        }
+
+        var outSrc = outbound.Where(c => OutKind(c.FromNode, c.FromPin) is { } k && k != PinKind.Exec)
+                             .Select(c => (c.FromNode, c.FromPin)).Distinct().ToList();
+        var returns = new List<Node>();
+        float ry = 120;
+        foreach (var (fromNode, fromPin) in outSrc)
+        {
+            var name = Uniq(nodes.First(n => n.Id == fromNode).Def.Outputs[fromPin].Name);
+            var ret = sub.Add(NodeCatalog.Get("flow.return"), new Vector2(340, ry)); ry += 64;
+            ret.SetParam("name", name);
+            sub.Connect(fromNode, fromPin, ret.Id, 1);   // -> value
+            returns.Add(ret);
+            outPins.Add((name, OutKind(fromNode, fromPin)!.Value));
+        }
+
+        // make the Subflow Outputs actually run: chain them after the internal exec leaves, or straight off
+        // the Start when the selection is pure data (so the returns pull their values)
+        if (returns.Count > 0)
+        {
+            var leaf = nodes.SelectMany(n => Enumerable.Range(0, n.Def.Outputs.Length)
+                          .Where(p => n.Def.Outputs[p].Kind == PinKind.Exec && !sub.Connections.Any(c => c.FromNode == n.Id && c.FromPin == p))
+                          .Select(p => (n.Id, p))).FirstOrDefault();
+            if (leaf.Id != null) sub.Connect(leaf.Id, leaf.p, returns[0].Id, 0);
+            else sub.Connect(flowIn.Id, 0, returns[0].Id, 0);
+            for (int i = 0; i < returns.Count - 1; i++) sub.Connect(returns[i].Id, 0, returns[i + 1].Id, 0);
+        }
+
+        static string J(string s) => System.Text.Json.JsonSerializer.Serialize(s);
+        var inputs = new List<string> { "{\"name\":\"\",\"kind\":\"Exec\"}" };
+        foreach (var (name, kind) in inPins) inputs.Add("{\"name\":" + J(name) + ",\"kind\":" + J(kind.ToString()) + "}");
+        var outputs = new List<string> { "{\"name\":\"then\",\"kind\":\"Exec\"}" };
+        foreach (var (name, kind) in outPins) outputs.Add("{\"name\":" + J(name) + ",\"kind\":" + J(kind.ToString()) + "}");
+
+        var slug = new string(title.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
+        if (slug.Length == 0) slug = "node";
+        string cat = string.IsNullOrWhiteSpace(category) ? "Logic" : category;
+        string ic = string.IsNullOrWhiteSpace(icon) ? "🧩" : icon;
+        return "{\"typeId\":" + J("subflow." + slug) + ",\"title\":" + J(title)
+            + ",\"subtitle\":\"composite\",\"icon\":" + J(ic) + ",\"category\":" + J(cat) + ",\"description\":" + J(description ?? "")
+            + ",\"inputs\":[" + string.Join(",", inputs) + "],\"outputs\":[" + string.Join(",", outputs) + "],"
+            + "\"subgraph\":" + GraphSerializer.Save(sub, title) + "}";
+    }
+
     /// <summary>Load a whole graph (e.g. a dropped .ircbot) into the current workflow at a screen point.</summary>
     public void InsertGraphAt(NodeGraph g, Vector2 screen) => InsertAtCursor(g.Nodes, g.Connections, Cam.ScreenToWorld(screen));
 
