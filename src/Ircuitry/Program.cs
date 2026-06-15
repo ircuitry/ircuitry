@@ -86,7 +86,9 @@ public static class Program
         string? deepLink = Array.Find(args, DeepLink.Is);
         string dataDir = AppModel.WorkspaceDir;
         try { Directory.CreateDirectory(dataDir); } catch { /* best effort */ }
-        string inboxPath = Path.Combine(dataDir, ".deeplink-inbox");
+        // an inbox DIRECTORY (one file per link): concurrent clicks each write a unique file, so nothing is
+        // lost to a shared-file write lock the way appending to one file dropped most rapid clicks.
+        string inboxDir = Path.Combine(dataDir, ".deeplink-inbox.d");
 
         bool relaunch = Array.IndexOf(args, "--relaunch") >= 0;   // a self-update restart waits for the old instance to release
         using var single = new Mutex(false, "ircuitry-singleton-" + Environment.UserName);
@@ -95,14 +97,16 @@ public static class Program
         catch (AbandonedMutexException) { primary = true; }   // previous owner crashed; we take over
         if (!primary)
         {
-            if (deepLink != null) { try { File.AppendAllText(inboxPath, deepLink + "\n"); } catch { /* ignore */ } }
+            if (deepLink != null)
+                try { Directory.CreateDirectory(inboxDir); File.WriteAllText(Path.Combine(inboxDir, Guid.NewGuid().ToString("N") + ".link"), deepLink); }
+                catch { /* ignore */ }
             return;   // another GUI is running; we forwarded (or had nothing to do)
         }
 
         try
         {
             DeepLink.Register();   // register ircuitry:// with the OS (best effort)
-            using var game = new IrcuitryGame(args, inboxPath, deepLink);
+            using var game = new IrcuitryGame(args, inboxDir, deepLink);
             game.Run();
         }
         finally { try { single.ReleaseMutex(); } catch { /* not held */ } }

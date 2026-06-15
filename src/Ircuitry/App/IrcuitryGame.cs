@@ -45,16 +45,17 @@ public sealed class IrcuitryGame : Game
     private FileSystemWatcher? _wsWatcher;
     private volatile bool _reloadRequested;
 
-    // deep-link (ircuitry://) install: an inbox file other instances append to, plus our own launch link
-    private readonly string? _inboxPath;
+    // deep-link (ircuitry://) install: an inbox DIRECTORY other instances drop one file per link into, plus our own launch link
+    private readonly string? _inboxDir;
     private readonly string? _initialDeepLink;
     private FileSystemWatcher? _inboxWatcher;
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _deepLinks = new();
+    private readonly System.Collections.Generic.Dictionary<string, DateTime> _recentLinks = new();   // collapse rapid duplicate clicks
 
-    public IrcuitryGame(string[] args, string? inboxPath = null, string? initialDeepLink = null)
+    public IrcuitryGame(string[] args, string? inboxDir = null, string? initialDeepLink = null)
     {
         _args = args;
-        _inboxPath = inboxPath;
+        _inboxDir = inboxDir;
         _initialDeepLink = initialDeepLink;
         _gdm = new GraphicsDeviceManager(this)
         {
@@ -107,7 +108,7 @@ public sealed class IrcuitryGame : Game
         };
         // watch the workspace file: an external edit (another editor, git, this assistant) auto-reloads it
         if (!_demo && _shotPath == null) StartWorkspaceWatcher();
-        if (_inboxPath != null) StartInboxWatcher();
+        if (_inboxDir != null) StartInboxWatcher();
         if (_initialDeepLink != null) _deepLinks.Enqueue(_initialDeepLink);
 
         UpdateViewport();
@@ -315,41 +316,47 @@ public sealed class IrcuitryGame : Game
         catch { /* watching is best-effort */ }
     }
 
-    // watch the deep-link inbox: another launch (a click on an ircuitry:// link) appends here; we drain it
+    // watch the deep-link inbox dir: each ircuitry:// click drops a *.link file; we pick them up
     private void StartInboxWatcher()
     {
         try
         {
-            var dir = Path.GetDirectoryName(_inboxPath!) ?? AppModel.WorkspaceDir;
-            var name = Path.GetFileName(_inboxPath!);
-            Directory.CreateDirectory(dir);
-            _inboxWatcher = new FileSystemWatcher(dir, name)
+            Directory.CreateDirectory(_inboxDir!);
+            _inboxWatcher = new FileSystemWatcher(_inboxDir!, "*.link")
             {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
                 EnableRaisingEvents = true,
             };
-            _inboxWatcher.Changed += (_, _) => DrainInbox();
             _inboxWatcher.Created += (_, _) => DrainInbox();
+            _inboxWatcher.Changed += (_, _) => DrainInbox();
         }
         catch { _inboxWatcher = null; }
     }
 
     private void DrainInbox()
     {
-        if (_inboxPath == null) return;
+        if (_inboxDir == null) return;
         try
         {
-            if (!File.Exists(_inboxPath)) return;
-            var tmp = _inboxPath + ".taking";
-            File.Move(_inboxPath, tmp, true);   // claim the batch atomically so appends are not lost mid-read
-            foreach (var line in File.ReadAllLines(tmp))
+            if (!Directory.Exists(_inboxDir)) return;
+            foreach (var file in Directory.GetFiles(_inboxDir, "*.link"))
             {
-                var s = line.Trim();
-                if (s.Length > 0) _deepLinks.Enqueue(s);
+                string link;
+                try { link = File.ReadAllText(file).Trim(); }
+                catch { continue; }   // still being written; a later event/poll retries
+                try { File.Delete(file); } catch { }
+                if (link.Length == 0) continue;
+                // collapse rapid duplicate clicks of the same link (mashing the install button)
+                var now = DateTime.UtcNow;
+                if (_recentLinks.TryGetValue(link, out var t) && (now - t).TotalSeconds < 10) continue;
+                _recentLinks[link] = now;
+                _deepLinks.Enqueue(link);
             }
-            File.Delete(tmp);
+            if (_recentLinks.Count > 64)   // prune old dedup entries
+                foreach (var k in new System.Collections.Generic.List<string>(_recentLinks.Keys))
+                    if ((DateTime.UtcNow - _recentLinks[k]).TotalSeconds > 30) _recentLinks.Remove(k);
         }
-        catch { /* mid-write or gone; a later event retries */ }
+        catch { /* transient; a later event retries */ }
     }
 
     private void UpdateViewport() =>
@@ -412,7 +419,7 @@ public sealed class IrcuitryGame : Game
         if (_reloadRequested) { _reloadRequested = false; _app.ReloadIfChangedOnDisk(); }
         // poll the deep-link inbox every frame (a cheap File.Exists): inotify/FileSystemWatcher drops
         // events under rapid open-link clicks, which made links need many tries. Polling never misses.
-        if (_inboxPath != null) DrainInbox();
+        if (_inboxDir != null) DrainInbox();
         // process one deep-link install per frame, only when no modal is open (so dialogs do not stack)
         if (!_deepLinks.IsEmpty && _screen is MainScreen dlScreen && dlScreen.CanAcceptDeepLink && _deepLinks.TryDequeue(out var link))
         {
