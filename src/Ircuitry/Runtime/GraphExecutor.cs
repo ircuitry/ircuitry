@@ -283,6 +283,18 @@ public static class GraphExecutor
 
         public bool AwaitApproval(string target, string approver, string approveWord, string denyWord, int timeoutSec)
             => _run.Sink.AwaitApproval(_node, new Dictionary<string, string>(_run.Vars), target, approver, approveWord, denyWord, timeoutSec);
+
+        public string InvokeNodeTool(Node node, Dictionary<string, string> args)
+        {
+            foreach (var kv in args) _run.Vars["__arg." + kv.Key] = kv.Value;
+            _run.RunExec(node);
+            for (int i = 0; i < node.Def.Outputs.Length; i++)
+            {
+                var k = node.Def.Outputs[i].Kind;
+                if (k != PinKind.Exec && k != PinKind.Tool && _run.Outputs.TryGetValue((node.Id, i), out var v)) return v;
+            }
+            return "";
+        }
         public double NowSeconds() => (System.DateTime.UtcNow - System.DateTime.UnixEpoch).TotalSeconds;
 
         /// <summary>The sink an IRC effect from this node should use: the origin server by default, or the

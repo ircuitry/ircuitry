@@ -55,8 +55,7 @@ public static class NodeCatalog
     }
 
     /// <summary>Where drop-in <c>.ircnode</c> community nodes are installed.</summary>
-    public static string CustomDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry", "nodes");
+    public static string CustomDir => Path.Combine(Ircuitry.App.AppModel.WorkspaceDir, "nodes");
 
     /// <summary>(Re)load community nodes from <see cref="CustomDir"/> and merge them with the built-ins.
     /// Bad files are skipped; a custom node can't shadow a built-in typeId.</summary>
@@ -100,6 +99,15 @@ public static class NodeCatalog
     private static PinDef Ch(string n) => new(n, PinKind.Channel);
     private static PinDef Nm(string n) => new(n, PinKind.Number);
     private static PinDef To(string n, bool multi = false) => new(n, PinKind.Tool, multi);
+
+    // A valid function name for a node used as an AI tool: a "name" param wins, else the typeId, with
+    // anything outside [A-Za-z0-9_-] replaced by '_' (so "web.search" -> "web_search").
+    private static string AiToolName(Node n)
+    {
+        string raw = n.GetParam("name");
+        if (raw.Length == 0) raw = n.TypeId;
+        return new string(raw.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_').ToArray());
+    }
 
     private static ParamDef P(string key, string label, ParamType t = ParamType.Text, string def = "", string ph = "", string[]? choices = null, Func<Node, bool>? visibleWhen = null, bool secret = false)
         => new() { Key = key, Label = label, Type = t, Default = def, Placeholder = ph, Choices = choices, VisibleWhen = visibleWhen, Secret = secret };
@@ -772,6 +780,7 @@ public static class NodeCatalog
                     var defs = new List<Ai.ToolDef>();
                     var byName = new Dictionary<string, Node>();          // ai.tool name -> sub-flow node
                     var editorBot = new Dictionary<string, string>();     // editor tool name -> default bot
+                    var nodeTools = new Dictionary<string, Node>();       // node-tool name -> the node (e.g. a custom .ircnode)
                     foreach (var tn in c.SourcesInto(2))
                     {
                         if (tn.TypeId == "ai.tool")
@@ -794,6 +803,19 @@ public static class NodeCatalog
                                 editorBot[d.Name] = defBot;
                             }
                         }
+                        else if (Array.Exists(tn.Def.Outputs, p => p.Kind == PinKind.Tool))
+                        {
+                            // any other node that advertises a Tool output is a self-contained tool (e.g. a
+                            // custom .ircnode): its data inputs are the model's args, its first data output the result
+                            string nm = AiToolName(tn);
+                            if (nm.Length == 0 || byName.ContainsKey(nm) || editorBot.ContainsKey(nm) || nodeTools.ContainsKey(nm)) continue;
+                            var a = new List<(string, string)>();
+                            foreach (var pin in tn.Def.Inputs)
+                                if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0)
+                                    a.Add((pin.Name, pin.Name));   // arg name = input pin name
+                            defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a));
+                            nodeTools[nm] = tn;
+                        }
                     }
 
                     if (defs.Count == 0)
@@ -804,6 +826,8 @@ public static class NodeCatalog
                             {
                                 if (editorBot.TryGetValue(name, out var db))    // inward MCP edit against the workspace
                                     return Ircuitry.App.Mcp.McpBridge.Invoke(name, args, db.Length > 0 ? db : null);
+                                if (nodeTools.TryGetValue(name, out var ntn))   // a self-contained node tool (e.g. a custom .ircnode)
+                                    return c.InvokeNodeTool(ntn, args);
                                 if (!byName.TryGetValue(name, out var tn)) return "(unknown tool: " + name + ")";
                                 foreach (var kv in args) c.SetVar("__arg." + kv.Key, kv.Value);
                                 c.SetVar("__tool_result", "");

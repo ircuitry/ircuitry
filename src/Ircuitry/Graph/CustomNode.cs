@@ -86,6 +86,12 @@ public static class CustomNode
             if (!def.Inputs[i].Kind.IsExec())
             {
                 var v = c.In(i);
+                // when this node is invoked as an AI tool, its unwired inputs are filled from the model's args
+                if (v.Length == 0 && def.Inputs[i].Name.Length > 0)
+                {
+                    var a = c.Var("__arg." + def.Inputs[i].Name);
+                    if (a.Length > 0) v = a;
+                }
                 if (def.Inputs[i].Name.Length > 0) ctx[def.Inputs[i].Name] = v;
                 firstIn ??= v;
             }
@@ -101,7 +107,7 @@ public static class CustomNode
         for (int i = 0; i < def.Outputs.Length; i++)
         {
             var o = def.Outputs[i];
-            if (o.Kind.IsExec()) continue;
+            if (o.Kind.IsExec() || o.Kind == PinKind.Tool) continue;   // a Tool output is the AI-tool handle, not a data sink
             string val = "";
             if (obj != null) obj.TryGetValue(o.Name, out val!);
             else if (!rawUsed) { val = output; rawUsed = true; }

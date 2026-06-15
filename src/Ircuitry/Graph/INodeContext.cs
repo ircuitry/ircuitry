@@ -73,4 +73,8 @@ public interface INodeContext
     /// approved/denied exec output. The question must already be posted. Returns false if no human gate is
     /// available (e.g. a dry run), so the node can fall back instead of stalling forever.</summary>
     bool AwaitApproval(string target, string approver, string approveWord, string denyWord, int timeoutSec);
+
+    /// <summary>Run another node as an AI tool: bind the model's <paramref name="args"/> to its inputs by
+    /// name, execute it, and return its first data output as the tool result.</summary>
+    string InvokeNodeTool(Node node, System.Collections.Generic.Dictionary<string, string> args);
 }

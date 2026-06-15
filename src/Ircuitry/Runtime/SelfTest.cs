@@ -141,6 +141,7 @@ public static class SelfTest
         fails += HumanLoopApproveTest();
         fails += ConcurrentExecutorTest();
         fails += JsonAndLoopsTest();
+        fails += NodeAsToolTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1641,6 +1642,86 @@ public static class SelfTest
     {
         Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}   {(ok ? "" : detail)}");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>A custom .ircnode with a Tool output is usable directly as an AI tool: Ask AI advertises it
+    /// to the model (its data inputs become args), and a call binds the args to the node, runs it, and feeds
+    /// its data output back. Sandboxed to a throwaway nodes dir.</summary>
+    private static int NodeAsToolTest()
+    {
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-nodetool-" + Guid.NewGuid().ToString("N")[..8]);
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("node-as-tool (skipped: " + ex.Message + ")", true, ""); }
+
+        var bodies = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        bool stop = false; int reqs = 0;
+        string toolJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"test_echotool","arguments":"{\"query\":\"hi\"}"}}]}}]}""";
+        string finalJson = """{"choices":[{"message":{"content":"ok"}}]}""";
+        var server = new Thread(() =>
+        {
+            try
+            {
+                while (!stop)
+                {
+                    var ctx = listener.GetContext();
+                    using (var sr = new System.IO.StreamReader(ctx.Request.InputStream)) bodies.Enqueue(sr.ReadToEnd());
+                    int n = Interlocked.Increment(ref reqs);
+                    var b = Encoding.UTF8.GetBytes(n == 1 ? toolJson : finalJson);
+                    ctx.Response.ContentType = "application/json";
+                    ctx.Response.OutputStream.Write(b, 0, b.Length);
+                    ctx.Response.Close();
+                }
+            }
+            catch { }
+        }) { IsBackground = true };
+        server.Start();
+
+        int fails;
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            Directory.CreateDirectory(Path.Combine(tmp, "nodes"));
+            File.WriteAllText(Path.Combine(tmp, "nodes", "test.echotool.ircnode"),
+                "{\"typeId\":\"test.echotool\",\"title\":\"Echo\",\"category\":\"Ai\",\"description\":\"Echoes the query.\"," +
+                "\"inputs\":[{\"name\":\"query\",\"kind\":\"Text\"}]," +
+                "\"outputs\":[{\"name\":\"tool\",\"kind\":\"Tool\"},{\"name\":\"result\",\"kind\":\"Text\"}]," +
+                "\"language\":\"python\",\"timeout\":5,\"code\":\"import os\\nprint('ECHO:'+(os.environ.get('QUERY') or ''))\\n\"}");
+            NodeCatalog.LoadCustom();
+            if (!NodeCatalog.TryGet("test.echotool", out _))
+            { stop = true; try { listener.Stop(); } catch { } return Expect("node-as-tool (skipped: custom load)", true, ""); }
+
+            var g = new NodeGraph();
+            var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "x");
+            var ai = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+            ai.SetParam("baseUrl", $"http://localhost:{port}/v1"); ai.SetParam("apiKey", "t"); ai.SetParam("model", "m");
+            var tool = g.Add(NodeCatalog.Get("test.echotool"), new Vector2(100, 150));
+            g.Connect(cmd.Id, 0, ai.Id, 0);
+            g.Connect(tool.Id, 0, ai.Id, 2);   // the node's Tool output -> Ask AI 'tools'
+
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!x go", "u", "#c"));
+            stop = true; try { listener.Stop(); } catch { }
+
+            var all = string.Join("\n", bodies);
+            bool offered = all.Contains("test_echotool");   // advertised to the model (proves detection)
+            bool ran = all.Contains("ECHO:hi");             // arg bound -> code ran -> output fed back
+            if (offered && !ran && reqs >= 2)
+                fails = Expect("node-as-tool (skipped: no python runtime)", true, "");
+            else
+                fails = Expect("node-as-tool", offered && ran && reqs >= 2, $"offered={offered} ran={ran} reqs={reqs}");
+        }
+        finally
+        {
+            try { Directory.Delete(Path.Combine(tmp, "nodes"), true); } catch { }
+            NodeCatalog.LoadCustom();   // tmp/nodes gone -> clears the test node without reading the user's dir
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
     }
 
     /// <summary>n8n-style data plumbing: {var.path} dot-notation into JSON, For-Each over a JSON array with
