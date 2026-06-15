@@ -265,8 +265,17 @@ public sealed class IrcClient
     {
         SendNow("CAP LS 302");
         if (_cfg.ServerPass.Length > 0) SendNow($"PASS {_cfg.ServerPass}");
-        SendNow($"NICK {_cfg.Nick}");
-        SendNow($"USER {_cfg.User} 0 * :{_cfg.RealName}");
+        // never send an empty NICK/USER/realname - servers reject "USER  0 * :" with 461. Fall back to
+        // sane values: nick → "ircuitry-bot", ident → the nick (first word, no spaces), realname → the nick.
+        string nick = Clean(_cfg.Nick).Trim();
+        if (nick.Length == 0) nick = "ircuitry-bot";
+        string ident = Clean(_cfg.User).Trim();
+        int sp = ident.IndexOf(' '); if (sp >= 0) ident = ident[..sp];   // ident is a single token, no spaces
+        if (ident.Length == 0) ident = nick;
+        string real = Clean(_cfg.RealName).Trim();
+        if (real.Length == 0) real = nick;
+        SendNow($"NICK {nick}");
+        SendNow($"USER {ident} 0 * :{real}");
     }
 
     private void Handle(IrcMessage m)

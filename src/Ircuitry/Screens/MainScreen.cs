@@ -2191,6 +2191,9 @@ public sealed partial class MainScreen : IScreen
         var onstart = _ui.Toggle("c.onstart", new RectF(x, y, w, 24), s.ConnectOnStartup, "Connect on app startup"); if (onstart != s.ConnectOnStartup) { s.ConnectOnStartup = onstart; _app.MarkDirty(); } y += 34;
 
         y = Labeled(r, "NICK", x, y); s.Nick = Edit("c.nick", new RectF(x, y, w, 30), s.Nick, "ircuitry-bot"); y += 40;
+        float idW = (w - 8) / 2f;
+        Labeled(r, "IDENT", x, y); Labeled(r, "REAL NAME", x + idW + 8, y); y += 18;
+        s.User = Edit("c.ident", new RectF(x, y, idW, 30), s.User, "ircuitry"); s.RealName = Edit("c.real", new RectF(x + idW + 8, y, idW, 30), s.RealName, "ircuitry bot"); y += 40;
         y = Labeled(r, "CHANNELS", x, y); s.Channels = Edit("c.chan", new RectF(x, y, w, 30), s.Channels, "#chan1 #chan2"); y += 40;
         y = Labeled(r, "SASL ACCOUNT (optional)", x, y); s.SaslUser = Edit("c.sasluser", new RectF(x, y, w, 30), s.SaslUser, "account"); y += 40;
         y = Labeled(r, "SASL PASSWORD", x, y); SecretButton(r, "c.saslpass", ref y, x, w, s.SaslPass, "SASL password", v => { s.SaslPass = v; _app.MarkDirty(); }); y += 4;
