@@ -9,7 +9,9 @@ public readonly struct LogEntry
     public readonly DateTime Time;
     public readonly LogLevel Level;
     public readonly string Text;
-    public LogEntry(DateTime time, LogLevel level, string text) { Time = time; Level = level; Text = text; }
+    public readonly string Server;   // origin server label (for multi-server bots); "" otherwise
+    public LogEntry(DateTime time, LogLevel level, string text, string server = "")
+    { Time = time; Level = level; Text = text; Server = server; }
 }
 
 /// <summary>Thread-safe bounded log shared between the IRC read thread and the UI.</summary>
@@ -20,14 +22,14 @@ public sealed class ConsoleLog
     private readonly object _lock = new();
     public long Revision { get; private set; }
 
-    public void Add(LogLevel level, string text)
+    public void Add(LogLevel level, string text, string server = "")
     {
         // split multi-line text so the console stays one-line-per-row
         foreach (var raw in text.Split('\n'))
         {
             lock (_lock)
             {
-                _entries.AddLast(new LogEntry(DateTime.Now, level, raw.TrimEnd('\r')));
+                _entries.AddLast(new LogEntry(DateTime.Now, level, raw.TrimEnd('\r'), server));
                 while (_entries.Count > Cap) _entries.RemoveFirst();
                 Revision++;
             }

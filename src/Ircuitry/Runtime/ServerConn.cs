@@ -164,7 +164,8 @@ public sealed class ServerConn : IRuntimeSink
     // ===================================================================
     private void OnRawIn(string line)
     {
-        if (line.IndexOf(" PRIVMSG ", StringComparison.Ordinal) >= 0 || line.IndexOf(" NOTICE ", StringComparison.Ordinal) >= 0) return;
+        // log EVERY incoming raw wire line (including PRIVMSG/NOTICE) - the event console parses it into a
+        // pretty, fully-broken-down row, so we want the real line, not a pre-decorated summary.
         _owner.LogFrom(Label, LogLevel.In, line);
     }
 
@@ -216,9 +217,9 @@ public sealed class ServerConn : IRuntimeSink
             vars["__reply"] = msgid;                 // correlate replies to the triggering message (+reply)
             foreach (var kv in m.Tags) vars["tag." + kv.Key] = kv.Value;
 
-            string badges = (account.Length > 0 ? "✓" + account + " " : "") + (isbot ? "🤖 " : "");
-            _owner.LogFrom(Label, LogLevel.In, $"{badges}<{nick}> {text}");
-            _owner.RecordMessage(nick, vars["channel"], text, msgid);   // feed the recent-message ring (SuperAI)
+            // the raw PRIVMSG line was already logged by OnRawIn (and is parsed prettily by the console);
+            // here we only feed the recent-message ring used by SuperAI and the read-only IRC view.
+            _owner.RecordMessage(nick, vars["channel"], text, msgid);
 
             if (TryResolveApproval(nick, target, toChannel, text)) return;   // a human answered a pending gate
             FireFamily("message", vars);

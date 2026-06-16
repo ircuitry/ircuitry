@@ -22,7 +22,9 @@ public struct Layout
     public const float InspectorW = 324f;
     public const float ConsoleH = 208f;
 
-    public static Layout Compute(int vw, int vh)
+    /// <summary>Computes the dock layout. <paramref name="consoleH"/> overrides the event-console height when
+    /// &gt; 0 (the user can drag-resize it); 0 means use the default for this viewport.</summary>
+    public static Layout Compute(int vw, int vh, float consoleH = 0)
     {
         var l = new Layout();
         l.TopBar = new RectF(0, 0, vw, TopH);
@@ -39,9 +41,11 @@ public struct Layout
 
         float cx = l.Palette.Right + Gap;
         float cw = l.Inspector.Left - Gap - cx;
-        float consoleH = ih > 520 ? ConsoleH : 150;
-        l.Canvas = new RectF(cx, iy, cw, ih - consoleH - Gap);
-        l.Console = new RectF(cx, l.Canvas.Bottom + Gap, cw, consoleH);
+        float ch = consoleH > 0 ? consoleH : (ih > 520 ? ConsoleH : 150);
+        // keep the canvas usable: the console may take at most ~72% of the work area
+        ch = System.Math.Clamp(ch, 120f, System.MathF.Max(120f, ih * 0.72f));
+        l.Canvas = new RectF(cx, iy, cw, ih - ch - Gap);
+        l.Console = new RectF(cx, l.Canvas.Bottom + Gap, cw, ch);
         return l;
     }
 }

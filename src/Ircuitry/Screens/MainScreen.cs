@@ -33,6 +33,11 @@ public sealed partial class MainScreen : IScreen
     private Vector2 _dragStart;
     private bool _dragging;
     private float _paletteScroll;
+    // event console: user-resizable height (0 = default), scrollable full history, and the read-only IRC window
+    private float _consoleH;
+    private float _consoleScroll;
+    private bool _consoleResizing;
+    private float _consoleResizeStartH, _consoleResizeStartY;
     private float _inspScroll;        // inspector panel scroll (the connection panel can run long)
     private string _inspKey = "";     // what the inspector is showing, to reset scroll on change
     private string _nodeTestId = "", _nodeTestResult = "";   // last "test this node" result
@@ -67,11 +72,11 @@ public sealed partial class MainScreen : IScreen
     /// <summary>True while the "are you sure you want to quit?" prompt is showing (the host raises the window for it).</summary>
     public bool ClosePromptOpen => _closePromptOpen;
 
-    public void DebugWorkflowInstall() { _l = Layout.Compute(_vw, _vh); StageWorkflowInstall("{\"format\":\"ircuitry.workflow.v1\",\"name\":\"Greeter Bot\",\"description\":\"Welcomes people when they join your channel and answers a friendly !hi command.\",\"nodes\":[{\"id\":\"a\",\"type\":\"event.join\"},{\"id\":\"b\",\"type\":\"action.say\"}],\"connections\":[]}"); }
+    public void DebugWorkflowInstall() { _l = Layout.Compute(_vw, _vh, _consoleH); StageWorkflowInstall("{\"format\":\"ircuitry.workflow.v1\",\"name\":\"Greeter Bot\",\"description\":\"Welcomes people when they join your channel and answers a friendly !hi command.\",\"nodes\":[{\"id\":\"a\",\"type\":\"event.join\"},{\"id\":\"b\",\"type\":\"action.say\"}],\"connections\":[]}"); }
 
     public void DebugOpenBake()
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         _editor.Selection.Clear();
         foreach (var n in _app.ActiveBot.Graph.Nodes.Where(n => !n.Def.IsTrigger).Take(2)) _editor.Selection.Add(n.Id);
         _saveNodeName = "Greeting Macro"; _saveNodeIcon = "🧩"; _saveNodeCat = "Action"; _saveNodeDesc = "";
@@ -475,7 +480,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugOpenSaveNode() { _saveNodeName = "Greeting Macro"; _saveNodeOpen = true; _saveNodeJustOpened = true; }
     public void DebugShowGh()
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         _openCat = NodeCategory.Action;
         if (NodeCatalog.TryGet("gh.run", out var def))
         {
@@ -487,26 +492,26 @@ public sealed partial class MainScreen : IScreen
     }
     public void DebugOpenInstall()
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         var p = System.IO.Path.Combine(NodeCatalog.CustomDir, "wordcount.ircnode");
         if (System.IO.File.Exists(p)) OnNodeDrop(_l.Canvas.Center, p);
     }
 
-    public void DebugInstallClip() { _l = Layout.Compute(_vw, _vh); InstallFromClipboard(); }
+    public void DebugInstallClip() { _l = Layout.Compute(_vw, _vh, _consoleH); InstallFromClipboard(); }
 
     public void DebugOpenUninstall()
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         var d = NodeCatalog.Custom.Count > 0 ? NodeCatalog.Custom[0] : null;
         if (d != null) { _uninstallDef = d; _uninstallOpen = true; _uninstallJustOpened = true; }
     }
 
     public void DebugOpenNodeManager() => OpenNodeManager();
-    public void DebugOpenSecretPick() { _l = Layout.Compute(_vw, _vh); OpenSecretPicker("", "API key", _ => { }); }
-    public void DebugShowServers() { _l = Layout.Compute(_vw, _vh); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
-    public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
+    public void DebugOpenSecretPick() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenSecretPicker("", "API key", _ => { }); }
+    public void DebugShowServers() { _l = Layout.Compute(_vw, _vh, _consoleH); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
+    public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh, _consoleH); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
-    public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh); OpenFileMenu(new Vector2(_vw - 360, _l.Tabs.Bottom + 3)); }
+    public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenFileMenu(new Vector2(_vw - 360, _l.Tabs.Bottom + 3)); }
     public void DebugCommandPalette() { OpenCommandPalette(); _cmdkQuery = "se"; _cmdkJustOpened = true; }
     public void DebugLibraryPrefs()
     {
@@ -516,7 +521,7 @@ public sealed partial class MainScreen : IScreen
     }
     public void DebugNotifications()
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         PushToast("💾 Workspace saved");
         _notifLog.Insert(0, (DateTime.Now.AddMinutes(-1), "📤 Exported welcomer"));
         _notifLog.Insert(0, (DateTime.Now.AddMinutes(-3), "📡 saved server irc.libera.chat:6697"));
@@ -525,7 +530,7 @@ public sealed partial class MainScreen : IScreen
     }
     public void DebugMultiServer()
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         var b = Bot;
         b.Servers.Clear();
         b.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = "Libera", Host = "irc.libera.chat", Channels = "#ircuitry", ConnectOnStartup = true });
@@ -536,7 +541,7 @@ public sealed partial class MainScreen : IScreen
     }
     public void DebugShowNetwork()
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         DebugDemoShot();   // bot 1 -> libera
         var b2 = _app.AddBot("greeter"); b2.Name = "welcomer"; b2.Settings.Host = "irc.libera.chat"; b2.Settings.Channels = "#cozy";
         var b3 = _app.AddBot("pingpong"); b3.Name = "pong-bot"; b3.Settings.Host = "irc.oftc.net"; b3.Settings.Channels = "#bots";
@@ -592,7 +597,7 @@ public sealed partial class MainScreen : IScreen
     {
         _input = input;
         _editor.Graph = Bot.Graph;
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         ClipboardPoll(clock);
         AchievementsTick(clock);
 
@@ -665,7 +670,7 @@ public sealed partial class MainScreen : IScreen
     public void Draw(Renderer r, Clock clock)
     {
         _vw = r.ViewW; _vh = r.ViewH;
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         if (_demoShotFit && _vw > 0) { _demoShotFit = false; _editor.FocusContent(_l.Canvas); }   // frame the demo graph for screenshots
         _editor.Graph = Bot.Graph;
         _editor.Running = Bot.Runtime.Running;
@@ -1478,7 +1483,7 @@ public sealed partial class MainScreen : IScreen
     private void OpenNodeManager()
     {
         if (Modal) return;
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         _nodeMgrOpen = true; _nodeMgrJustOpened = true; _nodeMgrScroll = 0; _nodeMgrSel.Clear();
         StartNodeUpdateCheck();
     }
@@ -2739,7 +2744,7 @@ public sealed partial class MainScreen : IScreen
 
     public void OpenCommandPalette()
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         _cmdkOpen = true; _cmdkJustOpened = true; _cmdkQuery = ""; _cmdkSel = 0; _cmdkScroll = 0;
         _ui.Focus = "cmdk.query";
     }
@@ -2949,33 +2954,6 @@ public sealed partial class MainScreen : IScreen
     { r.Text(r.Fonts.Get(FontKind.SansBold, 12), label, new Vector2(x, y), Theme.TextDim); return y + 18; }
 
     // ===================================================================
-    private void DrawConsole(Renderer r)
-    {
-        var p = _l.Console;
-        var content = new RectF(p.X + 10, p.Y + Hud.HeaderH + 6, p.W - 20, p.H - Hud.HeaderH - 12);
-        r.Begin(BlendMode.Alpha, content.ToRectangle());
-        var mono = r.Fonts.Get(FontKind.Mono, 13);
-        float lineH = mono.MeasureString("M").Y + 4f;
-        int fit = Math.Max(1, (int)(content.H / lineH));
-        var lines = Bot.Log.Tail(fit);
-        float y = content.Bottom - lines.Count * lineH;
-        foreach (var e in lines)
-        {
-            var col = LogColors.Of(e.Level);
-            r.Text(mono, e.Time.ToString("HH:mm:ss"), new Vector2(content.X, y), Theme.TextFaint);
-            r.Text(r.Fonts.Get(FontKind.SansBold, 12), LogColors.Tag(e.Level), new Vector2(content.X + 76, y + 1), col);
-            string text = r.Ellipsize(mono, e.Text, content.W - 130);
-            r.Text(mono, text, new Vector2(content.X + 118, y), e.Level == LogLevel.In ? Theme.TextDim : col);
-            y += lineH;
-        }
-        r.End();
-    }
-
-    private void ConsoleHeaderStats(Renderer r, RectF p)
-    {
-        var f = r.Fonts.Get(FontKind.Mono, 12);
-        r.TextRight(f, $"MSG {Bot.Runtime.MessagesSeen}   ACT {Bot.Runtime.ActionsFired}", p.Right - 14, p.Y + 11, Theme.TextFaint);
-    }
 
     // ===================================================================
     private void TopBar(Renderer r, RectF bar, Clock clock)

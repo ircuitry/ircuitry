@@ -183,8 +183,10 @@ public sealed class BotRuntime
     // ===================================================================
     internal void LogFrom(string server, LogLevel level, string message)
     {
+        // keep the server label as a separate field (not prefixed into the text) so the console can still
+        // parse a raw IRC line cleanly and show the origin as its own chip.
         bool multi; lock (_connLock) multi = _conns.Count > 1;
-        _log.Add(level, multi && server.Length > 0 ? $"[{server}] {message}" : message);
+        _log.Add(level, message, multi && server.Length > 0 ? server : "");
     }
 
     public void NodeFired(string nodeId) { _activity[nodeId] = DateTime.Now; _fireCounts.AddOrUpdate(nodeId, 1, (_, n) => n + 1); }

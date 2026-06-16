@@ -75,7 +75,7 @@ public sealed partial class MainScreen
     /// <summary>Debug/screenshot hook: pop the node or canvas menu without a real right-click.</summary>
     public void DebugOpenContextMenu(bool onNode)
     {
-        _l = Layout.Compute(_vw, _vh);
+        _l = Layout.Compute(_vw, _vh, _consoleH);
         _editor.Selection.Clear();
         if (onNode)
         {
