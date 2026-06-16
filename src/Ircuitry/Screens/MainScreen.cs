@@ -198,7 +198,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -860,12 +860,21 @@ public sealed partial class MainScreen : IScreen
             _ui.Enabled = true;
             DrawCommandPalette(r);
         }
+        else if (_bakeryOpen)
+        {
+            _ui.Enabled = true;
+            DrawBakeryModal(r, clock);
+        }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
         DrawTutorial(r, clock);
 
         // ---------- update overlay (on top of absolutely everything) ----------
         if (_upState == UpState.Downloading || _upState == UpState.Applying) DrawUpgradeOverlay(r, clock);
+
+        // ---------- bake animation (oven + clock -> the bot pops out) ----------
+        if (_bakeDebugPending && !BakeAnimActive) { _bakeDebugPending = false; DebugOpenBakery(); StartBake(clock); }
+        if (BakeAnimActive) DrawBakeAnim(r, clock);
 
         // ---------- achievement toast + unified notifications ----------
         DrawAchToast(r, clock);
@@ -1147,6 +1156,8 @@ public sealed partial class MainScreen : IScreen
         Sep();
         Item("📤", "Export this bot…", "Ctrl+E", true, () => { _app.ExportActive(); Notify($"📤 Exported {Bot.Name}"); });
         Item("📥", "Import a bot…", "", true, () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
+        Sep();
+        Item("🧁", "Bot Bakery (merge bots)…", "", _app.Bots.Count >= 2, OpenBakery);
         Sep();
         Item("📂", "Show files", "", true, () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
         _ctxOpen = true; _ctxJustOpened = true;

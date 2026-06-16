@@ -160,8 +160,74 @@ public static class SelfTest
         fails += CompositeExposeTest();
         fails += ParamListAddTest();
         fails += ToolkitTest();
+        fails += BotMergeTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
+        return fails;
+    }
+
+    /// <summary>Merging two bots that both bind !help: detection + every resolution (run all / keep one /
+    /// rename / combine), and a functional fire of the merged graph.</summary>
+    private static int BotMergeTest()
+    {
+        int fails = 0;
+
+        Ircuitry.Graph.NodeGraph BotWith(string cmd, string reply)
+        {
+            var g = new Ircuitry.Graph.NodeGraph();
+            var c = N(g, "event.command", 0, 0); c.SetParam("command", cmd);
+            var r = N(g, "action.reply", 300, 0); r.SetParam("message", reply);
+            g.Connect(c.Id, 0, r.Id, 0);
+            return g;
+        }
+        int Cmds(Ircuitry.Graph.NodeGraph g) => g.Nodes.Count(n => n.TypeId == "event.command");
+        int Replies(Ircuitry.Graph.NodeGraph g) => g.Nodes.Count(n => n.TypeId == "action.reply");
+
+        var a = BotWith("help", "A help");
+        var b = BotWith("help", "B help");
+        var graphs = new[] { a, b };
+
+        Ircuitry.Graph.BotMerge.Conflict[] Resolved(Ircuitry.Graph.BotMerge.Mode m, int keep = 0)
+        {
+            var cf = Ircuitry.Graph.BotMerge.Detect(graphs);
+            foreach (var c in cf) { c.Resolution = m; c.KeepBot = keep; }
+            return cf.ToArray();
+        }
+
+        var conf = Ircuitry.Graph.BotMerge.Detect(graphs);
+        fails += Expect("merge-detect", conf.Count == 1 && conf[0].Command == "help" && conf[0].Bots.Count == 2, $"got {conf.Count}");
+
+        var runAll = Ircuitry.Graph.BotMerge.Merge(graphs, Resolved(Ircuitry.Graph.BotMerge.Mode.RunAll));
+        fails += Expect("merge-runall-nodes", Cmds(runAll) == 2 && Replies(runAll) == 2, $"{Cmds(runAll)}c/{Replies(runAll)}r");
+        {
+            var sink = new FakeSink();
+            foreach (var t in runAll.Nodes.Where(n => n.TypeId == "event.command"))
+                GraphExecutor.Fire(runAll, sink, t, Vars("!help", "alice", "#x"));
+            fails += Expect("merge-runall-fires-both", sink.Sent.Count == 2 && sink.Sent.Any(s => s.text == "A help") && sink.Sent.Any(s => s.text == "B help"), Dump(sink));
+        }
+
+        var keep = Ircuitry.Graph.BotMerge.Merge(graphs, Resolved(Ircuitry.Graph.BotMerge.Mode.Keep, 0));
+        fails += Expect("merge-keep-nodes", Cmds(keep) == 1 && Replies(keep) == 1, $"{Cmds(keep)}c/{Replies(keep)}r");
+        fails += Expect("merge-keep-which", keep.Nodes.Any(n => n.TypeId == "action.reply" && n.GetParam("message") == "A help"), "");
+
+        var rename = Ircuitry.Graph.BotMerge.Merge(graphs, Resolved(Ircuitry.Graph.BotMerge.Mode.Rename));
+        var cmds = rename.Nodes.Where(n => n.TypeId == "event.command").Select(n => n.GetParam("command")).OrderBy(x => x).ToList();
+        fails += Expect("merge-rename", cmds.SequenceEqual(new[] { "help", "help2" }), string.Join(",", cmds));
+
+        var combine = Ircuitry.Graph.BotMerge.Merge(graphs, Resolved(Ircuitry.Graph.BotMerge.Mode.Combine));
+        fails += Expect("merge-combine-nodes", Cmds(combine) == 1 && Replies(combine) == 2, $"{Cmds(combine)}c/{Replies(combine)}r");
+        {
+            var trig = combine.Nodes.First(n => n.TypeId == "event.command");
+            int fanout = combine.Connections.Count(w => w.FromNode == trig.Id);
+            fails += Expect("merge-combine-fanout", fanout == 2, $"fanout {fanout}");
+            var sink = new FakeSink();
+            GraphExecutor.Fire(combine, sink, trig, Vars("!help", "alice", "#x"));
+            fails += Expect("merge-combine-fires-both", sink.Sent.Count == 2, Dump(sink));
+        }
+
+        var noConf = Ircuitry.Graph.BotMerge.Detect(new[] { BotWith("foo", "f"), BotWith("bar", "b") });
+        fails += Expect("merge-noconflict", noConf.Count == 0, $"{noConf.Count}");
+
         return fails;
     }
 

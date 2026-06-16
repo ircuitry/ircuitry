@@ -101,6 +101,26 @@ public sealed class AppModel
         return bot;
     }
 
+    /// <summary>Create a new bot tab from a ready-made graph (e.g. a Bot Bakery merge), cloning the chosen
+    /// connection settings so the new bot is independent of its sources.</summary>
+    public Bot AddBotFrom(string name, NodeGraph graph, System.Collections.Generic.IEnumerable<Ircuitry.Irc.IrcSettings>? servers = null)
+    {
+        var bot = new Bot(name.Trim().Length > 0 ? name.Trim() : $"bot-{Bots.Count + 1}");
+        bot.Graph = graph;
+        if (servers != null)
+        {
+            bot.Servers.Clear();
+            foreach (var s in servers) bot.Servers.Add(s.Clone());
+            if (bot.Servers.Count == 0) bot.Servers.Add(new Ircuitry.Irc.IrcSettings());
+        }
+        bot.Log.Add(LogLevel.System, $"🧁 baked “{bot.Name}” - {graph.Nodes.Count} node(s) merged in.");
+        Bots.Add(bot);
+        Active = Bots.Count - 1;
+        Dirty = true;
+        Ircuitry.Core.Achievements.BotCreated();
+        return bot;
+    }
+
     /// <summary>Starter workflows offered when creating a bot: (key, emoji, label, blurb).</summary>
     public static readonly (string Key, string Icon, string Label, string Blurb)[] Templates =
     {

@@ -188,6 +188,8 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showmaxbuilder") >= 0) ms?.DebugOpenMaxBuilder();
         if (Array.IndexOf(_args, "--showwfinstall") >= 0) ms?.DebugWorkflowInstall();
         if (Array.IndexOf(_args, "--showbake") >= 0) ms?.DebugOpenBake();
+        if (Array.IndexOf(_args, "--showbakery") >= 0) ms?.DebugOpenBakery();
+        if (Array.IndexOf(_args, "--showbakeanim") >= 0) ms?.DebugBakeAnim();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();
