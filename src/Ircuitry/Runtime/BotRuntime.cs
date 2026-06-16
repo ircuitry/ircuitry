@@ -84,6 +84,12 @@ public sealed class BotRuntime
         get { lock (_connLock) return _conns.SelectMany(c => c.EnabledCaps).Distinct(StringComparer.OrdinalIgnoreCase).ToList(); }
     }
 
+    /// <summary>The connection the read-only IRC view follows: a connected one if any, else the first.</summary>
+    public ServerConn? PrimaryConn
+    {
+        get { lock (_connLock) return _conns.FirstOrDefault(c => c.State == IrcState.Connected) ?? _conns.FirstOrDefault(); }
+    }
+
     public int MessagesSeen { get { lock (_connLock) return _conns.Sum(c => c.MessagesSeen); } }
     public int ActionsFired { get { lock (_connLock) return _conns.Sum(c => c.ActionsFired); } }
     internal int TotalActions => ActionsFired;
