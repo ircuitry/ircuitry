@@ -2495,61 +2495,137 @@ public sealed partial class MainScreen : IScreen
         r.End();
     }
 
+    // A live node-link graph of the whole setup: bot nodes -> server nodes -> channel nodes, wired by
+    // connection (status-coloured) and membership. One node per bot, per unique server (host:port), per
+    // channel-on-a-server, so shared servers read as hubs. Cozy node cards in the app's own style.
     private void DrawNetworkModal(Renderer r)
     {
         r.Begin();
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
-        float pw = MathF.Min(820, _vw * 0.92f), ph = MathF.Min(620, _vh * 0.9f);
+        float pw = MathF.Min(980, _vw * 0.95f), ph = MathF.Min(700, _vh * 0.92f);
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
-        Hud.Panel(r, panel, "Network · bots & servers", Theme.Berry);
+        Hud.Panel(r, panel, "Network · bots, servers & channels", Theme.Berry);
 
-        // group every bot/server pairing by server host (a multi-server bot appears under each of its servers)
-        var groups = new List<(string host, int port, bool tls, List<(Bot bot, IrcSettings sv)> rows)>();
-        foreach (var b in _app.Bots)
-            foreach (var sv in b.Servers)
-            {
-                string host = sv.Host.Length > 0 ? sv.Host : "(no server set)";
-                var g = groups.FirstOrDefault(x => x.host == host && x.port == sv.Port);
-                if (g.rows == null) { g = (host, sv.Port, sv.UseTls, new List<(Bot, IrcSettings)>()); groups.Add(g); }
-                g.rows.Add((b, sv));
-            }
-        int online = _app.Bots.Count(b => b.Runtime.Running);
-        r.TextRight(r.Fonts.Get(FontKind.Mono, 11), $"{_app.Bots.Count} bots · {online} online · {groups.Count} servers", panel.Right - 18, panel.Y + 14, Theme.TextFaint);
-        r.End();
-
-        var area = new RectF(panel.X + 16, panel.Y + Hud.HeaderH + 12, panel.W - 32, panel.Bottom - (panel.Y + Hud.HeaderH) - 24);
-        r.Begin(BlendMode.Alpha, area.ToRectangle());
-        float gx = area.X, gy = area.Y - _networkScroll;
-        float maxBottom = gy;
-        foreach (var grp in groups)
+        // ---- build the model ----
+        var servers = new List<(string key, string host, int port, bool tls)>();
+        int ServerIdx(IrcSettings sv)
         {
-            float cardH = 64 + grp.rows.Count * 30 + 10;
-            var card = new RectF(gx, gy, area.W, cardH);
-            if (card.Bottom >= area.Y && card.Y <= area.Bottom)
-            {
-                r.RoundFill(card, Theme.PanelLo, 10); r.RoundOutline(card, Theme.WithAlpha(Theme.Sky, 0.5f), 10);
-                bool anyOn = grp.rows.Exists(t => t.bot.Runtime.FindConn(t.sv.DisplayName)?.Running == true);
-                Hud.SoftDot(r, new Vector2(card.X + 20, card.Y + 24), 6f, anyOn ? Theme.Ok : Theme.Idle);
-                r.Text(r.Fonts.Get(FontKind.SansBold, 16), grp.host, new Vector2(card.X + 36, card.Y + 14), Theme.Text);
-                r.Text(r.Fonts.Get(FontKind.Mono, 11), grp.host == "(no server set)" ? "fill in a server to connect" : $":{grp.port}{(grp.tls ? "  ·  TLS" : "")}", new Vector2(card.X + 36, card.Y + 36), Theme.TextDim);
-                float by = card.Y + 60;
-                foreach (var (b, sv) in grp.rows)
-                {
-                    var conn = b.Runtime.FindConn(sv.DisplayName);
-                    var col = conn != null ? StatusColor(conn) : Theme.Idle;
-                    Hud.SoftDot(r, new Vector2(card.X + 30, by + 9), 4f, col);
-                    r.Text(r.Fonts.Get(FontKind.SansBold, 12), b.Name, new Vector2(card.X + 42, by + 2), Theme.Text);
-                    string chans = sv.Channels.Length > 0 ? sv.Channels : "no channels";
-                    r.Text(r.Fonts.Get(FontKind.Mono, 10), (conn?.Running == true ? "online" : "offline") + "  ·  " + chans, new Vector2(card.X + 42 + 120, by + 3), Theme.TextDim);
-                    by += 30;
-                }
-            }
-            gy += cardH + 12;
-            maxBottom = gy;
+            string host = sv.Host.Length > 0 ? sv.Host : "(no server)";
+            string key = host + "|" + sv.Port;
+            int idx = servers.FindIndex(s => s.key == key);
+            if (idx < 0) { servers.Add((key, host, sv.Port, sv.UseTls)); idx = servers.Count - 1; }
+            return idx;
         }
+        var channels = new List<(int server, string name)>();
+        int ChannelIdx(int server, string name)
+        {
+            int idx = channels.FindIndex(c => c.server == server && c.name == name);
+            if (idx < 0) { channels.Add((server, name)); idx = channels.Count - 1; }
+            return idx;
+        }
+        var botServer = new List<(int bot, int server, Color col)>();
+        var serverChan = new HashSet<(int server, int chan)>();
+        var serverOn = new HashSet<int>();
+        for (int bi = 0; bi < _app.Bots.Count; bi++)
+            foreach (var sv in _app.Bots[bi].Servers)
+            {
+                int si = ServerIdx(sv);
+                var conn = _app.Bots[bi].Runtime.FindConn(sv.DisplayName);
+                botServer.Add((bi, si, conn != null ? StatusColor(conn) : Theme.Idle));
+                if (conn?.Running == true) serverOn.Add(si);
+                foreach (var ch in sv.Channels.Split(new[] { ' ', ',', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    serverChan.Add((si, ChannelIdx(si, ch)));
+            }
+
+        int online = _app.Bots.Count(b => b.Runtime.Running);
+        r.TextRight(r.Fonts.Get(FontKind.Mono, 11), $"{_app.Bots.Count} bots · {online} online · {servers.Count} servers · {channels.Count} channels", panel.Right - 18, panel.Y + 14, Theme.TextFaint);
         r.End();
-        float total = maxBottom + _networkScroll - area.Y;
-        _networkScroll = ClampScroll("networkScroll", Wheel("networkScroll", _networkScroll, area), total, area.H);
+
+        // ---- geometry ----
+        float labelY = panel.Y + Hud.HeaderH + 12;
+        var area = new RectF(panel.X + 18, labelY + 22, panel.W - 36, panel.Bottom - labelY - 22 - 52);
+        const float botW = 160, srvW = 178, chanW = 150, botH = 44, srvH = 48, chanH = 30, gap = 16;
+        float botX = area.X, srvX = area.X + (area.W - srvW) / 2f, chanX = area.Right - chanW;
+
+        if (servers.Count == 0)
+        {
+            r.Begin();
+            r.Text(r.Fonts.Get(FontKind.SansBold, 15), "No servers yet - add one from a bot's connection settings.", new Vector2(area.X, area.Y + 30), Theme.TextDim);
+            if (_ui.Button("nw.close", new RectF(panel.Right - 16 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _networkOpen = false;
+            if (In.LeftPressed && !panel.Contains(In.Mouse) && !_networkJustOpened) _networkOpen = false;
+            _networkJustOpened = false;
+            r.End();
+            return;
+        }
+
+        // order to keep wires from tangling: bots near their first server, channels grouped by server
+        var botOrder = Enumerable.Range(0, _app.Bots.Count).Where(bi => botServer.Any(e => e.bot == bi))
+            .OrderBy(bi => botServer.Where(e => e.bot == bi).Min(e => e.server)).ThenBy(bi => bi).ToList();
+        var chanOrder = Enumerable.Range(0, channels.Count).OrderBy(ci => channels[ci].server).ThenBy(ci => channels[ci].name).ToList();
+
+        float botColH = botOrder.Count * botH + Math.Max(0, botOrder.Count - 1) * gap;
+        float srvColH = servers.Count * srvH + Math.Max(0, servers.Count - 1) * gap;
+        float chanColH = chanOrder.Count * chanH + Math.Max(0, chanOrder.Count - 1) * gap;
+        float graphH = Math.Max(botColH, Math.Max(srvColH, chanColH));
+        float top = area.Y + Math.Max(0, (area.H - graphH) / 2f) - _networkScroll;
+
+        var botY = new float[_app.Bots.Count];
+        var srvY = new float[servers.Count];
+        var chanY = new float[channels.Count];
+        for (int i = 0; i < botOrder.Count; i++) botY[botOrder[i]] = top + (graphH - botColH) / 2f + i * (botH + gap);
+        for (int j = 0; j < servers.Count; j++) srvY[j] = top + (graphH - srvColH) / 2f + j * (srvH + gap);
+        for (int k = 0; k < chanOrder.Count; k++) chanY[chanOrder[k]] = top + (graphH - chanColH) / 2f + k * (chanH + gap);
+
+        r.Begin();
+        var lf = r.Fonts.Get(FontKind.SansBold, 11);
+        r.Text(lf, "BOTS", new Vector2(botX + 2, labelY), Theme.TextDim);
+        r.Text(lf, "SERVERS", new Vector2(srvX + 2, labelY), Theme.TextDim);
+        r.Text(lf, "CHANNELS", new Vector2(chanX + 2, labelY), Theme.TextDim);
+        r.End();
+
+        // ---- wires (under nodes), then node cards, clipped to the scroll area ----
+        r.Begin(BlendMode.Alpha, area.ToRectangle());
+        foreach (var (bi, si, col) in botServer)
+            r.BezierLine(new Vector2(botX + botW, botY[bi] + botH / 2f), new Vector2(srvX, srvY[si] + srvH / 2f), Theme.WithAlpha(col, 0.85f), 2.6f);
+        foreach (var (si, ci) in serverChan)
+            r.BezierLine(new Vector2(srvX + srvW, srvY[si] + srvH / 2f), new Vector2(chanX, chanY[ci] + chanH / 2f), Theme.WithAlpha(Theme.Violet, 0.5f), 2.2f);
+
+        string Fit(DynamicSpriteFont f, string s, float maxW)
+        {
+            if (f.MeasureString(s).X <= maxW) return s;
+            while (s.Length > 1 && f.MeasureString(s + "…").X > maxW) s = s.Substring(0, s.Length - 1);
+            return s + "…";
+        }
+        void Card(RectF box, Color accent, string icon, string title, string sub, Color? dot)
+        {
+            r.RoundFill(new RectF(box.X, box.Y + 3, box.W, box.H), Theme.WithAlpha(Color.Black, 0.10f), 12);
+            r.RoundFill(box, Color.Lerp(Theme.Panel, accent, 0.10f), 12);
+            r.RoundOutline(box, Theme.WithAlpha(accent, 0.7f), 12);
+            float ix = box.X + 12, midY = box.Y + box.H / 2f;
+            if (dot.HasValue) { Hud.SoftDot(r, new Vector2(ix, midY), 4.5f, dot.Value); ix += 15; }
+            if (icon.Length > 0) { r.Text(r.Fonts.Get(FontKind.Display, 15), icon, new Vector2(ix, midY - 10), accent); ix += 23; }
+            float tw = box.Right - 10 - ix;
+            if (sub.Length > 0)
+            {
+                r.Text(r.Fonts.Get(FontKind.SansBold, 13), Fit(r.Fonts.Get(FontKind.SansBold, 13), title, tw), new Vector2(ix, box.Y + 6), Theme.Text);
+                r.Text(r.Fonts.Get(FontKind.Mono, 10), Fit(r.Fonts.Get(FontKind.Mono, 10), sub, tw), new Vector2(ix, box.Y + box.H - 16), Theme.TextDim);
+            }
+            else r.Text(r.Fonts.Get(FontKind.SansBold, 13), Fit(r.Fonts.Get(FontKind.SansBold, 13), title, tw), new Vector2(ix, midY - 8), Theme.Text);
+        }
+        bool Vis(float y, float h) => y + h >= area.Y && y <= area.Bottom;
+        for (int j = 0; j < servers.Count; j++)
+            if (Vis(srvY[j], srvH))
+                Card(new RectF(srvX, srvY[j], srvW, srvH), Theme.Sky, "📡", servers[j].host,
+                    servers[j].host == "(no server)" ? "set a server" : $":{servers[j].port}{(servers[j].tls ? "  ·  TLS" : "")}", serverOn.Contains(j) ? Theme.Ok : Theme.Idle);
+        foreach (int bi in botOrder)
+            if (Vis(botY[bi], botH))
+                Card(new RectF(botX, botY[bi], botW, botH), Theme.Lime, "🤖", _app.Bots[bi].Name, _app.Bots[bi].Runtime.Running ? "online" : "offline", StatusColor(_app.Bots[bi].Runtime));
+        foreach (int ci in chanOrder)
+            if (Vis(chanY[ci], chanH))
+                Card(new RectF(chanX, chanY[ci], chanW, chanH), Theme.Violet, "", channels[ci].name, "", null);
+        r.End();
+
+        _networkScroll = ClampScroll("networkScroll", Wheel("networkScroll", _networkScroll, area), graphH + 12, area.H);
 
         r.Begin();
         if (_ui.Button("nw.close", new RectF(panel.Right - 16 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _networkOpen = false;
