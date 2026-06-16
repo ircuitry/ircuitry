@@ -130,6 +130,7 @@ public static class SelfTest
         fails += AiToolsTest();
         fails += DynamicAiArgsTest();
         fails += SuperAiTest();
+        fails += SuperAiCompositeTest();
         fails += HistoryBatchTest();
         fails += HistoryAbandonTest();
         fails += ChatHistoryNodeTest();
@@ -386,9 +387,9 @@ public static class SelfTest
             $"logs=[{string.Join(",", s.Logs)}] {Dump(s)} reqs={reqs}");
     }
 
-    /// <summary>SuperAI end-to-end: with no wired tools, the model lists recent messages, then reacts to a
-    /// specific one by its msgid - exercising the recent-message buffer + react-by-id path (the user's
-    /// "react to whoever mentioned cake" example).</summary>
+    /// <summary>SuperAI is now a composite .ircnode built from real nodes. This proves the tool primitives it
+    /// is made of work: Ask AI wired to Recent Messages + React to Message, the model lists messages then
+    /// reacts to one by its id - the user's "react to whoever mentioned cake" flow.</summary>
     private static int SuperAiTest()
     {
         int port = FreePort();
@@ -399,9 +400,9 @@ public static class SelfTest
 
         bool stop = false;
         int reqs = 0;
-        // round 1: model lists recent messages; round 2: reacts to the cake message by its id; round 3: final answer
+        // round 1: list recent; round 2: react to the cake message by id; round 3: final answer
         string listJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"recent_messages","arguments":"{\"count\":\"15\"}"}}]}}]}""";
-        string reactJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c2","type":"function","function":{"name":"react","arguments":"{\"id\":\"mid-cake\",\"emoji\":\"🎂\"}"}}]}}]}""";
+        string reactJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c2","type":"function","function":{"name":"react","arguments":"{\"msgid\":\"mid-cake\",\"emoji\":\"🎂\",\"target\":\"#cake\"}"}}]}}]}""";
         string finalJson = """{"choices":[{"message":{"content":"done"}}]}""";
         var server = new Thread(() =>
         {
@@ -423,9 +424,13 @@ public static class SelfTest
 
         var g = new NodeGraph();
         var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "do");
-        var ai = g.Add(NodeCatalog.Get("ai.superai"), new Vector2(300, 0));
+        var ai = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
         ai.SetParam("baseUrl", $"http://localhost:{port}/v1"); ai.SetParam("apiKey", "test"); ai.SetParam("model", "mock");
-        g.Connect(cmd.Id, 0, ai.Id, 0);   // exec
+        var recent = g.Add(NodeCatalog.Get("ircv3.recent"), new Vector2(100, 160));
+        var react = g.Add(NodeCatalog.Get("action.reactid"), new Vector2(100, 260));
+        g.Connect(cmd.Id, 0, ai.Id, 0);                       // exec
+        g.Connect(recent.Id, recent.Outputs.Length - 1, ai.Id, 2);   // recent.tool -> ai.tools
+        g.Connect(react.Id, react.Outputs.Length - 1, ai.Id, 2);     // react.tool  -> ai.tools
 
         var s = new FakeSink();
         s.RecentSeed.Add(new RecentMsg("bob", "#chatter", "anyone seen the news?", "mid-news"));
@@ -433,10 +438,23 @@ public static class SelfTest
         GraphExecutor.Fire(g, s, cmd, Vars("!do react to the cake person", "u", "#cake"));
         stop = true; try { listener.Stop(); } catch { }
 
-        // the react landed on the cake message's channel, by its id, with the 🎂 emoji
         bool reacted = s.Sent.Contains(("#cake", "react:🎂"));
-        return Expect("superai-recent-react", reacted && reqs >= 3,
-            $"{Dump(s)} reqs={reqs}");
+        return Expect("superai-tools-react", reacted && reqs >= 3, $"{Dump(s)} reqs={reqs}");
+    }
+
+    /// <summary>The SuperAI recipe (--emit-superai) is a valid, loadable composite .ircnode: a subgraph node
+    /// with the right pins/params, so it can be dropped into nodes/ and right-click-edited like any other.</summary>
+    private static int SuperAiCompositeTest()
+    {
+        var manifest = Ircuitry.App.SuperAiNode.BuildManifest();
+        var def = Ircuitry.Graph.CustomNode.Load(manifest);
+        bool ok = def != null
+            && def!.TypeId == "superai"
+            && def.Outputs.Any(p => p.Name == "reply")
+            && def.Params.Any(p => p.Key == "goal") && def.Params.Any(p => p.Key == "model")
+            && manifest.Contains("\"subgraph\"");
+        return Expect("superai-composite-ircnode", ok,
+            def == null ? "manifest did not load" : $"out={string.Join(",", def.Outputs.Select(p => p.Name))} params={string.Join(",", def.Params.Select(p => p.Key))}");
     }
 
     /// <summary>CHATHISTORY core: messages inside a chathistory BATCH are suppressed (never trigger) and

@@ -51,6 +51,17 @@ public static class Program
                 Environment.Exit(NodeValidator.Run(args[ni + 1]));
                 return;
             }
+            int si = Array.IndexOf(args, "--emit-superai");
+            if (si >= 0)
+            {
+                string dir = si + 1 < args.Length && !args[si + 1].StartsWith("--") ? args[si + 1] : ".";
+                string path = Directory.Exists(dir) || dir.EndsWith(Path.DirectorySeparatorChar)
+                    ? Path.Combine(dir, "superai.ircnode") : dir;
+                File.WriteAllText(path, SuperAiNode.BuildManifest());
+                Console.WriteLine("wrote " + path);
+                Environment.Exit(0);
+                return;
+            }
         }
         if (Array.IndexOf(args, "--schema") >= 0)
         {

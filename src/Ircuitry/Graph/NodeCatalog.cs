@@ -86,7 +86,7 @@ public static class NodeCatalog
     /// <summary>Nodes that emit an IRC effect, so they get the per-node "Send via server" route override.</summary>
     private static readonly HashSet<string> IrcSenders = new()
     {
-        "action.reply", "action.replythread", "action.say", "action.join", "action.part", "action.react",
+        "action.reply", "action.replythread", "action.say", "action.join", "action.part", "action.react", "action.reactid",
         "action.setname", "action.away", "action.tagmsg", "action.redact", "action.monitor", "action.chathistory",
         "action.rename", "action.metadata", "action.multiline",
         "irc.action", "irc.kick", "irc.mode", "irc.raw", "irc.topic", "irc.typing.start", "irc.typing.stop",
@@ -126,98 +126,6 @@ public static class NodeCatalog
     private static string HistoryJson(System.Collections.Generic.IReadOnlyList<Ircuitry.Core.RecentMsg> msgs)
         => System.Text.Json.JsonSerializer.Serialize(
             msgs.Select(m => new { nick = m.Nick, channel = m.Channel, text = m.Text, id = m.Msgid }));
-
-    // SuperAI's built-in IRC tool set: the model gets these whether or not anything is wired in, so a plain
-    // "react to whoever asked about cake" goal works out of the box (find the message, then react by its id).
-    private static List<Ai.ToolDef> SuperAiTools() => new()
-    {
-        new("recent_messages", "List the most recent messages the bot has seen. Each line is [id=...] #channel <nick> text - use the id to react to one.",
-            new() { ("count", "how many to return (default 15)") }),
-        new("fetch_history", "Fetch OLDER messages from the server for a channel - including ones from before the bot joined. Same [id=...] format, so you can then react to one.",
-            new() { ("channel", "#channel (default: where this ran)"), ("count", "how many (default 30)") }),
-        new("reply", "Reply in the channel or PM the bot was triggered from.",
-            new() { ("text", "what to say") }),
-        new("react", "Add an emoji reaction to a specific message, identified by the id from recent_messages.",
-            new() { ("id", "the message id"), ("emoji", "one emoji, e.g. 🎂") }),
-        new("send_message", "Send a message to any channel or nick.",
-            new() { ("target", "#channel or a nick"), ("text", "what to say") }),
-        new("notice", "Send a NOTICE to a channel or nick.",
-            new() { ("target", "#channel or a nick"), ("text", "the notice text") }),
-        new("set_topic", "Set a channel's topic.",
-            new() { ("channel", "#channel"), ("topic", "the new topic") }),
-        new("join", "Join a channel.",
-            new() { ("channel", "#channel") }),
-    };
-
-    // Renders a message list the way SuperAI reads it back: one "[id=...] #channel <nick> text" line each.
-    private static string FormatMsgs(System.Collections.Generic.IReadOnlyList<Ircuitry.Core.RecentMsg> msgs)
-    {
-        var sb = new System.Text.StringBuilder();
-        foreach (var m in msgs)
-            sb.Append("[id=").Append(m.Msgid.Length > 0 ? m.Msgid : "none").Append("] ")
-              .Append(m.Channel).Append(" <").Append(m.Nick).Append("> ").Append(m.Text).Append('\n');
-        return sb.ToString().TrimEnd();
-    }
-
-    // Runs one SuperAI tool call against the live context and returns the text the model sees back.
-    private static string SuperAiInvoke(INodeContext c, string name, Dictionary<string, string> args)
-    {
-        string A(string k) => args.TryGetValue(k, out var v) ? v ?? "" : "";
-        switch (name)
-        {
-            case "recent_messages":
-            {
-                int n = int.TryParse(A("count"), out var x) && x > 0 ? x : 15;
-                var msgs = c.RecentMessages(n);
-                return msgs.Count == 0 ? "(no recent messages seen yet)" : FormatMsgs(msgs);
-            }
-            case "fetch_history":
-            {
-                var ch = A("channel"); if (ch.Length == 0) ch = c.Var("channel");
-                int n = int.TryParse(A("count"), out var x) && x > 0 ? x : 30;
-                if (ch.Length == 0) return "(no channel to fetch history for)";
-                var msgs = c.History(ch, "LATEST", n, 8000);
-                return msgs.Count == 0 ? "(no history returned - the server may not support CHATHISTORY)" : FormatMsgs(msgs);
-            }
-            case "reply":
-            {
-                var t = A("text"); if (t.Length > 0) c.Reply(t);
-                return t.Length > 0 ? "replied" : "(nothing to say)";
-            }
-            case "react":
-            {
-                var id = A("id"); var emoji = A("emoji");
-                string chan = "";
-                foreach (var m in c.RecentMessages(200)) if (m.Msgid.Length > 0 && m.Msgid == id) { chan = m.Channel; break; }
-                c.ReactTo(chan, id, emoji);
-                return emoji.Length > 0 ? "reacted " + emoji : "(no emoji given)";
-            }
-            case "send_message":
-            {
-                var tg = A("target"); var t = A("text");
-                if (tg.Length > 0 && t.Length > 0) { c.Send(tg, t); return "sent"; }
-                return "(need both target and text)";
-            }
-            case "notice":
-            {
-                var tg = A("target"); var t = A("text");
-                if (tg.Length > 0 && t.Length > 0) { c.Notice(tg, t); return "sent notice"; }
-                return "(need both target and text)";
-            }
-            case "set_topic":
-            {
-                var ch = A("channel"); var tp = A("topic");
-                if (ch.Length > 0) { c.Raw("TOPIC " + ch + " :" + tp); return "topic set"; }
-                return "(need a channel)";
-            }
-            case "join":
-            {
-                var ch = A("channel"); if (ch.Length > 0) { c.Join(ch); return "joined " + ch; }
-                return "(need a channel)";
-            }
-            default: return "(unknown tool: " + name + ")";
-        }
-    }
 
     private static ParamDef P(string key, string label, ParamType t = ParamType.Text, string def = "", string ph = "", string[]? choices = null, Func<Node, bool>? visibleWhen = null, bool secret = false)
         => new() { Key = key, Label = label, Type = t, Default = def, Placeholder = ph, Choices = choices, VisibleWhen = visibleWhen, Secret = secret };
@@ -761,11 +669,12 @@ public static class NodeCatalog
             {
                 TypeId = "action.chathistory", Icon = "📜", Title = "Request History", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
-                Description = "Fetches a target's recent server history (IRCv3 CHATHISTORY), INCLUDING messages from before the bot joined. The history batch never triggers your message/join nodes - it just hands the messages back as JSON on 'messages'. Wire that into For Each or Ask AI. Each item has nick, channel, text and id.",
+                Description = "Fetches a target's recent server history (IRCv3 CHATHISTORY), INCLUDING messages from before the bot joined. The history batch never triggers your message/join nodes - it just hands the messages back as JSON on 'messages'. Wire that into For Each, or into Ask AI as a tool. Each item has nick, channel, text and id.",
                 Inputs = new[] { Ex(), Ch("target") },
-                Outputs = new[] { Ex("then"), Tx("messages") },
+                Outputs = new[] { Ex("then"), Tx("messages"), To("tool") },
                 Params = new[]
                 {
+                    P("name", "Tool name (for AI)", ParamType.Text, "fetch_history", "fetch_history"),
                     P("target", "Target", ParamType.Text, "", "#channel or nick (blank = where this ran)"),
                     P("count", "How many", ParamType.Int, "50", "50"),
                     P("timeout", "Wait up to (seconds)", ParamType.Int, "8", "8"),
@@ -773,7 +682,9 @@ public static class NodeCatalog
                 SummaryParam = "target",
                 Exec = c =>
                 {
-                    var target = c.InOr(1, c.Resolve(c.Param("target")));
+                    string target = c.In(1);
+                    if (target.Length == 0) target = c.Var("__arg.target");        // when called as an AI tool
+                    if (target.Length == 0) target = c.Resolve(c.Param("target"));
                     if (target.Length == 0) target = c.Var("replyto");
                     if (target.Length == 0) target = c.Var("channel");
                     int n = c.ParamInt("count", 50);
@@ -936,10 +847,12 @@ public static class NodeCatalog
                         }
                     }
 
+                    // baseUrl/model are Resolve()d (not apiKey - that carries {{secret}} handled downstream) so a
+                    // composite can expose them as {tokens}; e.g. the SuperAI recipe sets model = "{model}".
                     if (defs.Count == 0)
-                        reply = Ai.Chat(c.Param("baseUrl"), c.Param("apiKey"), c.Param("model"), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err);
+                        reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err);
                     else
-                        reply = Ai.ChatWithTools(c.Param("baseUrl"), c.Param("apiKey"), c.Param("model"), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
+                        reply = Ai.ChatWithTools(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
                             (name, args) =>
                             {
                                 if (editorBot.TryGetValue(name, out var db))    // inward MCP edit against the workspace
@@ -958,45 +871,51 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+            // ---- building-block tool nodes: usable standalone, or wired into Ask AI's 'tools' so the model can
+            // call them. They carry a Tool output, so the SuperAI recipe (a composite .ircnode) is built FROM
+            // these rather than from a built-in - drop SuperAI into nodes/ and right-click to edit/rewire it.
             new()
             {
-                TypeId = "ai.superai", Icon = "🦾", Title = "SuperAI", Subtitle = "ai",
-                Category = NodeCategory.Ai,
-                Description = "An AI that acts on IRC by itself - no tool wiring needed. It comes pre-loaded with tools to read the messages it has recently seen, reply, react to any message by its id, send, notice, set a topic and join. Give it a goal like \"react with 🎂 to whoever mentioned cake\" and it finds the message and does it.",
-                Inputs = new[] { Ex(), Tx("goal") },
-                Outputs = new[] { Ex("then"), Tx("reply") },
+                TypeId = "ircv3.recent", Icon = "🕗", Title = "Recent Messages", Subtitle = "ircv3",
+                Category = NodeCategory.Ircv3,
+                Description = "Lists the messages the bot has recently seen, as JSON [{nick,channel,text,id}]. As an AI tool it lets the model find a message to act on.",
+                Inputs = new[] { Ex(), Tx("count") },
+                Outputs = new[] { Ex("then"), Tx("messages"), To("tool") },
                 Params = new[]
                 {
-                    P("baseUrl", "Base URL", ParamType.Text, "https://api.openai.com/v1", "http://localhost:11434/v1 · openrouter · groq …"),
-                    P("model", "Model", ParamType.Text, "gpt-4o-mini", "gpt-4o-mini · llama3 · mistral · …"),
-                    P("apiKey", "API key", ParamType.Text, "", "blank = $OPENAI_API_KEY (or none for local)", secret: true),
-                    P("system", "Personality / rules", ParamType.Multiline, "You are ircuitry, a friendly IRC bot. Use your tools to inspect recent messages and act. Prefer reacting/replying over chatter. Keep any text short.", ""),
-                    P("goal", "Goal", ParamType.Multiline, "{nick} said: {message}\nDecide what to do.", "supports {nick} {message} {args}"),
-                    P("maxTokens", "Max tokens", ParamType.Int, "400", "400"),
+                    P("name", "Tool name (for AI)", ParamType.Text, "recent_messages", "recent_messages"),
+                    P("count", "How many", ParamType.Int, "15", "15"),
                 },
-                SummaryParam = "model",
+                SummaryParam = "count",
                 Exec = c =>
                 {
-                    var goal = c.InOr(1, c.Resolve(c.Param("goal")));
-
-                    var miss = new List<string>();
-                    foreach (var k in new[] { "apiKey", "baseUrl", "model", "system", "goal" })
-                        foreach (var nm in Ircuitry.Core.Secrets.Missing(c.Node.GetParam(k)))
-                            if (!miss.Contains(nm)) miss.Add(nm);
-                    if (miss.Count > 0)
-                    {
-                        c.Log("SuperAI error: secret '" + string.Join("', '", miss) + "' not defined - add it under KEYS (names are case-insensitive)", LogLevel.Error);
-                        c.Pulse(0);
-                        return;
-                    }
-
-                    string err;
-                    var reply = Ai.ChatWithTools(c.Param("baseUrl"), c.Param("apiKey"), c.Param("model"),
-                        c.Resolve(c.Param("system")), goal, c.ParamInt("maxTokens", 400), SuperAiTools(),
-                        (name, args) => SuperAiInvoke(c, name, args), out err);
-
-                    if (err.Length > 0) c.Log("SuperAI error: " + err, LogLevel.Error);
-                    else c.SetOut(1, reply);
+                    string cnt = c.In(1); if (cnt.Length == 0) cnt = c.Var("__arg.count"); if (cnt.Length == 0) cnt = c.Param("count");
+                    int n = int.TryParse(cnt, out var x) && x > 0 ? x : 15;
+                    c.SetOut(1, HistoryJson(c.RecentMessages(n)));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.reactid", Icon = "💜", Title = "React to Message", Subtitle = "ircv3",
+                Category = NodeCategory.Ircv3,
+                Description = "Adds an emoji reaction to a specific message by its id (from Recent Messages / Request History). As an AI tool the model passes the id + emoji it chose.",
+                Inputs = new[] { Ex(), Tx("msgid"), Tx("emoji"), Ch("target") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "react", "react"),
+                    P("msgid", "Message id", ParamType.Text, "", "{arg.msgid}"),
+                    P("emoji", "Emoji", ParamType.Text, "", "🎂"),
+                    P("target", "Target (blank = here)", ParamType.Text, "", "#channel or nick"),
+                },
+                Exec = c =>
+                {
+                    string msgid = c.In(1); if (msgid.Length == 0) msgid = c.Var("__arg.msgid"); if (msgid.Length == 0) msgid = c.Resolve(c.Param("msgid"));
+                    string emoji = c.In(2); if (emoji.Length == 0) emoji = c.Var("__arg.emoji"); if (emoji.Length == 0) emoji = c.Resolve(c.Param("emoji"));
+                    string target = c.In(3); if (target.Length == 0) target = c.Var("__arg.target"); if (target.Length == 0) target = c.Resolve(c.Param("target"));
+                    c.ReactTo(target, msgid, emoji);
+                    c.SetOut(1, emoji.Length > 0 && msgid.Length > 0 ? "reacted " + emoji : "(need a message id and emoji)");
                     c.Pulse(0);
                 },
             },
@@ -1934,7 +1853,7 @@ public static class NodeCatalog
         {
             d.Category = d.TypeId switch
             {
-                "ai.reply" or "ai.superai" or "ai.tool" or "tool.reply" or "ai.memory" => NodeCategory.Ai,
+                "ai.reply" or "ai.tool" or "tool.reply" or "ai.memory" => NodeCategory.Ai,
                 "file.read" or "file.write" or "db.set" or "db.get" or "db.sql"
                     or "file.ical" or "cal.add" or "cal.search" => NodeCategory.Storage,
                 _ => d.Category,

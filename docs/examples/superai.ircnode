@@ -1,0 +1,128 @@
+{"typeId":"superai","title":"SuperAI","subtitle":"composite","icon":"\uD83E\uDDBE","category":"Ai","description":"An AI that reads the chat it has seen, can fetch older history (even from before it joined), and reacts to a specific message by id - assembled from nodes you can edit. Right-click -\u003E Edit to rewire it. Add an OpenAI key as a secret named \u0027openai\u0027, set a goal, and wire \u0027reply\u0027 into Send Reply.","inputs":[{"name":"","kind":"Exec"}],"outputs":[{"name":"then","kind":"Exec"},{"name":"reply","kind":"Text"}],"params":[{"key":"model","label":"Model","type":"Text","default":"gpt-4o-mini"},{"key":"system","label":"System","type":"Text","default":"You are ircuitry, a friendly IRC bot. Use your tools to inspect recent messages or fetch older history, then react to the right message by its id. Keep any text short."},{"key":"goal","label":"Goal","type":"Text","default":"{nick} said: {message}\nDecide what to do."}],"subgraph":{
+  "format": "ircuitry.workflow.v1",
+  "name": "SuperAI",
+  "nodes": [
+    {
+      "id": "n19c3e",
+      "type": "flow.in",
+      "x": -360,
+      "y": -60,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {}
+    },
+    {
+      "id": "n29c3e",
+      "type": "ai.reply",
+      "x": -20,
+      "y": -60,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {
+        "baseUrl": "https://api.openai.com/v1",
+        "model": "{model}",
+        "apiKey": "{{secret.openai}}",
+        "system": "{system}",
+        "prompt": "{goal}",
+        "maxTokens": "400"
+      }
+    },
+    {
+      "id": "n39c3f",
+      "type": "ircv3.recent",
+      "x": -360,
+      "y": 110,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {
+        "name": "recent_messages",
+        "count": "15"
+      }
+    },
+    {
+      "id": "n49c3f",
+      "type": "action.chathistory",
+      "x": -360,
+      "y": 210,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {
+        "name": "fetch_history",
+        "target": "",
+        "count": "50",
+        "timeout": "8",
+        "server": ""
+      }
+    },
+    {
+      "id": "n59c3f",
+      "type": "action.reactid",
+      "x": -360,
+      "y": 320,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {
+        "name": "react",
+        "msgid": "",
+        "emoji": "",
+        "target": "",
+        "server": ""
+      }
+    },
+    {
+      "id": "n69c3f",
+      "type": "flow.return",
+      "x": 320,
+      "y": -60,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {
+        "name": "reply"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "n19c3e",
+      "fromPin": 0,
+      "to": "n29c3e",
+      "toPin": 0
+    },
+    {
+      "from": "n29c3e",
+      "fromPin": 0,
+      "to": "n69c3f",
+      "toPin": 0
+    },
+    {
+      "from": "n29c3e",
+      "fromPin": 1,
+      "to": "n69c3f",
+      "toPin": 1
+    },
+    {
+      "from": "n39c3f",
+      "fromPin": 2,
+      "to": "n29c3e",
+      "toPin": 2
+    },
+    {
+      "from": "n49c3f",
+      "fromPin": 2,
+      "to": "n29c3e",
+      "toPin": 2
+    },
+    {
+      "from": "n59c3f",
+      "fromPin": 2,
+      "to": "n29c3e",
+      "toPin": 2
+    }
+  ]
+}}
