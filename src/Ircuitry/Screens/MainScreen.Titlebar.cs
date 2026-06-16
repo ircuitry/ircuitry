@@ -107,28 +107,21 @@ public sealed partial class MainScreen
         _ctxOpen = true; _ctxJustOpened = true;
     }
 
+    public void NotifyExternal(string msg) => Notify(msg);   // host -> toast (used after the deferred screenshot)
+
     private void RequestScreenshot()
     {
         string dir = System.IO.Path.Combine(Ircuitry.App.AppModel.WorkspaceDir, "shots");
         ScreenshotPath = System.IO.Path.Combine(dir, $"ircuitry-{DateTime.Now:yyyyMMdd-HHmmss}.png");
-        ScreenshotRequested = true;   // the host saves it next frame, once this menu has closed
-        Notify("📸 Saved to shots/" + System.IO.Path.GetFileName(ScreenshotPath));
+        ScreenshotRequested = true;   // the host saves it once the menu + this toast are off-screen, then notifies
     }
 
-    // A cosy chat-bubble brand mark drawn in cream with three teal "typing" dots - reads as a friendly IRC bot
-    // and pops on any bar colour. Returns the right edge so the tabs can start after it.
+    // The app logo (assets/icons/icon-256.png), drawn at the left of the title bar. Returns its right edge.
     private float DrawBrandMark(Renderer r, RectF bar)
     {
-        float s = 30, y = (bar.H - s) / 2f - 1;
-        var ic = new RectF(12, y, s, s);
-        r.RoundFill(ic.Offset(0, 1.5f), Theme.WithAlpha(BarDim, 0.45f), 10f);    // drop shadow
-        r.RoundFill(ic, Theme.PanelHi, 10f);                                      // cream bubble
-        r.RoundFill(new RectF(ic.X + 3, ic.Y + 3, ic.W - 6, ic.H * 0.4f), Theme.WithAlpha(Color.White, 0.6f), 7f);  // gloss
-        r.RoundOutline(ic, Theme.WithAlpha(BarDim, 0.5f), 10f);
-        // little speech tail (bottom-left)
-        r.Disc(new Vector2(ic.X + 8, ic.Bottom + 1), 3.2f, Theme.PanelHi);
-        // three teal "typing" dots
-        for (int i = -1; i <= 1; i++) r.Disc(new Vector2(ic.Center.X + i * 6.5f, ic.Center.Y), 2.5f, BarAccent);
+        float s = 36, y = (bar.H - s) / 2f;
+        var ic = new RectF(10, y, s, s);
+        if (r.Brand != null) r.Image(r.Brand, ic);
         return ic.Right;
     }
 

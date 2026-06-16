@@ -472,6 +472,8 @@ public sealed class IrcuitryGame : Game
     private bool _wasEditing;
 
     private float _lastSave;
+    private string? _pendingShot;     // window-menu screenshot, captured one frame after the menu closes
+    private long _pendingShotFrame;
 
     protected override void Draw(GameTime gameTime)
     {
@@ -481,9 +483,18 @@ public sealed class IrcuitryGame : Game
         _splash?.Draw(_r, _clock);
         base.Draw(gameTime);
 
-        // "Screenshot this window" from the window menu: captured here (end of Draw) so the now-closed menu
-        // isn't in the shot.
-        if (_screen is MainScreen sms && sms.ScreenshotRequested) { sms.ScreenshotRequested = false; SaveScreenshot(sms.ScreenshotPath); }
+        // "Screenshot this window" from the window menu: wait one extra frame so the now-closed menu is gone
+        // from the back buffer before we grab it (the click happened on the frame the menu was still drawn).
+        if (_screen is MainScreen sms)
+        {
+            if (sms.ScreenshotRequested) { sms.ScreenshotRequested = false; _pendingShot = sms.ScreenshotPath; _pendingShotFrame = _clock.Frame + 1; }
+            if (_pendingShot != null && _clock.Frame >= _pendingShotFrame)
+            {
+                SaveScreenshot(_pendingShot);
+                sms.NotifyExternal("📸 Saved to shots/" + Path.GetFileName(_pendingShot));   // toast next frame, not in the shot
+                _pendingShot = null;
+            }
+        }
 
         if (_shotPath != null && !_shotTaken && _clock.Frame >= _shotAfterFrames && _clock.Time >= _shotAfterSeconds)
         {
