@@ -102,7 +102,6 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ircuitry ${{ github.event.inputs.tag || github.ref_name }}
-          prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, '-') }}
           files: dist/*
           fail_on_unmatched_files: true
           body: |
