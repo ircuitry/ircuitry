@@ -100,6 +100,18 @@ public static class NodeCatalog
     private static PinDef Nm(string n) => new(n, PinKind.Number);
     private static PinDef To(string n, bool multi = false) => new(n, PinKind.Tool, multi);
 
+    // An AI Tool node's argument list: the dynamic "args" list if set, else the legacy 3 fixed args (so
+    // tools saved before the list still work). Returns (name, description) pairs.
+    private static List<(string name, string desc)> AiToolArgs(Node n)
+    {
+        var list = Ircuitry.Core.ParamList.Pairs(n.GetParam("args")).Where(p => p.key.Length > 0)
+            .Select(p => (p.key, p.val)).ToList();
+        if (list.Count > 0) return list;
+        var legacy = new List<(string, string)>();
+        for (int i = 1; i <= 3; i++) { var an = n.GetParam("arg" + i + "name"); if (an.Length > 0) legacy.Add((an, n.GetParam("arg" + i + "desc"))); }
+        return legacy;
+    }
+
     // A valid function name for a node used as an AI tool: a "name" param wins, else the typeId, with
     // anything outside [A-Za-z0-9_-] replaced by '_' (so "web.search" -> "web_search").
     private static string AiToolName(Node n)
@@ -787,9 +799,7 @@ public static class NodeCatalog
                         {
                             var nm = tn.GetParam("name");
                             if (nm.Length == 0) continue;
-                            var a = new List<(string, string)>();
-                            for (int i = 1; i <= 3; i++) { var an = tn.GetParam("arg" + i + "name"); if (an.Length > 0) a.Add((an, tn.GetParam("arg" + i + "desc"))); }
-                            defs.Add(new Ai.ToolDef(nm, tn.GetParam("description"), a));
+                            defs.Add(new Ai.ToolDef(nm, tn.GetParam("description"), AiToolArgs(tn)));
                             byName[nm] = tn;
                         }
                         else if (tn.TypeId == "ai.editor")
@@ -844,21 +854,24 @@ public static class NodeCatalog
             {
                 TypeId = "ai.tool", Icon = "🧰", Title = "AI Tool", Subtitle = "ai",
                 Category = NodeCategory.Logic,
-                Description = "Defines a tool the AI may call. Wire 'tool' into Ask AI; wire 'call' to a sub-flow that ends in a Tool Reply. The model's arguments arrive on the arg outputs.",
+                Description = "Defines a tool the AI may call, with ANY number of arguments (Add argument). Wire 'tool' into Ask AI; wire 'call' to a sub-flow that ends in a Tool Reply. Read an argument anywhere with {arg.NAME} - the first three are also on the arg pins.",
                 Outputs = new[] { To("tool"), Ex("call"), Tx("arg 1"), Tx("arg 2"), Tx("arg 3") },
                 Params = new[]
                 {
                     P("name", "Tool name", ParamType.Text, "lookup", "get_weather"),
                     P("description", "What it does", ParamType.Text, "", "tell the model when to use it"),
-                    P("arg1name", "Arg 1 name", ParamType.Text, "query"), P("arg1desc", "Arg 1 desc", ParamType.Text, ""),
-                    P("arg2name", "Arg 2 name", ParamType.Text, ""), P("arg2desc", "Arg 2 desc", ParamType.Text, ""),
-                    P("arg3name", "Arg 3 name", ParamType.Text, ""), P("arg3desc", "Arg 3 desc", ParamType.Text, ""),
+                    PL("args", "Arguments (name + what it is)", true, "Add argument"),
+                    // legacy fixed args: kept (hidden) so tools saved before the dynamic list still load + work
+                    P("arg1name", "Arg 1 name", ParamType.Text, "", "", null, _ => false), P("arg1desc", "", ParamType.Text, "", "", null, _ => false),
+                    P("arg2name", "Arg 2 name", ParamType.Text, "", "", null, _ => false), P("arg2desc", "", ParamType.Text, "", "", null, _ => false),
+                    P("arg3name", "Arg 3 name", ParamType.Text, "", "", null, _ => false), P("arg3desc", "", ParamType.Text, "", "", null, _ => false),
                 },
                 SummaryParam = "name",
                 Exec = c =>
                 {
-                    for (int i = 1; i <= 3; i++) { var an = c.Param("arg" + i + "name"); if (an.Length > 0) c.SetOut(1 + i, c.Var("__arg." + an)); }
-                    c.Pulse(1); // run the 'call' sub-flow
+                    var names = AiToolArgs(c.Node);   // arg pins are outputs 2,3,4 (after 'tool' and 'call')
+                    for (int i = 0; i < 3 && i < names.Count; i++) c.SetOut(2 + i, c.Var("__arg." + names[i].name));
+                    c.Pulse(1); // run the 'call' sub-flow; read any arg as {arg.NAME}
                 },
             },
             new()

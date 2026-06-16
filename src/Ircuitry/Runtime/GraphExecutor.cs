@@ -229,6 +229,9 @@ public static class GraphExecutor
                         var parts = (Vars.TryGetValue("args", out var a) ? a : "").Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
                         return n <= parts.Length ? parts[n - 1] : "";
                     }
+                    // {arg.NAME} -> an AI tool argument the model supplied (set as __arg.NAME by the tool call)
+                    if (name.StartsWith("arg.", System.StringComparison.Ordinal) && name.Length > 4)
+                        return Vars.TryGetValue("__arg." + name[4..], out var av) ? av : "";
                     // dotted JSON path: {var.a.b.0.c} - if `var` holds JSON (a run var, or a stored value
                     // from Set Var), walk the path (n8n's $json.x). A flat var with dots, e.g. {tag.account},
                     // already matched above.

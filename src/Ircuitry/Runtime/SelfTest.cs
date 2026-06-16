@@ -56,6 +56,7 @@ public static class SelfTest
     public static int RunAll()
     {
         int fails = 0;
+        Ircuitry.Core.Notifier.Enabled = false;   // never pop real desktop notifications while testing
 
         // --- Test 1: On Command(ping) -> Send Reply(pong) ---
         {
@@ -123,6 +124,7 @@ public static class SelfTest
         fails += LiveStreamTest();
         fails += AiLoopTest();
         fails += AiToolsTest();
+        fails += DynamicAiArgsTest();
         fails += IoTest();
         fails += WorkspaceTest();
         fails += TextSafetyTest();
@@ -439,6 +441,48 @@ public static class SelfTest
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
         }
         return fails;
+    }
+
+    /// <summary>AI Tool with a DYNAMIC args list (no fixed 3): the model's args reach the sub-flow as
+    /// {arg.NAME} tokens, not just the three arg pins.</summary>
+    private static int DynamicAiArgsTest()
+    {
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("ai-dynamic-args (skipped: " + ex.Message + ")", true, ""); }
+
+        bool stop = false; int reqs = 0;
+        string toolJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"lookup","arguments":"{\"city\":\"paris\",\"units\":\"c\"}"}}]}}]}""";
+        string finalJson = """{"choices":[{"message":{"content":"ok"}}]}""";
+        var server = new Thread(() =>
+        {
+            try { while (!stop) { var ctx = listener.GetContext(); int n = Interlocked.Increment(ref reqs); var b = Encoding.UTF8.GetBytes(n == 1 ? toolJson : finalJson); ctx.Response.OutputStream.Write(b, 0, b.Length); ctx.Response.Close(); } }
+            catch { }
+        }) { IsBackground = true };
+        server.Start();
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ai");
+        var ai = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+        ai.SetParam("baseUrl", $"http://localhost:{port}/v1"); ai.SetParam("apiKey", "t"); ai.SetParam("model", "m");
+        var tool = g.Add(NodeCatalog.Get("ai.tool"), new Vector2(100, 150));
+        tool.SetParam("name", "lookup"); tool.SetParam("args", "[[\"city\",\"\"],[\"units\",\"\"]]");   // dynamic args (no legacy)
+        var log = g.Add(NodeCatalog.Get("action.log"), new Vector2(350, 150)); log.SetParam("text", "LOC {arg.city}/{arg.units}");
+        var treply = g.Add(NodeCatalog.Get("tool.reply"), new Vector2(600, 150)); treply.SetParam("result", "done");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(600, 0));
+        g.Connect(cmd.Id, 0, ai.Id, 0);
+        g.Connect(ai.Id, 0, reply.Id, 0); g.Connect(ai.Id, 1, reply.Id, 1);
+        g.Connect(tool.Id, 0, ai.Id, 2);   // tool def -> Ask AI tools
+        g.Connect(tool.Id, 1, log.Id, 0);  // 'call' -> log exec (sub-flow reads args via {arg.NAME} token)
+        g.Connect(log.Id, 0, treply.Id, 0);
+
+        var s = new FakeSink();
+        GraphExecutor.Fire(g, s, cmd, Vars("!ai go", "u", "#c"));
+        stop = true; try { listener.Stop(); } catch { }
+        bool ok = s.Logs.Any(l => l.Contains("LOC paris/c")) && reqs >= 2;
+        return Expect("ai-dynamic-args", ok, "logs=[" + string.Join(",", s.Logs) + "] reqs=" + reqs);
     }
 
     /// <summary>Exercises the new programmable nodes: If, Switch, counter (Get/Set/Math), Cooldown, For-Each.</summary>

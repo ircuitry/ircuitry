@@ -10,8 +10,13 @@ namespace Ircuitry.Core;
 /// </summary>
 public static class Notifier
 {
+    /// <summary>Set false to suppress all desktop notifications (the self-test does this so a build never
+    /// pops "heads up" / "approval needed" toasts on the dev's screen).</summary>
+    public static bool Enabled = true;
+
     public static bool Send(string title, string body, string urgency = "normal")
     {
+        if (!Enabled) return false;
         title = (title ?? "").Trim();
         if (title.Length == 0) title = "ircuitry";
         body ??= "";
