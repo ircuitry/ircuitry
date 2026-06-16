@@ -144,6 +144,7 @@ public static class SelfTest
         fails += NodeAsToolTest();
         fails += CompositeBakeTest();
         fails += CompositeMiniSerializeTest();
+        fails += ParamListAddTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -1700,6 +1701,28 @@ public static class SelfTest
             Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
         }
+    }
+
+    /// <summary>List params ("Add another"): a new blank row survives Encode->Parse so you can type into it
+    /// (the old bug dropped it), an untouched empty list stays "", and readers skip fully-blank rows.</summary>
+    private static int ParamListAddTest()
+    {
+        int fails = 0;
+        // untouched lone empty row -> "" (no spurious change)
+        fails += Expect("plist-empty-stays-empty", Ircuitry.Core.ParamList.Encode(new List<string[]> { new[] { "", "" } }, true) == "", "");
+        // Add another: the new blank row persists through a round-trip
+        var rows = Ircuitry.Core.ParamList.Parse("[[\"k1\",\"v1\"]]");
+        rows.Add(new[] { "", "" });   // user clicks "Add another"
+        var rt = Ircuitry.Core.ParamList.Parse(Ircuitry.Core.ParamList.Encode(rows, true));
+        fails += Expect("plist-add-persists", rt.Count == 2, "rows=" + rt.Count);
+        // ...and once typed, both rows stick
+        rt[1] = new[] { "k2", "v2" };
+        var rt2 = Ircuitry.Core.ParamList.Parse(Ircuitry.Core.ParamList.Encode(rt, true));
+        fails += Expect("plist-second-row", rt2.Count == 2 && rt2[1][0] == "k2", "");
+        // readers skip fully-blank rows (so no empty IRC tags etc.)
+        var pairs = Ircuitry.Core.ParamList.Pairs("[[\"a\",\"1\"],[\"\",\"\"],[\"b\",\"2\"]]").ToList();
+        fails += Expect("plist-skip-blank", pairs.Count == 2 && pairs[0].key == "a" && pairs[1].key == "b", "n=" + pairs.Count);
+        return fails;
     }
 
     /// <summary>The in-modal mini editor's whole-graph serialization (explicit Subflow scaffold) produces a

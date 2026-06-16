@@ -34,18 +34,22 @@ public static class ParamList
 
     public static string Encode(List<string[]> rows, bool pair)
     {
-        var clean = rows.Where(r => r.Any(c => !string.IsNullOrEmpty(c))).ToList();   // drop blank rows on save
+        // Keep the rows the user added even while they're still blank - otherwise "Add another" drops the new
+        // empty row before you can type into it (the old bug). Only a single lone all-blank row collapses to
+        // "" so an untouched list stays at its empty default (no spurious dirty/autosave). Readers skip blanks.
+        if (rows.Count <= 1 && rows.All(r => r.All(string.IsNullOrEmpty))) return "";
         return pair
-            ? JsonSerializer.Serialize(clean.Select(r => new[] { At(r, 0), At(r, 1) }))
-            : JsonSerializer.Serialize(clean.Select(r => At(r, 0)));
+            ? JsonSerializer.Serialize(rows.Select(r => new[] { At(r, 0), At(r, 1) }))
+            : JsonSerializer.Serialize(rows.Select(r => At(r, 0)));
     }
 
-    /// <summary>Read a list param as (key, value) pairs (value empty for single-field lists).</summary>
+    /// <summary>Read a list param as (key, value) pairs - skips fully-blank rows (the still-being-typed ones).</summary>
     public static IEnumerable<(string key, string val)> Pairs(string s) =>
-        Parse(s).Select(r => (At(r, 0), At(r, 1)));
+        Parse(s).Select(r => (At(r, 0), At(r, 1))).Where(p => p.Item1.Length > 0 || p.Item2.Length > 0);
 
-    /// <summary>Read a list param as plain values (first field of each row).</summary>
-    public static IEnumerable<string> Values(string s) => Parse(s).Select(r => At(r, 0));
+    /// <summary>Read a list param as plain values - skips blank rows.</summary>
+    public static IEnumerable<string> Values(string s) =>
+        Parse(s).Select(r => At(r, 0)).Where(v => v.Length > 0);
 
     private static string At(string[] r, int i) => i < r.Length ? r[i] ?? "" : "";
 }
