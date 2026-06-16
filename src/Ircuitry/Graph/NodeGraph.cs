@@ -12,6 +12,31 @@ public sealed class NodeGraph
 
     public Node? Find(string id) => Nodes.FirstOrDefault(n => n.Id == id);
 
+    /// <summary>A hash of the graph's BEHAVIOUR (node types, params, mute, wires) - deliberately ignoring node
+    /// positions and ordering, so it only changes when something that actually affects the bot changes. Used to
+    /// tell whether the editor has edits the running bot hasn't applied yet. Order-independent (XOR-combined).</summary>
+    public long BehaviorSignature()
+    {
+        unchecked
+        {
+            long nodes = 0;
+            foreach (var n in Nodes)
+            {
+                long h = n.TypeId.GetHashCode();
+                h = h * 397 ^ (n.Muted ? 1 : 0);
+                long p = 0;
+                foreach (var kv in n.Params) p ^= ((long)kv.Key.GetHashCode() * 397) ^ (kv.Value ?? "").GetHashCode();
+                h = h * 397 ^ p;
+                h = h * 397 ^ n.Id.GetHashCode();   // keep distinct nodes distinct
+                nodes ^= h;
+            }
+            long conns = 0;
+            foreach (var c in Connections)
+                conns ^= ((((long)c.FromNode.GetHashCode() * 397) ^ c.FromPin) * 397 ^ c.ToNode.GetHashCode()) * 397 ^ c.ToPin;
+            return Nodes.Count * 1000003L ^ Connections.Count ^ (nodes * 1099511628211) ^ conns;
+        }
+    }
+
     public Node Add(NodeDef def, Vector2 worldPos)
     {
         var n = Node.Create(def, worldPos);

@@ -481,6 +481,10 @@ public sealed class IrcuitryGame : Game
         _splash?.Draw(_r, _clock);
         base.Draw(gameTime);
 
+        // "Screenshot this window" from the window menu: captured here (end of Draw) so the now-closed menu
+        // isn't in the shot.
+        if (_screen is MainScreen sms && sms.ScreenshotRequested) { sms.ScreenshotRequested = false; SaveScreenshot(sms.ScreenshotPath); }
+
         if (_shotPath != null && !_shotTaken && _clock.Frame >= _shotAfterFrames && _clock.Time >= _shotAfterSeconds)
         {
             _shotTaken = true;

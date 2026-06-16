@@ -121,7 +121,7 @@ public sealed partial class MainScreen
             var iconCol = it.Enabled ? Theme.Mix(Theme.Text, Theme.Cyan, 0.35f) : Theme.TextFaint;
             r.Text(icf, it.Icon, new Vector2(row.X + 11, row.Center.Y - icf.MeasureString(it.Icon).Y / 2f), iconCol);
             r.Text(lf, it.Label, new Vector2(row.X + 38, row.Center.Y - lf.MeasureString(it.Label).Y / 2f - 1), textCol);
-            if (it.Shortcut.Length > 0)
+            if (!string.IsNullOrEmpty(it.Shortcut))
                 r.TextRight(scf, it.Shortcut, row.Right - 12, row.Center.Y - scf.MeasureString("M").Y / 2f, Theme.TextFaint);
             cy += itemH;
         }

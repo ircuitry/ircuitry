@@ -103,10 +103,18 @@ public sealed class BotRuntime
     public void Start(NodeGraph graph, IrcSettings cfg) => Start(graph, new[] { cfg });
 
     /// <summary>Connect every given server, replacing any current connections with a fresh run.</summary>
+    /// <summary>Behaviour signature of the graph the live bot is currently running (set on Start/ApplyGraph),
+    /// so the editor can tell when it has edits the bot hasn't applied yet.</summary>
+    public long AppliedSig { get; private set; }
+
+    /// <summary>True when the bot is live and the editor's graph has behaviour changes not yet applied to it.</summary>
+    public bool HasUnapplied(NodeGraph editorGraph) => Running && editorGraph.BehaviorSignature() != AppliedSig;
+
     public void Start(NodeGraph graph, IEnumerable<IrcSettings> servers)
     {
         Stop();
         FreezeGraph(graph);
+        AppliedSig = graph.BehaviorSignature();
         _fireCounts.Clear();
         ClearHistory();
         var list = servers?.ToList() ?? new List<IrcSettings>();
@@ -154,6 +162,7 @@ public sealed class BotRuntime
     {
         if (!Running) return;
         FreezeGraph(graph);
+        AppliedSig = graph.BehaviorSignature();
         _log.Add(LogLevel.System, $"↻ applied workflow changes - {CountTriggers()} trigger(s) armed");
     }
 

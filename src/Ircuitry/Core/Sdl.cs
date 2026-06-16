@@ -32,6 +32,7 @@ public static class Sdl
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_RaiseWindow(IntPtr w);
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern uint SDL_GetWindowFlags(IntPtr w);
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_SetWindowBordered(IntPtr w, int bordered);
+    [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_SetWindowAlwaysOnTop(IntPtr w, int onTop);
 
     private const uint SDL_WINDOW_MINIMIZED = 0x40;
     private const uint SDL_WINDOW_MAXIMIZED = 0x80;
@@ -56,6 +57,10 @@ public static class Sdl
     public static bool IsMaximized(IntPtr w) { try { return w != IntPtr.Zero && (SDL_GetWindowFlags(w) & SDL_WINDOW_MAXIMIZED) != 0; } catch { return false; } }
     public static void ToggleMaximize(IntPtr w) { try { if (w == IntPtr.Zero) return; if (IsMaximized(w)) SDL_RestoreWindow(w); else SDL_MaximizeWindow(w); } catch { } }
     public static void SetBordered(IntPtr w, bool bordered) { try { if (w != IntPtr.Zero) SDL_SetWindowBordered(w, bordered ? 1 : 0); } catch { } }
+
+    public static bool AlwaysOnTop { get; private set; }
+    public static void ToggleAlwaysOnTop(IntPtr w)
+    { try { if (w == IntPtr.Zero) return; AlwaysOnTop = !AlwaysOnTop; SDL_SetWindowAlwaysOnTop(w, AlwaysOnTop ? 1 : 0); } catch { } }
 
     public static void Maximize(IntPtr w) { try { if (w != IntPtr.Zero) SDL_MaximizeWindow(w); } catch { } }
     public static void Minimize(IntPtr w) { try { if (w != IntPtr.Zero) SDL_MinimizeWindow(w); } catch { } }

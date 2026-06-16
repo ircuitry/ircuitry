@@ -87,18 +87,32 @@ public sealed partial class MainScreen
         Sdl.PublishTitlebar((int)bar.Bottom, _vw, _vh, Sdl.IsMaximized(WindowHandle), noDrag.ToArray());
     }
 
-    // A window menu (minimize / maximize-or-restore / close) for right-clicking the title bar - SDL doesn't
-    // surface the OS's native one on a borderless window, so we present our own using the shared popover.
+    // The title-bar window menu. SDL doesn't surface the OS's native window menu on a borderless window, so we
+    // present our own - with the standard actions plus two genuinely-useful extras (always-on-top, screenshot).
+    public bool ScreenshotRequested;   // host captures the frame after the menu closes
+    public string ScreenshotPath = "";
+
     private void OpenWindowMenu(Vector2 anchor)
     {
         _ctxAnchor = anchor;
         _ctxItems.Clear();
         bool maxed = Sdl.IsMaximized(WindowHandle);
-        _ctxItems.Add(new CtxItem { Icon = "—", Label = "Minimize", Enabled = true, Do = () => Sdl.Minimize(WindowHandle) });
-        _ctxItems.Add(new CtxItem { Icon = maxed ? "❐" : "□", Label = maxed ? "Restore" : "Maximize", Enabled = true, Do = () => Sdl.ToggleMaximize(WindowHandle) });
+        _ctxItems.Add(new CtxItem { Icon = "—", Label = "Minimize", Shortcut = "", Enabled = true, Do = () => Sdl.Minimize(WindowHandle) });
+        _ctxItems.Add(new CtxItem { Icon = maxed ? "❐" : "□", Label = maxed ? "Restore" : "Maximize", Shortcut = "", Enabled = true, Do = () => Sdl.ToggleMaximize(WindowHandle) });
+        _ctxItems.Add(new CtxItem { Icon = Sdl.AlwaysOnTop ? "✔" : "▢", Label = "Always on top", Shortcut = "", Enabled = true, Do = () => Sdl.ToggleAlwaysOnTop(WindowHandle) });
         _ctxItems.Add(new CtxItem { Sep = true });
-        _ctxItems.Add(new CtxItem { Icon = "✕", Label = "Close", Enabled = true, Do = () => Sdl.CloseRequested = true });
+        _ctxItems.Add(new CtxItem { Icon = "📸", Label = "Screenshot this window", Shortcut = "", Enabled = true, Do = RequestScreenshot });
+        _ctxItems.Add(new CtxItem { Sep = true });
+        _ctxItems.Add(new CtxItem { Icon = "✕", Label = "Close", Shortcut = "", Enabled = true, Do = () => Sdl.CloseRequested = true });
         _ctxOpen = true; _ctxJustOpened = true;
+    }
+
+    private void RequestScreenshot()
+    {
+        string dir = System.IO.Path.Combine(Ircuitry.App.AppModel.WorkspaceDir, "shots");
+        ScreenshotPath = System.IO.Path.Combine(dir, $"ircuitry-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+        ScreenshotRequested = true;   // the host saves it next frame, once this menu has closed
+        Notify("📸 Saved to shots/" + System.IO.Path.GetFileName(ScreenshotPath));
     }
 
     // A cosy chat-bubble brand mark drawn in cream with three teal "typing" dots - reads as a friendly IRC bot
@@ -154,22 +168,22 @@ public sealed partial class MainScreen
         return c;
     }
 
-    // The primary run control: a glossy green ▶ (start) / red ■ (stop) pill, with a tiny connection-state dot.
+    // The primary run control: a matte, pastel ▶ (start, soft green) / ■ (stop, soft red) button - the same
+    // flat, chunky look as the inspector's RUN BOT, not a glossy candy pill.
     private void DrawPlayStop(Renderer r, RectF rect)
     {
         bool running = Bot.Runtime.Running;
-        Color col = running ? Theme.Alert : Theme.Ok;
         bool hot = !Modal && rect.Contains(In.Mouse);
-        r.RoundFill(rect.Offset(0, 1), Theme.WithAlpha(BarDim, 0.4f), 11f);
-        r.RoundFill(rect, hot ? Theme.Mix(col, Color.White, 0.18f) : col, 11f);
-        r.RoundFill(new RectF(rect.X + 3, rect.Y + 3, rect.W - 6, rect.H * 0.42f), Theme.WithAlpha(Color.White, 0.30f), 8f);  // gloss
+        Color baseCol = running ? Theme.Mix(Theme.Alert, Color.White, 0.10f) : Theme.Mix(Theme.Ok, Color.White, 0.28f);
+        Color fill = hot ? Theme.Mix(baseCol, Color.White, 0.12f) : baseCol;
+        Color glyph = running ? Theme.Mix(Theme.Alert, Theme.Text, 0.30f) : Theme.Mix(Theme.Ok, Theme.Text, 0.42f);
+        r.RoundFill(new RectF(rect.X, rect.Y + 2f, rect.W, rect.H), Theme.WithAlpha(Color.Black, 0.07f), 10f);  // soft shadow
+        r.RoundFill(rect, fill, 10f);                                                                            // matte fill (no gloss)
+        r.RoundOutline(rect, Theme.WithAlpha(glyph, hot ? 0.9f : 0.6f), 10f);
         var c = rect.Center;
-        if (running) r.RoundFill(new RectF(c.X - 6, c.Y - 6, 12, 12), Theme.TextInk, 2f);   // stop square
-        else for (int i = 0; i <= 11; i++)                                                  // play triangle (scanlines)
-            { float t = i / 11f, hh = 7f * (1 - t); r.VLine(c.X - 6 + i, c.Y - hh, c.Y + hh, Theme.TextInk, 1.3f); }
-        var (_, scol, _) = StatusInfo();
-        r.Disc(new Vector2(rect.Right - 7, rect.Y + 7), 3.4f, scol);   // relocated connection indicator
-        r.Ring(new Vector2(rect.Right - 7, rect.Y + 7), 3.4f, Theme.WithAlpha(Color.White, 0.7f));
+        if (running) r.RoundFill(new RectF(c.X - 5.5f, c.Y - 5.5f, 11, 11), glyph, 2f);                          // stop square
+        else for (int i = 0; i <= 11; i++)                                                                       // play triangle
+            { float t = i / 11f, hh = 6.5f * (1 - t); r.VLine(c.X - 5 + i, c.Y - hh, c.Y + hh, glyph, 1.3f); }
         if (hot && In.LeftPressed && !_ircWinJustOpened) ToggleRun();
     }
 
@@ -335,25 +349,29 @@ public sealed partial class MainScreen
         }
     }
 
-    // The floppy "save" button that hangs in the canvas's top-right corner whenever there are unsaved changes.
-    // Clicking it saves the workspace and, if the bot is live, applies the edits to it.
+    // A floppy "apply" button that hangs in the canvas's top-right ONLY while the live bot has edits it hasn't
+    // applied yet (keyed on the behaviour signature, not the autosaved disk-dirty flag - so it doesn't vanish
+    // when you click away). Clicking it applies the edits to the running bot (and saves).
     private void DrawCanvasSave(Renderer r)
     {
-        if (!_app.Dirty) return;
+        if (!Bot.Runtime.HasUnapplied(Bot.Graph)) return;
         var c = _l.Canvas;
-        var rect = new RectF(c.Right - 52, c.Y + 14, 38, 38);
+        var rect = new RectF(c.Right - 54, c.Y + 14, 40, 40);
         bool hot = !Modal && rect.Contains(In.Mouse);
+        var col = Theme.Cyan;
         r.Begin();
-        r.RoundFill(rect.Offset(0, 2), Theme.WithAlpha(Color.Black, 0.12f), 10f);
-        r.RoundFill(rect, hot ? Theme.AmberBright : Theme.Amber, 10f);
-        r.RoundOutline(rect, Theme.AmberDim, 10f);
-        r.TextCentered(r.Fonts.Get(FontKind.Sans, 18), "💾", rect, Theme.TextInk);
+        r.RoundFill(rect.Offset(0, 2), Theme.WithAlpha(Color.Black, 0.10f), 11f);
+        r.RoundFill(rect, hot ? Theme.Mix(col, Color.White, 0.14f) : col, 11f);
+        r.RoundOutline(rect, Theme.WithAlpha(Theme.Mix(col, Theme.Text, 0.25f), hot ? 1f : 0.7f), 11f);
+        r.TextCentered(r.Fonts.Get(FontKind.Sans, 19), "💾", rect, Theme.TextInk);
+        if (hot)   // a tiny "apply to live bot" hint on hover
+            r.Text(r.Fonts.Get(FontKind.SansBold, 11), "apply", new Vector2(rect.X - 4, rect.Bottom + 2), Theme.Mix(col, Theme.Text, 0.4f));
         r.End();
         if (hot && In.LeftPressed)
         {
+            Bot.Runtime.ApplyGraph(Bot.Graph);
             _app.Save();
-            if (Bot.Runtime.Running) Bot.Runtime.ApplyGraph(Bot.Graph);
-            Notify("💾 Saved" + (Bot.Runtime.Running ? " & applied" : ""));
+            Notify("↻ Applied changes to the live bot");
         }
     }
 }
