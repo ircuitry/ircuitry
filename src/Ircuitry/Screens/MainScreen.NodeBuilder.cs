@@ -12,9 +12,9 @@ using Ircuitry.Render;
 
 namespace Ircuitry.Screens;
 
-// "Bake a node": one modal, two kinds. RECIPE = a code node (form + code). COMPOSITE = a node built from
-// other nodes, wired in a little embedded editor. Both can be created fresh or re-opened to edit, then
-// baked into the Node Library, exported, or submitted as a PR.
+// "Bake a node": one modal, two kinds. RECIPE = a node built from other nodes (ingredients), wired in a
+// little embedded editor. FROM SCRATCH = a code node (form + code). Both can be created fresh or re-opened
+// to edit, then baked into the Node Library, exported, or submitted as a PR.
 public partial class MainScreen
 {
     private bool _nbOpen, _nbJustOpened;
@@ -182,7 +182,7 @@ public partial class MainScreen
     {
         if (_nbTitle.Trim().Length == 0) return "Give your node a title.";
         if (_nbMode == "composite" && manifest.Length == 0) return "Add a Subflow Start (⤵ Start) to your composite.";
-        if (_nbMode == "code" && _nbCode.Trim().Length == 0) return "Write some code (or pick a recipe).";
+        if (_nbMode == "code" && _nbCode.Trim().Length == 0) return "Write some code (or pick a starter).";
         try
         {
             var def = CustomNode.Load(manifest);
@@ -207,10 +207,10 @@ public partial class MainScreen
         float pad = 22, cx = panel.X + pad, cw = panel.W - 2 * pad;
         float y = panel.Y + Hud.HeaderH + 12;
 
-        // ---- kind toggle ----
+        // ---- kind toggle ----  Recipe = combine nodes (ingredients); From scratch = write code
         bool code = _nbMode == "code";
-        if (_ui.Button("nb.mode.code", new RectF(cx, y, 150, 28), "🍳 Recipe (code)", code ? Theme.Violet : Theme.Idle, primary: code)) _nbMode = "code";
-        if (_ui.Button("nb.mode.comp", new RectF(cx + 158, y, 180, 28), "🧩 Composite (nodes)", code ? Theme.Idle : Theme.Violet, primary: !code))
+        if (_ui.Button("nb.mode.code", new RectF(cx, y, 182, 28), "🍳 From scratch (code)", code ? Theme.Violet : Theme.Idle, primary: code)) _nbMode = "code";
+        if (_ui.Button("nb.mode.comp", new RectF(cx + 190, y, 160, 28), "🥣 Recipe (nodes)", code ? Theme.Idle : Theme.Violet, primary: !code))
         { _nbMode = "composite"; EnsureCompositeEditor(); }
         y += 28 + 12;
 
@@ -272,13 +272,13 @@ public partial class MainScreen
         }
         if (_nbOut.Count < 6 && _ui.Button("nb.outadd", new RectF(cx, ly, 110, 26), "＋ output", Theme.Idle)) _nbOut.Add(("", "Text"));
         ly += 40;
-        Label("START FROM A RECIPE", cx, ly); ly += 16;
+        Label("START FROM A STARTER", cx, ly); ly += 16;
         if (_ui.Button("nb.tpl.simple", new RectF(cx, ly, 120, 26), "Simple", Theme.Idle)) ApplyNodeTemplate("simple");
         if (_ui.Button("nb.tpl.aitool", new RectF(cx + 128, ly, 150, 26), "🔎 AI web tool", Theme.Idle)) ApplyNodeTemplate("aitool");
 
         Label("LANGUAGE", rightX, colTop);
         _nbLang = _ui.Choice("nb.lang", new RectF(rightX, colTop + 15, 120, 26), NbLangs, _nbLang);
-        Label("RECIPE  (inputs arrive as UPPERCASE vars; print the result)", rightX, colTop + 50);
+        Label("CODE  (inputs arrive as UPPERCASE vars; print the result)", rightX, colTop + 50);
         float codeY = colTop + 66;
         _nbCode = _ui.TextArea("nb.code", new RectF(rightX, codeY, rightW, (panel.Bottom - 56) - codeY), _nbCode, "print('hello')");
     }
@@ -289,7 +289,7 @@ public partial class MainScreen
         // toolbar: quick-adds + a search to drop any node in
         if (_ui.Button("nb.c.in", new RectF(cx, top, 96, 26), "＋ Input", Theme.Idle)) AddCompositeNode("flow.arg");
         if (_ui.Button("nb.c.out", new RectF(cx + 104, top, 100, 26), "＋ Output", Theme.Idle)) AddCompositeNode("flow.return");
-        _nbAdd = _ui.TextField("nb.add", new RectF(cx + 214, top, cw - 214, 26), _nbAdd, "search a node to add…");
+        _nbAdd = _ui.TextField("nb.add", new RectF(cx + 214, top, cw - 214, 26), _nbAdd, "search an ingredient (node) to add…");
         float bodyTop = top + 26 + 8;
 
         // the mini editor fills the rest
@@ -309,7 +309,7 @@ public partial class MainScreen
         _nbEditor.Draw(r, _nbEditorRect, In, clock);
         r.Begin();
 
-        r.Text(r.Fonts.Get(FontKind.Sans, 11), "drag from a node's right dot to wire · Subflow Input/Output are your pins · Del removes",
+        r.Text(r.Fonts.Get(FontKind.Sans, 11), "drop ingredients (nodes) and wire them · Subflow Input/Output are your pins · Del removes",
             new Vector2(cx + 8, _nbEditorRect.Bottom - 18), Theme.TextFaint);
 
         // search results dropdown (on top of the editor)
