@@ -1905,6 +1905,8 @@ public sealed partial class MainScreen : IScreen
         r.Begin();
         var goR = new RectF(panel.Right - 22 - 150, panel.Bottom - 48, 150, 34);
         var laterR = new RectF(goR.X - 12 - 110, panel.Bottom - 48, 110, 34);
+        if (_ui.Button("up.changelog", new RectF(x, panel.Bottom - 48, 168, 34), "📋 Full changelog ↗", Theme.Idle))
+            Ircuitry.App.DeepLink.OpenUrl($"https://github.com/{Ircuitry.App.AppInfo.Repo}/releases/tag/v{_upVer}");
         if (_ui.Button("up.later", laterR, "LATER", Theme.Idle)) _upPromptOpen = false;
         if (_ui.Button("up.go", goR, UpAuto ? "⤓  Update now" : "⤓  Download", Theme.Lime, primary: true)) StartUpdateDownload();
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_upPromptJustOpened) _upPromptOpen = false;

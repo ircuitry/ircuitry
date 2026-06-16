@@ -24,7 +24,7 @@ public partial class MainScreen
     private readonly List<(string name, string kind)> _nbIn = new();
     private readonly List<(string name, string kind)> _nbOut = new();
     private string _nbStatus = "", _nbAdd = "";
-    private bool _nbSeeded;
+    private bool _nbSeeded, _nbMax;
 
     private NodeGraph? _nbGraph;            // the composite's inner graph
     private GraphEditor? _nbEditor;         // mini editor over _nbGraph
@@ -34,6 +34,7 @@ public partial class MainScreen
     private static readonly string[] NbLangs = { "python", "js" };
 
     public void DebugOpenNodeBuilder() { _l = Layout.Compute(_vw, _vh); OpenNodeBuilder(); }
+    public void DebugOpenMaxBuilder() { _l = Layout.Compute(_vw, _vh); OpenNodeBuilder(); _nbMode = "composite"; EnsureCompositeEditor(); _nbMax = true; }
     public void DebugOpenComposite() { _l = Layout.Compute(_vw, _vh); OpenNodeBuilder(); _nbMode = "composite"; _nbTitle = "Shout"; EnsureCompositeEditor(); }
 
     public void OpenNodeBuilder()
@@ -198,9 +199,11 @@ public partial class MainScreen
     {
         r.Begin();
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
-        float pw = Math.Min(880, _vw - 60), ph = Math.Min(700, _vh - 60);
+        float pw = _nbMax ? _vw - 24 : Math.Min(880, _vw - 60);
+        float ph = _nbMax ? _vh - 24 : Math.Min(700, _vh - 60);
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, _nbEditId.Length > 0 ? "Edit node" : "Bake a node", Theme.Violet);
+        if (_ui.Button("nb.max", new RectF(panel.Right - 40, panel.Y + 7, 28, 24), _nbMax ? "⤡" : "⤢", Theme.Idle)) _nbMax = !_nbMax;
 
         var lbl = r.Fonts.Get(FontKind.SansBold, 10);
         void Label(string t, float lx, float ly2) => r.Text(lbl, t, new Vector2(lx, ly2), Theme.TextDim);

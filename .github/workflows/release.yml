@@ -73,12 +73,30 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # full history + tags so the changelog can read the commits
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Version from tag
         run: V='${{ github.event.inputs.tag || github.ref_name }}'; echo "VERSION=${V#v}" >> "$GITHUB_ENV"
+      - name: Build changelog from commits
+        run: |
+          TAG='${{ github.event.inputs.tag || github.ref_name }}'
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          {
+            echo 'CHANGELOG<<__CL__'
+            if [ -n "$PREV" ]; then
+              git log --no-merges --pretty='- %s' "${PREV}..${TAG}"
+              echo
+              echo "**Full changelog:** https://github.com/${{ github.repository }}/compare/${PREV}...${TAG}"
+            else
+              git log --no-merges --pretty='- %s' -n 25 "${TAG}"
+            fi
+            echo '__CL__'
+          } >> "$GITHUB_ENV"
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -86,8 +104,12 @@ jobs:
           name: ircuitry ${{ github.event.inputs.tag || github.ref_name }}
           files: dist/*
           fail_on_unmatched_files: true
-          generate_release_notes: true
           body: |
+            ## What's changed
+
+            ${{ env.CHANGELOG }}
+
+            ---
             ### Download & run
 
             **🐧 Linux**
