@@ -76,6 +76,23 @@ public static class Program
                 Environment.Exit(0);
                 return;
             }
+            int bi = Array.IndexOf(args, "--emit-builtins");
+            if (bi >= 0)
+            {
+                string path = bi + 1 < args.Length && !args[bi + 1].StartsWith("--") ? args[bi + 1] : "builtins.json";
+                var builtins = Ircuitry.Graph.NodeCatalog.All.Select(d => d.TypeId)
+                    .Where(id => !Ircuitry.Graph.NodeCatalog.IsCustom(id)).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+                var doc = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["app"] = "ircuitry",
+                    ["version"] = App.AppInfo.Version,
+                    ["builtins"] = new System.Text.Json.Nodes.JsonArray(builtins.Select(b => (System.Text.Json.Nodes.JsonNode)b!).ToArray()),
+                };
+                File.WriteAllText(path, doc.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n");
+                Console.WriteLine($"wrote {path} ({builtins.Length} built-in node types, v{App.AppInfo.Version})");
+                Environment.Exit(0);
+                return;
+            }
         }
         if (Array.IndexOf(args, "--schema") >= 0)
         {

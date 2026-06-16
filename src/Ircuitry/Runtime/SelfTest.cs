@@ -162,6 +162,7 @@ public static class SelfTest
         fails += ToolkitTest();
         fails += BotMergeTest();
         fails += DccTest();
+        fails += CapabilityCorsTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -2059,6 +2060,31 @@ public static class SelfTest
             && labels.Count(s => s == "Libera") == 2 && labels.Count(s => s == "OFTC") == 2   // once under each group
             && labels.Count(s => s == "All servers") == 2;
         return Expect("tray-menu-lists-servers", stable && listed, $"stable={stable} listed={listed} | " + string.Join(",", labels));
+    }
+
+    /// <summary>The capability endpoint must hand a CORS grant ONLY to the ircuitry site (+ localhost dev):
+    /// any other origin gets zero Access-Control-* headers so the browser blocks it. Tests the pure header
+    /// decision directly (no socket) so it can't be fooled by a stale/already-running app on the port.</summary>
+    private static int CapabilityCorsTest()
+    {
+        int fails = 0;
+        bool HasCors(string origin) =>
+            Ircuitry.App.CapabilityServer.CorsHeaders(origin).Any(h => h.Key.StartsWith("Access-Control", StringComparison.Ordinal));
+        string Val(string origin, string key) =>
+            Ircuitry.App.CapabilityServer.CorsHeaders(origin).Where(h => h.Key == key).Select(h => h.Value).FirstOrDefault() ?? "";
+
+        // the site origin (and a case-variant) is granted ACAO + the private-network grant
+        fails += Expect("cap-cors-site-acao", Val("https://ircuitry.github.io", "Access-Control-Allow-Origin") == "https://ircuitry.github.io", Val("https://ircuitry.github.io", "Access-Control-Allow-Origin"));
+        fails += Expect("cap-cors-site-pna", Val("https://ircuitry.github.io", "Access-Control-Allow-Private-Network") == "true", "");
+        fails += Expect("cap-cors-case-insensitive", HasCors("HTTPS://IRCUITRY.GITHUB.IO"), "uppercase origin should still be allowed");
+        fails += Expect("cap-cors-localhost-dev", HasCors("http://localhost:8099"), "");
+        // everyone else gets NOTHING - no ACAO, no PNA, no methods/headers grant
+        fails += Expect("cap-cors-evil-blocked", !HasCors("https://evil.example"), "disallowed origin must get no CORS headers");
+        fails += Expect("cap-cors-empty-blocked", !HasCors(""), "no-origin request must get no CORS headers");
+        fails += Expect("cap-cors-lookalike-blocked", !HasCors("https://ircuitry.github.io.evil.com"), "suffix-spoof origin must be rejected");
+        // Cache-Control is always present (it isn't a CORS grant)
+        fails += Expect("cap-cache-control", Val("https://evil.example", "Cache-Control") == "no-store", "");
+        return fails;
     }
 
     private static string Dump(FakeSink s) => "sent=[" + string.Join(", ", s.Sent.ConvertAll(t => $"{t.target}:{t.text}")) + "]";

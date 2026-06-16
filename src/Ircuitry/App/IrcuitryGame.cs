@@ -108,6 +108,8 @@ public sealed class IrcuitryGame : Game
         };
         // watch the workspace file: an external edit (another editor, git, this assistant) auto-reloads it
         if (!_demo && _shotPath == null) StartWorkspaceWatcher();
+        // a loopback endpoint so the ircuitry website can tailor its gallery to this app (read-only, origin-locked)
+        if (!_demo && _shotPath == null) Ircuitry.App.CapabilityServer.Start();
         if (_inboxDir != null) StartInboxWatcher();
         if (_initialDeepLink != null) _deepLinks.Enqueue(_initialDeepLink);
 
