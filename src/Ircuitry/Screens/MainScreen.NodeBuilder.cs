@@ -28,19 +28,26 @@ public partial class MainScreen
 
     private NodeGraph? _nbGraph;            // the composite's inner graph
     private GraphEditor? _nbEditor;         // mini editor over _nbGraph
+    private readonly Dictionary<string, string> _nbExposed = new();   // composite param name -> default (exposed inner settings)
 
     private static readonly string[] NbKinds = { "Text", "Number", "Bool", "User", "Channel", "Tool", "Exec" };
     private static readonly string[] NbCategories = { "Action", "Data", "Logic", "Ai", "Filter", "Storage" };
     private static readonly string[] NbLangs = { "python", "js" };
 
     public void DebugOpenNodeBuilder() { _l = Layout.Compute(_vw, _vh); OpenNodeBuilder(); }
-    public void DebugOpenMaxBuilder() { _l = Layout.Compute(_vw, _vh); OpenNodeBuilder(); _nbMode = "composite"; EnsureCompositeEditor(); _nbMax = true; }
+    public void DebugOpenMaxBuilder()
+    {
+        _l = Layout.Compute(_vw, _vh); OpenNodeBuilder(); _nbMode = "composite"; EnsureCompositeEditor(); _nbMax = true;
+        var n = _nbEditor!.Spawn(NodeCatalog.Get("action.reply"), new Vector2(0, 230));
+        n.SetParam("message", "hello {nick}");
+        _nbEditor.Selection.Clear(); _nbEditor.Selection.Add(n.Id);
+    }
     public void DebugOpenComposite() { _l = Layout.Compute(_vw, _vh); OpenNodeBuilder(); _nbMode = "composite"; _nbTitle = "Shout"; EnsureCompositeEditor(); }
 
     public void OpenNodeBuilder()
     {
         if (!_nbSeeded) { ApplyNodeTemplate("simple"); _nbSeeded = true; }
-        _nbEditId = ""; _nbOpen = true; _nbJustOpened = true; _ui.Focus = "nb.title";
+        _nbEditId = ""; _nbExposed.Clear(); _nbOpen = true; _nbJustOpened = true; _ui.Focus = "nb.title";
     }
 
     /// <summary>Re-open an installed custom node to edit it (code in the form, composite in the mini editor).</summary>
@@ -62,6 +69,14 @@ public partial class MainScreen
                 _nbMode = "composite";
                 _nbGraph = GraphSerializer.Load(sg.GetRawText()).graph;
                 _nbEditor = new GraphEditor(_nbGraph) { ShowMinimap = false };
+                _nbExposed.Clear();
+                if (rt.TryGetProperty("params", out var ps) && ps.ValueKind == JsonValueKind.Array)
+                    foreach (var p in ps.EnumerateArray())
+                    {
+                        string k = p.TryGetProperty("key", out var kk) && kk.ValueKind == JsonValueKind.String ? kk.GetString() ?? "" : "";
+                        string dv = p.TryGetProperty("default", out var d2) && d2.ValueKind == JsonValueKind.String ? d2.GetString() ?? "" : "";
+                        if (k.Length > 0) _nbExposed[k] = dv;
+                    }
             }
             else
             {
@@ -155,7 +170,7 @@ public partial class MainScreen
         if (_nbMode == "composite")
             return _nbEditor?.SerializeAsComposite(NbTypeId(),
                 _nbTitle.Trim().Length > 0 ? _nbTitle.Trim() : "Custom Node",
-                _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "🧩", _nbCategory, _nbDesc.Trim()) ?? "";
+                _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "🧩", _nbCategory, _nbDesc.Trim(), _nbExposed) ?? "";
 
         var node = new Dictionary<string, object?>
         {
@@ -289,22 +304,22 @@ public partial class MainScreen
     private void DrawNbCompositeBody(Renderer r, RectF panel, float cx, float cw, float top, Clock clock, Action<string, float, float> Label)
     {
         EnsureCompositeEditor();
-        // toolbar: quick-adds + a search to drop any node in
-        if (_ui.Button("nb.c.in", new RectF(cx, top, 96, 26), "＋ Input", Theme.Idle)) AddCompositeNode("flow.arg");
-        if (_ui.Button("nb.c.out", new RectF(cx + 104, top, 100, 26), "＋ Output", Theme.Idle)) AddCompositeNode("flow.return");
-        _nbAdd = _ui.TextField("nb.add", new RectF(cx + 214, top, cw - 214, 26), _nbAdd, "search an ingredient (node) to add…");
+        float inspW = Math.Min(320, cw * 0.38f), gap = 12, edW = cw - inspW - gap;
+
+        // toolbar over the editor column: quick-adds + a search to drop any node in
+        if (_ui.Button("nb.c.in", new RectF(cx, top, 92, 26), "＋ Input", Theme.Idle)) AddCompositeNode("flow.arg");
+        if (_ui.Button("nb.c.out", new RectF(cx + 100, top, 96, 26), "＋ Output", Theme.Idle)) AddCompositeNode("flow.return");
+        _nbAdd = _ui.TextField("nb.add", new RectF(cx + 204, top, edW - 204, 26), _nbAdd, "search a node to add…");
         float bodyTop = top + 26 + 8;
 
-        // the mini editor fills the rest
-        _nbEditorRect = new RectF(cx, bodyTop, cw, (panel.Bottom - 56) - bodyTop);
+        _nbEditorRect = new RectF(cx, bodyTop, edW, (panel.Bottom - 56) - bodyTop);
         r.RoundFill(_nbEditorRect, Theme.WithAlpha(Color.Black, 0.18f), 8f);
 
         var matches = _nbAdd.Trim().Length > 0
             ? NodeCatalog.All.Where(d => !d.IsTrigger && (d.Title.Contains(_nbAdd, StringComparison.OrdinalIgnoreCase) || d.TypeId.Contains(_nbAdd, StringComparison.OrdinalIgnoreCase))).Take(7).ToList()
             : new List<NodeDef>();
 
-        // drive + draw the embedded editor (don't let it grab the mouse while a field/the picker is active).
-        // The editor manages its own render batches, so close ours, let it draw, then reopen for the rest.
+        // the editor manages its own render batches: close ours, let it draw, reopen for the rest
         bool capturing = _ui.AnyFieldFocused || matches.Count > 0;
         _nbEditor!.Running = false;
         _nbEditor.Update(In, _nbEditorRect, capturing);
@@ -312,20 +327,91 @@ public partial class MainScreen
         _nbEditor.Draw(r, _nbEditorRect, In, clock);
         r.Begin();
 
-        r.Text(r.Fonts.Get(FontKind.Sans, 11), "drop ingredients (nodes) and wire them · Subflow Input/Output are your pins · Del removes",
+        r.Text(r.Fonts.Get(FontKind.Sans, 11), "drop nodes and wire them · select a node to edit/expose its settings → · Del removes",
             new Vector2(cx + 8, _nbEditorRect.Bottom - 18), Theme.TextFaint);
 
-        // search results dropdown (on top of the editor)
+        // inspector for the selected inner node (edit its settings, choose hardcode vs expose)
+        var inspRect = new RectF(cx + edW + gap, top, inspW, (panel.Bottom - 56) - top);
+        r.RoundFill(inspRect, Theme.WithAlpha(Color.Black, 0.12f), 8f);
+        DrawNbInspector(r, inspRect);
+
         if (matches.Count > 0)
         {
-            float my = top + 26 + 6, mw = cw - 214, mx = cx + 214;
+            float my = top + 26 + 6, mw = edW - 204, mx = cx + 204;
             r.RoundFill(new RectF(mx, my, mw, matches.Count * 26 + 6), Theme.Panel, 7f);
             r.RoundOutline(new RectF(mx, my, mw, matches.Count * 26 + 6), Theme.Edge, 7f);
             for (int i = 0; i < matches.Count; i++)
-                if (_ui.Button($"nb.m{i}", new RectF(mx + 3, my + 3 + i * 26, mw - 6, 24), matches[i].Icon + "  " + matches[i].Title + "   " + matches[i].TypeId, Theme.Idle))
+                if (_ui.Button($"nb.m{i}", new RectF(mx + 3, my + 3 + i * 26, mw - 6, 24), matches[i].Icon + "  " + matches[i].Title, Theme.Idle))
                     AddCompositeNode(matches[i].TypeId);
         }
     }
+
+    private bool NbOtherExposes(string skipNodeId, string token)
+    {
+        foreach (var n in _nbGraph!.Nodes)
+            if (n.Id != skipNodeId)
+                foreach (var p in n.Def.Params)
+                    if (n.GetParam(p.Key) == token) return true;
+        return false;
+    }
+
+    private void DrawNbInspector(Renderer r, RectF box)
+    {
+        float x = box.X + 12, w = box.W - 24, y = box.Y + 12;
+        var lbl = r.Fonts.Get(FontKind.SansBold, 9);
+        var sans = r.Fonts.Get(FontKind.Sans, 11);
+        var sel = _nbEditor!.Selection;
+        if (sel.Count != 1)
+        {
+            foreach (var line in Wrap(sans, "Select one node to edit its settings - and pick which become 🔒 hard-coded vs 👤 filled by whoever uses the node.", w))
+            { r.Text(sans, line, new Vector2(x, y), Theme.TextDim); y += 16; }
+            return;
+        }
+        var node = _nbGraph!.Nodes.FirstOrDefault(n => sel.Contains(n.Id));
+        if (node == null) return;
+        bool boundary = node.TypeId is "flow.in" or "flow.arg" or "flow.return";
+        r.Text(r.Fonts.Get(FontKind.SansBold, 13), node.Def.Icon + "  " + node.Def.Title, new Vector2(x, y), Theme.Text); y += 24;
+        if (node.Def.Params.Length == 0) { r.Text(sans, "no settings on this node", new Vector2(x, y), Theme.TextFaint); return; }
+
+        foreach (var p in node.Def.Params)
+        {
+            if (p.VisibleWhen != null && !p.VisibleWhen(node)) continue;
+            if (y > box.Bottom - 30) { r.Text(sans, "…", new Vector2(x, y), Theme.TextFaint); break; }
+            string val = node.GetParam(p.Key);
+            string token = "{" + p.Key + "}";
+            bool exposed = val == token;
+            bool canExpose = !boundary && (p.Type == ParamType.Text || p.Type == ParamType.Multiline);
+            r.Text(lbl, p.Label.ToUpperInvariant(), new Vector2(x, y), Theme.TextDim); y += 13;
+
+            if (exposed)
+            {
+                r.Text(sans, "👤 filled by the user", new Vector2(x, y + 4), Theme.Lime);
+                if (_ui.Button($"nb.unx.{node.Id}.{p.Key}", new RectF(x + w - 96, y, 96, 24), "🔒 Hard-code", Theme.Idle))
+                {
+                    node.SetParam(p.Key, _nbExposed.TryGetValue(p.Key, out var d) ? d : p.Default);
+                    if (!NbOtherExposes(node.Id, token)) _nbExposed.Remove(p.Key);
+                }
+            }
+            else
+            {
+                float fw = canExpose ? w - 78 : w;
+                if (p.Type == ParamType.Choice && p.Choices is { Length: > 0 })
+                    node.SetParam(p.Key, _ui.Choice($"nb.pv.{node.Id}.{p.Key}", new RectF(x, y, fw, 24), p.Choices, val));
+                else if (p.Type == ParamType.Bool)
+                    node.SetParam(p.Key, _ui.Choice($"nb.pv.{node.Id}.{p.Key}", new RectF(x, y, fw, 24), BoolChoices, val == "true" || val == "1" ? "true" : "false"));
+                else
+                    node.SetParam(p.Key, _ui.TextField($"nb.pv.{node.Id}.{p.Key}", new RectF(x, y, fw, 24), val, p.Placeholder));
+                if (canExpose && _ui.Button($"nb.exp.{node.Id}.{p.Key}", new RectF(x + w - 74, y, 74, 24), "👤 Expose", Theme.Berry))
+                {
+                    _nbExposed[p.Key] = val.Length > 0 ? val : p.Default;   // current value becomes the setting's default
+                    node.SetParam(p.Key, token);
+                }
+            }
+            y += 30;
+        }
+    }
+
+    private static readonly string[] BoolChoices = { "true", "false" };
 
     private void NbSave(string manifest)
     {

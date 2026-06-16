@@ -192,8 +192,11 @@ public sealed class GraphEditor
     public bool SelectionCanBake => Selection.Count > 0 && Graph.Nodes.Any(n => Selection.Contains(n.Id) && !n.Def.IsTrigger);
 
     /// <summary>Serialize this editor's WHOLE graph into a composite (subgraph) node manifest - used by the
-    /// in-modal mini editor. Pins come from the Subflow Input/Output nodes in it. Needs a Subflow Start.</summary>
-    public string? SerializeAsComposite(string typeId, string title, string icon, string category, string description)
+    /// in-modal mini editor. Pins come from the Subflow Input/Output nodes in it; <paramref name="exposed"/>
+    /// (name -> default) become the composite node's user-editable params, which inner nodes read as {name}.
+    /// Needs a Subflow Start.</summary>
+    public string? SerializeAsComposite(string typeId, string title, string icon, string category, string description,
+        System.Collections.Generic.IReadOnlyDictionary<string, string>? exposed = null)
     {
         var nodes = Graph.Nodes;
         if (!nodes.Any(n => n.TypeId == "flow.in")) return null;
@@ -209,9 +212,18 @@ public sealed class GraphEditor
         foreach (var rr in nodes.Where(n => n.TypeId == "flow.return").Select(n => n.GetParam("name")).Where(s => s.Length > 0).Distinct())
             outputs.Add("{\"name\":" + J(rr) + ",\"kind\":\"Text\"}");
 
+        var prms = new List<string>();
+        if (exposed != null)
+            foreach (var kv in exposed)
+            {
+                string label = kv.Key.Length > 0 ? char.ToUpperInvariant(kv.Key[0]) + kv.Key[1..] : kv.Key;
+                prms.Add("{\"key\":" + J(kv.Key) + ",\"label\":" + J(label) + ",\"type\":\"Text\",\"default\":" + J(kv.Value) + "}");
+            }
+
         return "{\"typeId\":" + J(typeId) + ",\"title\":" + J(title) + ",\"subtitle\":\"composite\",\"icon\":" + J(icon)
             + ",\"category\":" + J(category) + ",\"description\":" + J(description ?? "")
-            + ",\"inputs\":[" + string.Join(",", inputs) + "],\"outputs\":[" + string.Join(",", outputs) + "],"
+            + ",\"inputs\":[" + string.Join(",", inputs) + "],\"outputs\":[" + string.Join(",", outputs) + "]"
+            + ",\"params\":[" + string.Join(",", prms) + "],"
             + "\"subgraph\":" + GraphSerializer.Save(sub, title) + "}";
     }
 

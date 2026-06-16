@@ -58,11 +58,14 @@ public static class CustomNode
         return def;
     }
 
-    // subflow node: feed the node's data inputs in by name, run the subgraph, read named outputs back out
+    // subflow node: feed the node's params + data inputs in by name, run the subgraph, read named outputs back
     private static void RunSubflow(INodeContext c, NodeGraph sub)
     {
         var d = c.Node.Def;
         var inputs = new Dictionary<string, string>();
+        // the composite's own params become child vars, so an inner node's {paramKey} token (an "exposed"
+        // setting) resolves to whatever the user set on this node. Wired inputs override a same-named param.
+        foreach (var p in d.Params) inputs[p.Key] = c.Resolve(c.Param(p.Key));
         for (int i = 0; i < d.Inputs.Length; i++)
             if (!d.Inputs[i].Kind.IsExec()) inputs[d.Inputs[i].Name] = c.In(i);
         var outv = c.RunSubflow(sub, inputs);

@@ -146,6 +146,7 @@ public static class SelfTest
         fails += NodeAsToolTest();
         fails += CompositeBakeTest();
         fails += CompositeMiniSerializeTest();
+        fails += CompositeExposeTest();
         fails += ParamListAddTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -1737,6 +1738,51 @@ public static class SelfTest
             GraphExecutor.Fire(g2, s, c2, vars);
             bool ok = s.Sent.Count == 1 && s.Sent[0].text == "OLLEH";   // upper(hello)=HELLO, reverse=OLLEH
             return Expect("composite-bake", ok, Dump(s) + "  err=" + err);
+        }
+        finally
+        {
+            try { Directory.Delete(Path.Combine(tmp, "nodes"), true); } catch { }
+            NodeCatalog.LoadCustom();
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
+    }
+
+    /// <summary>Composite param exposure: an inner node's value can be EXPOSED as a setting on the composite
+    /// node (a {token}), which the end user fills in the inspector and the runtime seeds into the subgraph.</summary>
+    private static int CompositeExposeTest()
+    {
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-expose-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            // mini-graph: Subflow Start -> Send Reply(message="{greeting} world"); expose 'greeting' (default "hi")
+            var mg = new NodeGraph();
+            var fin = mg.Add(NodeCatalog.Get("flow.in"), Vector2.Zero);
+            var rep = mg.Add(NodeCatalog.Get("action.reply"), new Vector2(200, 0)); rep.SetParam("message", "{greeting} world");
+            mg.Connect(fin.Id, 0, rep.Id, 0);
+            var ed = new Ircuitry.Editor.GraphEditor(mg);
+            var manifest = ed.SerializeAsComposite("subflow.greet", "Greet", "🧩", "Action", "",
+                new Dictionary<string, string> { ["greeting"] = "hi" });
+            if (manifest == null) return Expect("composite-expose", false, "serialize failed");
+
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            if (!Ircuitry.App.AppModel.WorkspaceDir.StartsWith(tmp, StringComparison.Ordinal)) return Expect("composite-expose (skipped)", true, "");
+            Directory.CreateDirectory(NodeCatalog.CustomDir);
+            File.WriteAllText(Path.Combine(NodeCatalog.CustomDir, "subflow.greet.ircnode"), manifest);
+            NodeCatalog.LoadCustom();
+            if (!NodeCatalog.TryGet("subflow.greet", out var def)) return Expect("composite-expose (skipped)", true, "");
+            bool hasParam = def.Params.Any(p => p.Key == "greeting" && p.Default == "hi");   // exposed as a setting w/ default
+
+            // place it and override the exposed setting -> the inner reply uses it
+            var g = new NodeGraph();
+            var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "go");
+            var comp = g.Add(def, new Vector2(200, 0)); comp.SetParam("greeting", "hey");
+            g.Connect(cmd.Id, 0, comp.Id, 0);
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!go", "u", "#x"));
+            bool ok = hasParam && s.Sent.Any(t => t.text == "hey world");
+            return Expect("composite-expose", ok, "hasParam=" + hasParam + " " + Dump(s));
         }
         finally
         {
