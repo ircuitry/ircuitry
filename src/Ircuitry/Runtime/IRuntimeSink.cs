@@ -38,6 +38,13 @@ public interface IRuntimeSink
     /// and react to it by msgid. Sinks without a buffer (dry runs/tests) return empty.</summary>
     System.Collections.Generic.IReadOnlyList<RecentMsg> RecentMessages(int count) => System.Array.Empty<RecentMsg>();
 
+    /// <summary>Ask the server for message history of a target via IRCv3 CHATHISTORY (e.g. sub "LATEST"),
+    /// including messages from before the bot joined. Blocks the calling worker until the batch arrives or the
+    /// timeout, then returns the messages (oldest first). The batch never fires triggers. Sinks that don't talk
+    /// to a server (dry runs/tests) return empty.</summary>
+    System.Collections.Generic.IReadOnlyList<RecentMsg> RequestHistory(string target, string sub, int count, int timeoutMs)
+        => System.Array.Empty<RecentMsg>();
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);

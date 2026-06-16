@@ -53,6 +53,18 @@ public sealed class NodeGraph
 
     public void Disconnect(Connection c) => Connections.Remove(c);
 
+    /// <summary>Drop any wire whose endpoint pin no longer exists - e.g. after a node with dynamic pins (Switch)
+    /// shrank its case list, leaving a wire pointing past the end. Such wires are already inert (rendering and
+    /// the executor bounds-check them), so this is tidy-up: it keeps the live graph and saves clean. Returns the
+    /// number removed. (In-range wires that merely shifted meaning are NOT touched - that is index-based wiring.)</summary>
+    public int PruneDeadWires() => Connections.RemoveAll(c =>
+    {
+        var a = Find(c.FromNode); var b = Find(c.ToNode);
+        return a == null || b == null
+            || c.FromPin < 0 || c.FromPin >= a.Outputs.Length
+            || c.ToPin < 0 || c.ToPin >= b.Inputs.Length;
+    });
+
     public IEnumerable<Connection> FromPin(string node, int pin) =>
         Connections.Where(c => c.FromNode == node && c.FromPin == pin);
 

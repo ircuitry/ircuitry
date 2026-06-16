@@ -47,9 +47,10 @@ public static class ParamList
     public static IEnumerable<(string key, string val)> Pairs(string s) =>
         Parse(s).Select(r => (At(r, 0), At(r, 1))).Where(p => p.Item1.Length > 0 || p.Item2.Length > 0);
 
-    /// <summary>Read a list param as plain values - skips blank rows.</summary>
+    /// <summary>Read a list param as plain values - skips blank/whitespace-only rows (so a stray "  " row
+    /// can't become a phantom, never-matching output on nodes like Switch).</summary>
     public static IEnumerable<string> Values(string s) =>
-        Parse(s).Select(r => At(r, 0)).Where(v => v.Length > 0);
+        Parse(s).Select(r => At(r, 0)).Where(v => v.Trim().Length > 0);
 
     private static string At(string[] r, int i) => i < r.Length ? r[i] ?? "" : "";
 }

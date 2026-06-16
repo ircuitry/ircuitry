@@ -1002,7 +1002,9 @@ public sealed class GraphEditor
             long h = 1469598103934665603;
             void Mix(long v) { h = (h ^ v) * 1099511628211; }
             Mix(Graph.Nodes.Count); Mix(Graph.Connections.Count);
-            foreach (var n in Graph.Nodes) { Mix(n.Id.GetHashCode()); Mix((long)MathF.Round(n.Pos.X)); Mix((long)MathF.Round(n.Pos.Y)); }
+            // pin counts matter too: a node with dynamic pins (e.g. Switch) grows/shrinks as its cases change,
+            // which moves every pin - so the cached wire routes must invalidate even when topology is unchanged.
+            foreach (var n in Graph.Nodes) { Mix(n.Id.GetHashCode()); Mix((long)MathF.Round(n.Pos.X)); Mix((long)MathF.Round(n.Pos.Y)); Mix(n.Inputs.Length); Mix(n.Outputs.Length); }
             foreach (var c in Graph.Connections) { Mix(c.FromNode.GetHashCode()); Mix(c.FromPin); Mix(c.ToNode.GetHashCode()); Mix(c.ToPin); }
             return h;
         }

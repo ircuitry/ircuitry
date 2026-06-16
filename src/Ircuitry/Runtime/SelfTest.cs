@@ -41,6 +41,8 @@ public static class SelfTest
         public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes) { LastRun = new(executedTypes); }
         public readonly List<RecentMsg> RecentSeed = new();   // what SuperAI's recent_messages tool sees
         public IReadOnlyList<RecentMsg> RecentMessages(int count) => RecentSeed;
+        public readonly List<RecentMsg> HistorySeed = new();  // what a CHATHISTORY request returns
+        public IReadOnlyList<RecentMsg> RequestHistory(string target, string sub, int count, int timeoutMs) => HistorySeed;
     }
 
     private static Node N(NodeGraph g, string type, float x, float y)
@@ -128,6 +130,10 @@ public static class SelfTest
         fails += AiToolsTest();
         fails += DynamicAiArgsTest();
         fails += SuperAiTest();
+        fails += HistoryBatchTest();
+        fails += HistoryAbandonTest();
+        fails += ChatHistoryNodeTest();
+        fails += SwitchPruneTest();
         fails += IoTest();
         fails += WorkspaceTest();
         fails += TextSafetyTest();
@@ -433,6 +439,89 @@ public static class SelfTest
             $"{Dump(s)} reqs={reqs}");
     }
 
+    /// <summary>CHATHISTORY core: messages inside a chathistory BATCH are suppressed (never trigger) and
+    /// accumulated, live messages pass through, and on batch close the collected messages reach the waiter -
+    /// even for a channel we requested history of (the "before we joined" case).</summary>
+    private static int HistoryBatchTest()
+    {
+        var hb = new HistoryBatches();
+        var w = new HistoryBatches.Waiter { Target = "#chan" };
+        hb.Await(w);                                                  // node registers BEFORE the server replies
+
+        hb.OnBatch(IrcParser.Parse(":serv BATCH +bx chathistory #chan"));
+        bool s1 = hb.Capture(IrcParser.Parse("@batch=bx;msgid=h1 :amy!a@h PRIVMSG #chan :baked a cake"), out var r1);
+        bool s2 = hb.Capture(IrcParser.Parse("@batch=bx;msgid=h2 :bob!b@h PRIVMSG #chan :nice one"), out _);
+        // a JOIN inside the batch must also be suppressed (data-only), even though it yields no RecentMsg
+        bool sJoin = hb.Capture(IrcParser.Parse("@batch=bx :cat!c@h JOIN #chan"), out _);
+        // a live message (no batch tag) must NOT be captured - it is free to trigger
+        bool live = hb.Capture(IrcParser.Parse("@msgid=L1 :zoe!z@h PRIVMSG #chan :hi right now"), out _);
+        hb.OnBatch(IrcParser.Parse(":serv BATCH -bx"));              // close -> deliver to the waiter
+
+        bool ok = s1 && s2 && sJoin && !live
+            && r1 != null && r1.Msgid == "h1" && r1.Text == "baked a cake"
+            && w.Done.IsSet && w.Result.Count == 2                    // 2 PRIVMSGs (JOIN is suppressed, not collected)
+            && w.Result[0].Msgid == "h1" && w.Result[1].Nick == "bob";
+        return Expect("chathistory-batch-suppress-deliver", ok,
+            $"s1={s1} s2={s2} join={sJoin} live={live} done={w.Done.IsSet} n={w.Result.Count}");
+    }
+
+    /// <summary>A timed-out (abandoned) waiter must be skipped on delivery, so a late batch goes to a live
+    /// waiter instead of vanishing into a dead one.</summary>
+    private static int HistoryAbandonTest()
+    {
+        var hb = new HistoryBatches();
+        var dead = new HistoryBatches.Waiter { Target = "#x", Abandoned = true };
+        var live = new HistoryBatches.Waiter { Target = "#x" };
+        hb.Await(dead); hb.Await(live);
+        hb.OnBatch(IrcParser.Parse(":s BATCH +b chathistory #x"));
+        hb.Capture(IrcParser.Parse("@batch=b;msgid=z1 :n!u@h PRIVMSG #x :hi"), out _);
+        hb.OnBatch(IrcParser.Parse(":s BATCH -b"));
+        bool ok = !dead.Done.IsSet && live.Done.IsSet && live.Result.Count == 1 && live.Result[0].Msgid == "z1";
+        return Expect("chathistory-skip-abandoned", ok, $"deadSet={dead.Done.IsSet} liveN={live.Result.Count}");
+    }
+
+    /// <summary>Shrinking a Switch's case list orphans wires past the new end; PruneDeadWires drops exactly
+    /// those (and leaves in-range wires alone).</summary>
+    private static int SwitchPruneTest()
+    {
+        var g = new NodeGraph();
+        var msg = N(g, "event.message", 0, 0);
+        var sw = N(g, "logic.switch", 250, 0); sw.SetParam("cases", "[\"a\",\"b\",\"c\"]");
+        var r = N(g, "action.reply", 500, 0);
+        g.Connect(msg.Id, 0, sw.Id, 0);
+        bool wired = g.Connect(sw.Id, 3, r.Id, 0);   // wire to the last case "c" (pin 3)
+        int before = g.Connections.Count;
+        sw.SetParam("cases", "[\"a\"]");             // now only default(0) + "a"(1) exist; pin 3 is gone
+        int pruned = g.PruneDeadWires();
+        bool ok = wired && pruned == 1 && g.Connections.Count == before - 1
+            && !g.Connections.Any(c => c.FromNode == sw.Id && c.FromPin == 3);
+        return Expect("switch-prune-dead-wire", ok, $"wired={wired} pruned={pruned} left={g.Connections.Count}");
+    }
+
+    /// <summary>The Request History node calls into the history path and emits the messages as JSON on its
+    /// 'messages' output (here fed straight to a reply so we can read it).</summary>
+    private static int ChatHistoryNodeTest()
+    {
+        var g = new NodeGraph();
+        var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "hist");
+        var ch = N(g, "action.chathistory", 250, 0); ch.SetParam("target", "#chan");
+        var r = N(g, "action.reply", 500, 0);
+        g.Connect(cmd.Id, 0, ch.Id, 0);    // exec
+        g.Connect(ch.Id, 0, r.Id, 0);      // then -> reply exec
+        g.Connect(ch.Id, 1, r.Id, 1);      // messages (JSON) -> reply message
+
+        var s = new FakeSink();
+        s.HistorySeed.Add(new RecentMsg("amy", "#chan", "baked a cake", "h1"));
+        s.HistorySeed.Add(new RecentMsg("bob", "#chan", "nice one", "h2"));
+        GraphExecutor.Fire(g, s, cmd, Vars("!hist", "u", "#chan"));
+
+        bool ok = s.Sent.Count == 1
+            && s.Sent[0].text.Contains("\"id\":\"h1\"")
+            && s.Sent[0].text.Contains("baked a cake")
+            && s.Sent[0].text.Contains("\"nick\":\"bob\"");
+        return Expect("chathistory-node-json", ok, Dump(s));
+    }
+
     /// <summary>Plug-and-play inward MCP: Ask AI + a Workflow Editor node. The (mocked) model calls the
     /// add_node editor tool and it actually mutates a SANDBOXED workspace - never the user's ~/ircuitry.</summary>
     private static int AiEditorToolTest()
@@ -584,6 +673,12 @@ public static class SelfTest
             sw.SetParam("cases", "[\"red\",\"blue\",\"green\"]");
             var s3 = new FakeSink(); GraphExecutor.Fire(g, s3, msg, Vars("blue", "u", "#c"));
             fails += Expect("switch-add-case-stable", s3.Sent.Count == 1 && s3.Sent[0].text == "B", Dump(s3));
+            // a value with surrounding whitespace still matches a clean case (both sides trimmed)
+            var s4 = new FakeSink(); GraphExecutor.Fire(g, s4, msg, Vars("  blue  ", "u", "#c"));
+            fails += Expect("switch-trims-value", s4.Sent.Count == 1 && s4.Sent[0].text == "B", Dump(s4));
+            // a whitespace-only case row is ignored - no phantom pin (1 default + 2 real cases)
+            sw.SetParam("cases", "[\"red\",\"  \",\"blue\"]");
+            fails += Expect("switch-skips-blank-case", sw.Outputs.Length == 3, $"outs={sw.Outputs.Length}");
         }
 
         // Counter: Get -> Math(+1) -> Set, reply with new value (persists across fires)

@@ -23,9 +23,12 @@ public sealed class Node
     /// <summary>This instance's effective pins. Most nodes just expose their <see cref="NodeDef"/> pins, but a
     /// few (e.g. Switch) compute extra pins from their params via <see cref="NodeDef.DynInputs"/>/
     /// <see cref="NodeDef.DynOutputs"/>. Read pins through these everywhere (rendering, wiring, execution,
-    /// serialization) so per-instance pins are honoured. Cheap for static nodes (returns the Def array).</summary>
-    public PinDef[] Inputs => Def.DynInputs?.Invoke(this) ?? Def.Inputs;
-    public PinDef[] Outputs => Def.DynOutputs?.Invoke(this) ?? Def.Outputs;
+    /// serialization) so per-instance pins are honoured. Static nodes return the Def array directly; dynamic
+    /// nodes memoize the computed array (the rendering loop hits these every frame) and rebuild it whenever a
+    /// param changes via <see cref="SetParam"/>.</summary>
+    public PinDef[] Inputs => Def.DynInputs == null ? Def.Inputs : (_inCache ??= Def.DynInputs(this));
+    public PinDef[] Outputs => Def.DynOutputs == null ? Def.Outputs : (_outCache ??= Def.DynOutputs(this));
+    private PinDef[]? _inCache, _outCache;
 
     private static int _counter;
 
@@ -44,5 +47,5 @@ public sealed class Node
     }
 
     public string GetParam(string key) => Params.TryGetValue(key, out var v) ? v : "";
-    public void SetParam(string key, string val) => Params[key] = val;
+    public void SetParam(string key, string val) { Params[key] = val; _inCache = _outCache = null; }   // a param may change dynamic pins
 }

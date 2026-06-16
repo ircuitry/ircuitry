@@ -30,6 +30,9 @@ public sealed class ServerConn : IRuntimeSink
     private readonly List<System.Threading.Thread> _workers = new();
     private const int RunWorkers = 8;
 
+    // CHATHISTORY: collects batched history and delivers it to waiting nodes; its messages never trigger.
+    private readonly HistoryBatches _history = new();
+
     public string Label { get; private set; }
     public bool Running => _running;
     public IrcState State => _client.State;
@@ -175,6 +178,16 @@ public sealed class ServerConn : IRuntimeSink
     private void OnIrc(IrcMessage m)
     {
         if (!_running || _owner.RunGraph == null) return;
+
+        // IRCv3 CHATHISTORY: a BATCH line is never a trigger, and every message inside a chathistory batch is
+        // DATA ONLY - we record it for lookups and hand it to the requesting node, but fire NOTHING. This is
+        // what stops history (incl. messages from before we joined) from re-triggering message/join/etc nodes.
+        if (m.Is("BATCH")) { _history.OnBatch(m); return; }
+        if (_history.AnyOpen && _history.Capture(m, out var hrec))
+        {
+            if (hrec != null) _owner.RecordMessage(hrec.Nick, hrec.Channel, hrec.Text, hrec.Msgid);
+            return;
+        }
 
         if (m.Is("PRIVMSG"))
         {
@@ -547,6 +560,24 @@ public sealed class ServerConn : IRuntimeSink
     public void Part(string channel, string reason) => _client.Part(channel, reason);
     public void Raw(string line) => _client.SendRaw(line);
     public IReadOnlyList<RecentMsg> RecentMessages(int count) => _owner.RecentMessages(count);
+
+    public IReadOnlyList<RecentMsg> RequestHistory(string target, string sub, int count, int timeoutMs)
+    {
+        if (!_running) return System.Array.Empty<RecentMsg>();
+        target = target.Trim();
+        if (target.Length == 0) return System.Array.Empty<RecentMsg>();
+        count = Math.Clamp(count, 1, 1000);
+        sub = sub.Trim().ToUpperInvariant(); if (sub.Length == 0) sub = "LATEST";
+
+        var w = new HistoryBatches.Waiter { Target = target };
+        _history.Await(w);                                   // register BEFORE asking, so a fast batch isn't lost
+        _client.SendRaw($"CHATHISTORY {sub} {target} * {count}");
+        // a successful Wait() carries an acquire barrier, so Result (published before Done.Set()) is visible
+        // here; on timeout we mark the waiter abandoned and return empty rather than read Result unsynchronized.
+        if (w.Done.Wait(Math.Clamp(timeoutMs, 500, 30000))) return w.Result;
+        w.Abandoned = true;
+        return System.Array.Empty<RecentMsg>();
+    }
     public void StartTyping(string target)
     {
         if (string.IsNullOrEmpty(target) || !_client.HasCap("message-tags")) return;

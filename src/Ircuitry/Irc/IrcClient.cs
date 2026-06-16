@@ -22,7 +22,7 @@ public sealed class IrcClient
     {
         "message-tags", "server-time", "account-tag", "account-notify",
         "away-notify", "extended-join", "multi-prefix", "chghost", "sasl",
-        "draft/chathistory",
+        "draft/chathistory", "chathistory",   // request both the draft and ratified cap names
         "draft/bot-cmds", "draft/bot-tools", "batch",   // IRCv3 bot-tools spec
     };
 

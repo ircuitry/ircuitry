@@ -353,6 +353,8 @@ public static class GraphExecutor
             if (target.Length > 0 && msgid.Length > 0 && emoji.Length > 0) Out().React(target, msgid, emoji);
         }
         public IReadOnlyList<RecentMsg> RecentMessages(int count) => _run.Sink.RecentMessages(count);
+        public IReadOnlyList<RecentMsg> History(string target, string sub, int count, int timeoutMs)
+            => Out().RequestHistory(target, sub, count, timeoutMs);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

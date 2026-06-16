@@ -121,12 +121,20 @@ public static class NodeCatalog
         return new string(raw.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_').ToArray());
     }
 
+    // Serializes fetched history as a JSON array with friendly lowercase keys, so {item.text}/{item.id} work
+    // when wired into For Each, and an AI can read it directly.
+    private static string HistoryJson(System.Collections.Generic.IReadOnlyList<Ircuitry.Core.RecentMsg> msgs)
+        => System.Text.Json.JsonSerializer.Serialize(
+            msgs.Select(m => new { nick = m.Nick, channel = m.Channel, text = m.Text, id = m.Msgid }));
+
     // SuperAI's built-in IRC tool set: the model gets these whether or not anything is wired in, so a plain
     // "react to whoever asked about cake" goal works out of the box (find the message, then react by its id).
     private static List<Ai.ToolDef> SuperAiTools() => new()
     {
         new("recent_messages", "List the most recent messages the bot has seen. Each line is [id=...] #channel <nick> text - use the id to react to one.",
             new() { ("count", "how many to return (default 15)") }),
+        new("fetch_history", "Fetch OLDER messages from the server for a channel - including ones from before the bot joined. Same [id=...] format, so you can then react to one.",
+            new() { ("channel", "#channel (default: where this ran)"), ("count", "how many (default 30)") }),
         new("reply", "Reply in the channel or PM the bot was triggered from.",
             new() { ("text", "what to say") }),
         new("react", "Add an emoji reaction to a specific message, identified by the id from recent_messages.",
@@ -141,6 +149,16 @@ public static class NodeCatalog
             new() { ("channel", "#channel") }),
     };
 
+    // Renders a message list the way SuperAI reads it back: one "[id=...] #channel <nick> text" line each.
+    private static string FormatMsgs(System.Collections.Generic.IReadOnlyList<Ircuitry.Core.RecentMsg> msgs)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var m in msgs)
+            sb.Append("[id=").Append(m.Msgid.Length > 0 ? m.Msgid : "none").Append("] ")
+              .Append(m.Channel).Append(" <").Append(m.Nick).Append("> ").Append(m.Text).Append('\n');
+        return sb.ToString().TrimEnd();
+    }
+
     // Runs one SuperAI tool call against the live context and returns the text the model sees back.
     private static string SuperAiInvoke(INodeContext c, string name, Dictionary<string, string> args)
     {
@@ -151,12 +169,15 @@ public static class NodeCatalog
             {
                 int n = int.TryParse(A("count"), out var x) && x > 0 ? x : 15;
                 var msgs = c.RecentMessages(n);
-                if (msgs.Count == 0) return "(no recent messages seen yet)";
-                var sb = new System.Text.StringBuilder();
-                foreach (var m in msgs)
-                    sb.Append("[id=").Append(m.Msgid.Length > 0 ? m.Msgid : "none").Append("] ")
-                      .Append(m.Channel).Append(" <").Append(m.Nick).Append("> ").Append(m.Text).Append('\n');
-                return sb.ToString().TrimEnd();
+                return msgs.Count == 0 ? "(no recent messages seen yet)" : FormatMsgs(msgs);
+            }
+            case "fetch_history":
+            {
+                var ch = A("channel"); if (ch.Length == 0) ch = c.Var("channel");
+                int n = int.TryParse(A("count"), out var x) && x > 0 ? x : 30;
+                if (ch.Length == 0) return "(no channel to fetch history for)";
+                var msgs = c.History(ch, "LATEST", n, 8000);
+                return msgs.Count == 0 ? "(no history returned - the server may not support CHATHISTORY)" : FormatMsgs(msgs);
             }
             case "reply":
             {
@@ -738,18 +759,28 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.chathistory", Icon = "📜", Title = "Request History", Subtitle = "draft",
+                TypeId = "action.chathistory", Icon = "📜", Title = "Request History", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
-                Description = "Asks the server for recent messages of a target (draft/chathistory CHATHISTORY LATEST).",
+                Description = "Fetches a target's recent server history (IRCv3 CHATHISTORY), INCLUDING messages from before the bot joined. The history batch never triggers your message/join nodes - it just hands the messages back as JSON on 'messages'. Wire that into For Each or Ask AI. Each item has nick, channel, text and id.",
                 Inputs = new[] { Ex(), Ch("target") },
-                Outputs = new[] { Ex("then") },
-                Params = new[] { P("target", "Target", ParamType.Text, "", "#channel or nick"), P("count", "How many", ParamType.Int, "50", "50") },
+                Outputs = new[] { Ex("then"), Tx("messages") },
+                Params = new[]
+                {
+                    P("target", "Target", ParamType.Text, "", "#channel or nick (blank = where this ran)"),
+                    P("count", "How many", ParamType.Int, "50", "50"),
+                    P("timeout", "Wait up to (seconds)", ParamType.Int, "8", "8"),
+                },
                 SummaryParam = "target",
                 Exec = c =>
                 {
-                    var target = c.InOr(1, c.Resolve(c.Param("target"))); if (target.Length == 0) target = c.Var("replyto");
+                    var target = c.InOr(1, c.Resolve(c.Param("target")));
+                    if (target.Length == 0) target = c.Var("replyto");
+                    if (target.Length == 0) target = c.Var("channel");
                     int n = c.ParamInt("count", 50);
-                    if (target.Length > 0) c.Raw($"CHATHISTORY LATEST {target} * {n}");
+                    int to = Math.Clamp(c.ParamInt("timeout", 8), 1, 30) * 1000;
+                    var msgs = target.Length > 0 ? c.History(target, "LATEST", n, to)
+                                                 : (System.Collections.Generic.IReadOnlyList<Ircuitry.Core.RecentMsg>)System.Array.Empty<Ircuitry.Core.RecentMsg>();
+                    c.SetOut(1, HistoryJson(msgs));
                     c.Pulse(0);
                 },
             },
@@ -1381,7 +1412,7 @@ public static class NodeCatalog
                     var cases = Ircuitry.Core.ParamList.Values(c.Param("cases")).ToList();
                     string raw = c.Param("value");
                     string fallback = c.Var("command").Length > 0 ? c.Var("command") : c.Var("message");
-                    var v = c.InOr(1, raw.Length > 0 ? c.Resolve(raw) : fallback);
+                    var v = c.InOr(1, raw.Length > 0 ? c.Resolve(raw) : fallback).Trim();
                     var cmp = c.ParamBool("ci") ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
                     for (int i = 0; i < cases.Count; i++)
                         if (string.Equals(v, c.Resolve(cases[i]).Trim(), cmp)) { c.Pulse(i + 1); return; }

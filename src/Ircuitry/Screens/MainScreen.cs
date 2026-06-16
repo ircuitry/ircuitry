@@ -2136,7 +2136,13 @@ public sealed partial class MainScreen : IScreen
                 default:
                     next = _ui.TextField(id, new RectF(x, y, w, 30), cur, pdef.Placeholder); y += 40; break;
             }
-            if (next != cur) { n.SetParam(pdef.Key, next); _app.MarkDirty(); }
+            if (next != cur)
+            {
+                n.SetParam(pdef.Key, next);
+                // a param can change a node's dynamic pins (e.g. Switch cases); drop any wire left dangling
+                if (n.Def.DynOutputs != null || n.Def.DynInputs != null) Bot.Graph.PruneDeadWires();
+                _app.MarkDirty();
+            }
 
             string hint = ParamHint(pdef.Key, next);
             if (hint.Length > 0)
