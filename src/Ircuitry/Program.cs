@@ -93,6 +93,46 @@ public static class Program
                 Environment.Exit(0);
                 return;
             }
+            int ti = Array.IndexOf(args, "--emit-nodetypes");
+            if (ti >= 0)
+            {
+                // compact pin/category/icon schema for every BUILT-IN node type, so the website's graph
+                // viewer can draw inner nodes faithfully (community-node pins come from the gallery index).
+                string path = ti + 1 < args.Length && !args[ti + 1].StartsWith("--") ? args[ti + 1] : "nodetypes.json";
+                var types = new System.Text.Json.Nodes.JsonObject();
+                foreach (var d in Ircuitry.Graph.NodeCatalog.All)
+                {
+                    if (Ircuitry.Graph.NodeCatalog.IsCustom(d.TypeId)) continue;
+                    System.Text.Json.Nodes.JsonArray Pins(Ircuitry.Graph.PinDef[] pins)
+                    {
+                        var a = new System.Text.Json.Nodes.JsonArray();
+                        foreach (var p in pins)
+                            a.Add(new System.Text.Json.Nodes.JsonArray(
+                                (System.Text.Json.Nodes.JsonNode)p.Name,
+                                (System.Text.Json.Nodes.JsonNode)p.Kind.ToString()));
+                        return a;
+                    }
+                    types[d.TypeId] = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["t"] = (System.Text.Json.Nodes.JsonNode)d.Title,
+                        ["c"] = (System.Text.Json.Nodes.JsonNode)d.Category.ToString(),
+                        ["i"] = (System.Text.Json.Nodes.JsonNode)d.Icon,
+                        ["g"] = (System.Text.Json.Nodes.JsonNode)d.IsTrigger,
+                        ["in"] = Pins(d.Inputs),
+                        ["out"] = Pins(d.Outputs),
+                    };
+                }
+                var ntDoc = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["app"] = "ircuitry",
+                    ["version"] = App.AppInfo.Version,
+                    ["types"] = types,
+                };
+                File.WriteAllText(path, ntDoc.ToJsonString() + "\n");
+                Console.WriteLine($"wrote {path} ({types.Count} node types, v{App.AppInfo.Version})");
+                Environment.Exit(0);
+                return;
+            }
         }
         if (Array.IndexOf(args, "--schema") >= 0)
         {
