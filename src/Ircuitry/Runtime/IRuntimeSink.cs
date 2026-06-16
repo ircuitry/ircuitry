@@ -19,6 +19,14 @@ public interface IRuntimeSink
     void Part(string channel, string reason);
     void Raw(string line);
 
+    /// <summary>Accept a DCC file offer (active connect, or passive listen + reverse offer) and download to
+    /// <paramref name="savePath"/> on a background worker. No-op on sinks without a live server (dry runs/tests).</summary>
+    void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath) { }
+
+    /// <summary>Offer a file to a nick via DCC SEND (listen, advertise via CTCP, stream on connect). No-op on
+    /// sinks without a live server.</summary>
+    void DccSend(string toNick, string filePath, string advertiseIp) { }
+
     /// <summary>Begin an IRCv3 typing indicator (+typing=active) to a target, resent on a cadence
     /// until <see cref="StopTyping"/> or the end of the workflow run.</summary>
     void StartTyping(string target);

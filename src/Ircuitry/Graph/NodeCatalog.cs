@@ -162,6 +162,19 @@ public static class NodeCatalog
     private static ParamDef RootParam() => P("root", "Codebase folder", ParamType.Text, "",
         "~/projects/mybot · all paths are relative to this and can't escape it");
 
+    /// <summary>Where an accepted DCC file lands: blank → ~/ircuitry/files/dcc/&lt;name&gt;; a folder → that
+    /// folder + the offered name; otherwise the given path IS the file. The offered name is always sanitised.</summary>
+    private static string DccSavePath(string given, string offeredFile)
+    {
+        string file = Ircuitry.Net.Dcc.SanitizeName(offeredFile);
+        given = (given ?? "").Trim();
+        if (given.Length == 0) return Path.Combine(FilesDir, "dcc", file);
+        if (given.StartsWith("~")) given = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + given[1..];
+        string full = Path.IsPathRooted(given) ? given : Path.Combine(FilesDir, given);
+        if (Directory.Exists(full) || given.EndsWith("/") || given.EndsWith("\\")) return Path.Combine(full, file);
+        return full;
+    }
+
     /// <summary>The Programmer AI's system prompt: a senior-engineer persona that never reveals the sandbox
     /// root, the zip-and-upload behind send_codebase, or any filehost details - it just knows it can edit the
     /// codebase and deliver it.</summary>
@@ -2116,6 +2129,92 @@ public static class NodeCatalog
                 Params = new[] { P("op", "Op", ParamType.Choice, "rainbow", "", new[] { "rainbow", "strip", "bold", "italic", "underline" }) },
                 SummaryParam = "op",
                 Exec = c => c.SetOut(0, TextTools.IrcColor(c.Param("op"), c.In(0))),
+            },
+            // ===================== DCC (direct client-to-client file transfer) =====================
+            new()
+            {
+                TypeId = "event.dcc", Icon = "📡", Title = "On DCC Offer", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "dcc",
+                Description = "Fires when a user offers a DCC transfer over IRC - a direct file SEND, or a CHAT/RESUME/ACCEPT negotiation. Decide what to do with Accept DCC File or Decline DCC. Exposes {dcc.file} {dcc.size} {dcc.ip} {dcc.port} {dcc.token} {dcc.type} and {nick}.",
+                Outputs = new[] { Ex("then"), Tx("filename"), Nm("size"), Us("nick"), Tx("type") },
+                Params = new[] { P("only", "Only", ParamType.Choice, "send", "", new[] { "any", "send", "chat", "resume", "accept" }) },
+                SummaryParam = "only",
+                Exec = c =>
+                {
+                    string ty = c.Var("dcc.type");
+                    string only = c.Param("only");
+                    if (only.Length > 0 && only != "any" && !only.Equals(ty, StringComparison.OrdinalIgnoreCase)) return;
+                    c.SetOut(1, c.Var("dcc.file"));
+                    c.SetOut(2, c.Var("dcc.size"));
+                    c.SetOut(3, c.Var("nick"));
+                    c.SetOut(4, ty);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "dcc.accept", Icon = "📂", Title = "Accept DCC File", Subtitle = "dcc",
+                Category = NodeCategory.Action,
+                Description = "Accepts the DCC file offer that triggered this flow and downloads it - you choose where it lands. Blank path = ~/ircuitry/files/dcc/. A folder saves it there under the offered name; a full path names the file. The transfer runs in the background and logs when it finishes.",
+                Inputs = new[] { Ex(), Tx("save to") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("path", "Save to (file or folder)", ParamType.Text, "", "blank = ~/ircuitry/files/dcc/ · or a folder · or a full path") },
+                SummaryParam = "path",
+                Exec = c =>
+                {
+                    if (c.Var("dcc.type") != "send")
+                    {
+                        c.Log("Accept DCC: the triggering offer wasn't a file SEND - nothing to accept", LogLevel.Error);
+                        c.Pulse(0); return;
+                    }
+                    string nick = c.Var("nick"), ip = c.Var("dcc.ip"), token = c.Var("dcc.token");
+                    int port = int.TryParse(c.Var("dcc.port"), out var pp) ? pp : 0;
+                    long size = long.TryParse(c.Var("dcc.size"), out var sz) ? sz : 0;
+                    string savePath = DccSavePath(c.InOr(1, c.Resolve(c.Param("path"))), c.Var("dcc.file"));
+                    c.DccReceive(nick, ip, port, size, token, savePath);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "dcc.reject", Icon = "🚫", Title = "Decline DCC", Subtitle = "dcc",
+                Category = NodeCategory.Action,
+                Description = "Declines the DCC offer that triggered this flow (DCC has no formal 'no' - we simply don't connect, and optionally send the sender a notice).",
+                Inputs = new[] { Ex() },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("notice", "Notice (optional)", ParamType.Text, "", "sorry, I'm not accepting files") },
+                SummaryParam = "notice",
+                Exec = c =>
+                {
+                    string nick = c.Var("nick");
+                    string msg = c.Resolve(c.Param("notice"));
+                    if (nick.Length > 0 && msg.Length > 0) c.Notice(nick, msg);
+                    c.Log($"DCC offer from {(nick.Length > 0 ? nick : "someone")} declined", LogLevel.Action);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "dcc.send", Icon = "📤", Title = "Send File (DCC)", Subtitle = "dcc",
+                Category = NodeCategory.Action,
+                Description = "Offers a file to a user over DCC: the bot listens on a port, sends the DCC SEND, and streams the file when they accept. Relative paths live under ~/ircuitry/files. Note: the receiver connects back to this machine, so a public IP / port-forwarding may be needed across the internet.",
+                Inputs = new[] { Ex(), Us("nick"), Tx("file") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("nick", "To nick", ParamType.Text, "", "{nick}"),
+                    P("file", "File path", ParamType.Text, "", "report.pdf or /abs/path"),
+                    P("ip", "Advertise IP (optional)", ParamType.Text, "", "blank = auto-detect this machine"),
+                },
+                SummaryParam = "file",
+                Exec = c =>
+                {
+                    string nick = c.InOr(1, c.Resolve(c.Param("nick")));
+                    string file = ResolveFile(c.InOr(2, c.Resolve(c.Param("file"))));
+                    if (nick.Length == 0 || file.Length == 0) { c.Log("DCC send: need a nick and a file", LogLevel.Error); c.Pulse(0); return; }
+                    c.DccSend(nick, file, c.Resolve(c.Param("ip")));
+                    c.Pulse(0);
+                },
             },
             new()
             {

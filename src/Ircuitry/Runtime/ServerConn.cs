@@ -205,6 +205,22 @@ public sealed class ServerConn : IRuntimeSink
             if (nick.Equals(CurrentNick, StringComparison.OrdinalIgnoreCase)) return; // ignore self
             string target = m.P(0);
             string text = m.Trailing;
+
+            // CTCP DCC (file transfer / chat negotiation) - not a chat message; route it to On DCC nodes
+            if (text.Length > 5 && text[0] == '\x01' && text.StartsWith("\x01DCC ", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Ircuitry.Net.Dcc.TryParse(text.Trim('\x01'), out var off))
+                {
+                    var dv = BaseVars();
+                    dv["nick"] = nick; dv["user"] = m.User ?? ""; dv["host"] = m.Host ?? ""; dv["replyto"] = nick;
+                    dv["dcc.type"] = off.Type; dv["dcc.file"] = off.File; dv["dcc.size"] = off.Size.ToString();
+                    dv["dcc.ip"] = off.Ip; dv["dcc.port"] = off.Port.ToString(); dv["dcc.token"] = off.Token;
+                    dv["dcc.position"] = off.Position.ToString();
+                    FireFamily("dcc", dv);
+                }
+                return;
+            }
+
             bool toChannel = target.StartsWith('#') || target.StartsWith('&');
             var vars = BaseVars();
             vars["nick"] = nick;
@@ -582,6 +598,75 @@ public sealed class ServerConn : IRuntimeSink
     public void Join(string channel) => _client.Join(channel);
     public void Part(string channel, string reason) => _client.Part(channel, reason);
     public void Raw(string line) => _client.SendRaw(line);
+
+    // ---- DCC: direct file transfer over a side TCP socket, negotiated by CTCP over IRC ----
+    private static void Bg(string name, Action job) => new System.Threading.Thread(() => job()) { IsBackground = true, Name = name }.Start();
+
+    public void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath)
+    {
+        string label = System.IO.Path.GetFileName(savePath);
+        Bg("dcc-recv", () =>
+        {
+            try
+            {
+                System.Net.Sockets.TcpClient tcp;
+                if (port == 0 && token.Length > 0)   // passive / reverse DCC: we listen, then send a reverse offer
+                {
+                    var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Any, 0);
+                    listener.Start();
+                    int p = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+                    ulong ipInt = Ircuitry.Net.Dcc.IpToInt(Ircuitry.Net.Dcc.LocalIp());
+                    _client.SendRaw($"PRIVMSG {fromNick} :\x01DCC SEND {Ircuitry.Net.Dcc.QuoteName(label)} {ipInt} {p} {size} {token}\x01");
+                    Log($"DCC: waiting for {fromNick} to connect for {label}…", LogLevel.System);
+                    var at = listener.AcceptTcpClientAsync();
+                    bool ok = at.Wait(90000);
+                    listener.Stop();
+                    if (!ok) { Log($"DCC: {fromNick} never connected for {label}", LogLevel.Error); return; }
+                    tcp = at.Result;
+                }
+                else   // active DCC: connect to the IP/port the sender advertised
+                {
+                    tcp = new System.Net.Sockets.TcpClient();
+                    var ct = tcp.ConnectAsync(System.Net.IPAddress.Parse(ip), port);
+                    if (!ct.Wait(30000) || !tcp.Connected) { Log($"DCC: couldn't reach {ip}:{port} for {label}", LogLevel.Error); tcp.Dispose(); return; }
+                }
+                using (tcp)
+                {
+                    long got = Ircuitry.Net.Dcc.StreamIn(tcp.GetStream(), savePath, size);
+                    Log($"DCC: received {label} ({got} bytes) → {savePath}", LogLevel.System);
+                }
+            }
+            catch (Exception ex) { Log($"DCC receive failed: {ex.Message}", LogLevel.Error); }
+        });
+    }
+
+    public void DccSend(string toNick, string filePath, string advertiseIp)
+    {
+        if (!System.IO.File.Exists(filePath)) { Log($"DCC send: no such file '{filePath}'", LogLevel.Error); return; }
+        long size = new System.IO.FileInfo(filePath).Length;
+        string name = System.IO.Path.GetFileName(filePath);
+        Bg("dcc-send", () =>
+        {
+            try
+            {
+                var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Any, 0);
+                listener.Start();
+                int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+                string ip = advertiseIp.Trim().Length > 0 ? advertiseIp.Trim() : Ircuitry.Net.Dcc.LocalIp();
+                ulong ipInt = Ircuitry.Net.Dcc.IpToInt(ip);
+                _client.SendRaw($"PRIVMSG {toNick} :\x01DCC SEND {Ircuitry.Net.Dcc.QuoteName(name)} {ipInt} {port} {size}\x01");
+                Log($"DCC: offering {name} ({size} bytes) to {toNick}…", LogLevel.System);
+                var at = listener.AcceptTcpClientAsync();
+                bool ok = at.Wait(120000);
+                listener.Stop();
+                if (!ok) { Log($"DCC: {toNick} never accepted {name}", LogLevel.Error); return; }
+                using var tcp = at.Result;
+                long sent = Ircuitry.Net.Dcc.StreamOut(tcp.GetStream(), filePath);
+                Log($"DCC: sent {name} ({sent} bytes) to {toNick}", LogLevel.System);
+            }
+            catch (Exception ex) { Log($"DCC send failed: {ex.Message}", LogLevel.Error); }
+        });
+    }
     public IReadOnlyList<RecentMsg> RecentMessages(int count) => _owner.RecentMessages(count);
 
     public string IrcInfo(string what, string channel)

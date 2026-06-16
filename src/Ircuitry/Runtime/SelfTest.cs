@@ -161,8 +161,53 @@ public static class SelfTest
         fails += ParamListAddTest();
         fails += ToolkitTest();
         fails += BotMergeTest();
+        fails += DccTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
+        return fails;
+    }
+
+    /// <summary>DCC: CTCP offer parsing, the 32-bit IP conversion, filename sanitising, and a real loopback
+    /// file transfer through the StreamOut/StreamIn engine (acks and all).</summary>
+    private static int DccTest()
+    {
+        int fails = 0;
+        fails += Expect("dcc-ip", Ircuitry.Net.Dcc.IpFromInt(2130706433) == "127.0.0.1" && Ircuitry.Net.Dcc.IpToInt("127.0.0.1") == 2130706433, "");
+        fails += Expect("dcc-parse-send",
+            Ircuitry.Net.Dcc.TryParse("DCC SEND \"my file.txt\" 2130706433 5000 1234", out var o)
+            && o.Type == "send" && o.File == "my file.txt" && o.Ip == "127.0.0.1" && o.Port == 5000 && o.Size == 1234, "");
+        fails += Expect("dcc-parse-passive",
+            Ircuitry.Net.Dcc.TryParse("DCC SEND pic.png 0 0 900 tok7", out var pv) && pv.Port == 0 && pv.Token == "tok7", "");
+        fails += Expect("dcc-parse-bad", !Ircuitry.Net.Dcc.TryParse("VERSION", out _), "");
+        fails += Expect("dcc-sanitize", Ircuitry.Net.Dcc.SanitizeName("../../etc/passwd") == "passwd", "");
+
+        try
+        {
+            string src = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-dcc-src-" + System.Guid.NewGuid().ToString("N"));
+            string dst = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-dcc-dst-" + System.Guid.NewGuid().ToString("N"));
+            var data = new byte[9001];
+            for (int i = 0; i < data.Length; i++) data[i] = (byte)(i * 7);
+            System.IO.File.WriteAllBytes(src, data);
+
+            var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+            listener.Start();
+            int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+            var sender = new System.Threading.Thread(() => { try { using var s = listener.AcceptTcpClient(); Ircuitry.Net.Dcc.StreamOut(s.GetStream(), src); } catch { } }) { IsBackground = true };
+            sender.Start();
+            long got;
+            using (var cli = new System.Net.Sockets.TcpClient())
+            {
+                cli.Connect(System.Net.IPAddress.Loopback, port);
+                got = Ircuitry.Net.Dcc.StreamIn(cli.GetStream(), dst, data.Length);
+            }
+            sender.Join(3000);
+            listener.Stop();
+            var rec = System.IO.File.ReadAllBytes(dst);
+            fails += Expect("dcc-xfer-size", got == data.Length, $"got {got}");
+            fails += Expect("dcc-xfer-bytes", rec.Length == data.Length && rec.AsSpan().SequenceEqual(data), "content mismatch");
+            try { System.IO.File.Delete(src); System.IO.File.Delete(dst); } catch { }
+        }
+        catch (Exception ex) { fails += Expect("dcc-xfer-nothrow", false, ex.Message); }
         return fails;
     }
 

@@ -77,6 +77,14 @@ public interface INodeContext
     void Join(string channel);
     void Part(string channel, string reason);
     void Raw(string line);
+
+    /// <summary>Accept an incoming DCC file offer: active (connect to ip:port) or passive (port 0 + token).
+    /// Downloads <paramref name="size"/> bytes to <paramref name="savePath"/> on a background worker.</summary>
+    void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath);
+
+    /// <summary>Send a file to <paramref name="toNick"/> via DCC SEND: listen on a port, advertise it via CTCP,
+    /// stream the file when they connect. Blank <paramref name="advertiseIp"/> auto-detects this machine's IP.</summary>
+    void DccSend(string toNick, string filePath, string advertiseIp);
     void StartTyping(string target);           // IRCv3 +typing indicator until stopped / workflow end
     void StopTyping(string target);
 
