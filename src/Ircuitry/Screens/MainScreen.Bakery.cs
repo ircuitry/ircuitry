@@ -245,9 +245,9 @@ public partial class MainScreen
         r.Glow(win.Center, 70f, Theme.WithAlpha(Theme.AmberBright, (0.25f + 0.18f * breath) * a));
         r.End();
 
-        // ---- orbiting clock (time passing) ----
-        float orbit = t * 1.6f;
-        var clockPos = center + new Vector2(MathF.Cos(orbit), MathF.Sin(orbit) * 0.55f) * 128f + new Vector2(0, -36);
+        // ---- a clock perched above-left of the oven, jittering in place (time ticking down) ----
+        var shake = new Vector2(MathF.Sin(t * 27f) + 0.4f * MathF.Sin(t * 43f), MathF.Sin(t * 33f + 1.3f)) * 2.4f;
+        var clockPos = new Vector2(body.X - 6f, body.Y - 20f) + shake;
         float cr = 22f;
         r.Begin(BlendMode.Add);
         r.Glow(clockPos, 30f, Theme.WithAlpha(Theme.CyanBright, 0.35f * a));
