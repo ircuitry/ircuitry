@@ -115,6 +115,14 @@ public sealed class IrcuitryGame : Game
         if (_demo) StartDemo();
         var ms = _screen as MainScreen;
 
+        // custom client-side title bar: drop the OS frame and draw our own (Linux/Windows). macOS keeps its
+        // native traffic-light frame, so we leave it bordered there and simply don't draw window controls.
+        if (ms != null)
+        {
+            ms.WindowHandle = Window.Handle;
+            if (!OperatingSystem.IsMacOS()) Ircuitry.Core.Sdl.EnableCustomChrome(Window.Handle);
+        }
+
         // interactive runs: start maximized, and make the window's X prompt (exit / minimise) instead of quitting
         if (_shotPath == null && ms != null)
         {

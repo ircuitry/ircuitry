@@ -511,7 +511,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugShowServers() { _l = Layout.Compute(_vw, _vh, _consoleH); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
     public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh, _consoleH); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
-    public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenFileMenu(new Vector2(_vw - 360, _l.Tabs.Bottom + 3)); }
+    public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenFileMenu(new Vector2(_vw - 360, _l.Titlebar.Bottom + 3)); }
     public void DebugCommandPalette() { OpenCommandPalette(); _cmdkQuery = "se"; _cmdkJustOpened = true; }
     public void DebugLibraryPrefs()
     {
@@ -694,9 +694,9 @@ public sealed partial class MainScreen : IScreen
         Hud.Panel(r, _l.Inspector, "Inspector", Theme.Amber);
         Hud.Panel(r, _l.Console, "Event Console", Theme.Lime);
         ConsoleHeaderStats(r, _l.Console);
-        TopBar(r, _l.TopBar, clock);
+        DrawToolbar(r, clock);
         StatusBar(r, _l.StatusBar, clock);
-        DrawTabs(r, clock);
+        DrawTitlebar(r, clock);
         r.End();
 
         // ---------- panel contents (scissored) ----------
@@ -1118,79 +1118,6 @@ public sealed partial class MainScreen : IScreen
     }
 
     // ===================================================================
-    private void DrawTabs(Renderer r, Clock clock)
-    {
-        var bar = _l.Tabs;
-        var tf = r.Fonts.Get(FontKind.Display, 13);
-        float x = bar.X;
-
-        for (int i = 0; i < _app.Bots.Count; i++)
-        {
-            var bot = _app.Bots[i];
-            bool active = i == _app.Active;
-            bool renaming = _renamingBot == bot;
-            float w = renaming ? 220 : Math.Min(220, tf.MeasureString(bot.Name).X + 58);
-            var tab = new RectF(x, bar.Y, w, bar.H);
-            var col = StatusColor(bot.Runtime);
-
-            r.RoundFill(tab, active ? Theme.PanelHi : Theme.PanelLo, 8f);
-            r.RoundOutline(tab, renaming ? Theme.Amber : active ? Theme.WithAlpha(Theme.Cyan, 0.9f) : Theme.Hairline, 8f);
-            if (active) r.Fill(new RectF(tab.X + 8, tab.Bottom - 3, tab.W - 16, 2), Theme.Cyan);
-            Hud.SoftDot(r, new Vector2(tab.X + 15, tab.Center.Y), 3.2f, col);
-
-            if (renaming)
-            {
-                // inline editor - Enter or click-away commits; Esc cancels (handled in Update)
-                var nm = _ui.TextField("tab.rename", new RectF(tab.X + 24, tab.Y + 4, tab.W - 32, tab.H - 8), bot.Name, "bot name");
-                if (nm != bot.Name) { bot.Name = string.IsNullOrWhiteSpace(nm) ? bot.Name : nm; _app.MarkDirty(); }
-                if (_ui.Focus != "tab.rename") _renamingBot = null;   // committed / blurred
-                x += w + 6;
-                continue;
-            }
-
-            r.Text(tf, r.Ellipsize(tf, bot.Name, w - 50), new Vector2(tab.X + 26, tab.Center.Y - tf.MeasureString(bot.Name).Y / 2f), active ? Theme.Text : Theme.TextDim);
-
-            // close button - drawn procedurally (the ✕ glyph isn't in the UI font), only when >1 bot
-            bool canClose = _app.Bots.Count > 1;
-            var xc = new Vector2(tab.Right - 14, tab.Center.Y);
-            var xhit = new RectF(xc.X - 10, tab.Y, 20, tab.H);
-            bool xHover = canClose && xhit.Contains(In.Mouse);
-            if (canClose)
-            {
-                if (xHover) r.Disc(xc, 9f, Theme.WithAlpha(Theme.Alert, 0.2f));
-                var xcol = xHover ? Theme.Alert : active ? Theme.TextDim : Theme.TextFaint;
-                const float s = 3.5f;
-                r.Line(new Vector2(xc.X - s, xc.Y - s), new Vector2(xc.X + s, xc.Y + s), xcol, 1.8f);
-                r.Line(new Vector2(xc.X - s, xc.Y + s), new Vector2(xc.X + s, xc.Y - s), xcol, 1.8f);
-            }
-
-            if (!Modal && In.LeftPressed && tab.Contains(In.Mouse))
-            {
-                if (xHover) { _confirmDeleteBot = bot; _confirmJustOpened = true; }   // confirm before deleting
-                else
-                {
-                    bool dbl = _tabClickBot == bot && clock.Time - _tabClickTime < 0.35f;
-                    _tabClickBot = bot; _tabClickTime = clock.Time;
-                    if (!active) { _app.SetActive(i); _editor.Selection.Clear(); }
-                    if (dbl) { _renamingBot = bot; _ui.Focus = "tab.rename"; }   // double-click → rename
-                }
-                return; // collection/active may change - bail this frame
-            }
-            x += w + 6;
-        }
-
-        if (_ui.Button("tab.add", new RectF(x, bar.Y, 36, bar.H), "+", Theme.Cyan))
-        { _templateOpen = true; _templateJustOpened = true; }
-
-        // right cluster: two cozy dropdowns instead of a row of big buttons
-        float rx = bar.Right;
-        RectF Slot(float ww) { var rr = new RectF(rx - ww, bar.Y, ww, bar.H); rx -= ww + 6; return rr; }
-        var moreR = Slot(78);
-        if (_ui.Button("tab.more", moreR, "⋯ More", Theme.Violet)) OpenMoreMenu(new Vector2(moreR.X, moreR.Bottom + 3));
-        var fileR = Slot(84);
-        if (_ui.Button("tab.file", fileR, _app.Dirty ? "📁 File ●" : "📁 File", _app.Dirty ? Theme.Amber : Theme.Cyan))
-            OpenFileMenu(new Vector2(fileR.X, fileR.Bottom + 3));
-    }
 
     // The File dropdown: workspace save/snapshots + per-bot export/import. Reuses the context-menu popover.
     private void OpenFileMenu(Vector2 anchor)
@@ -2695,7 +2622,7 @@ public sealed partial class MainScreen : IScreen
         float runX = bar.W - 22 - clockW - 16 - 150;
         float histX = runX - 12 - 128;
         float applyX = histX - 12 - 94 - 12 - 110;   // stable slot whether or not APPLY is shown
-        var rect = new RectF(applyX - 12 - 40, 12, 40, 32);
+        var rect = new RectF(applyX - 12 - 40, bar.Y + 6, 40, 32);
         if (_ui.Button("top.bell", rect, "🔔", _notifUnread > 0 ? Theme.Amber : Theme.Idle))
         { _notifOpen = !_notifOpen; _notifJustOpened = true; _notifUnread = 0; _notifScroll = 0; }
         if (_notifUnread > 0)
@@ -2962,45 +2889,13 @@ public sealed partial class MainScreen : IScreen
     // ===================================================================
 
     // ===================================================================
-    private void TopBar(Renderer r, RectF bar, Clock clock)
-    {
-        r.Fill(bar, Theme.PanelHi);
-        r.HLine(0, bar.W, bar.Bottom, Theme.WithAlpha(Theme.Cyan, 0.6f), 1.5f);
-        r.HLine(0, bar.W, bar.Bottom + 1.5f, Theme.WithAlpha(Theme.Cyan, 0.12f), 3f);
-
-        float bx = 20;
-        if (r.Brand != null)
-        {
-            float isz = MathF.Min(36f, bar.H - 12f);
-            r.Image(r.Brand, new RectF(bx, (bar.H - isz) / 2f, isz, isz));
-            bx += isz + 10;
-        }
-        var brand = r.Fonts.Get(FontKind.Display, 30);
-        var bsz = brand.MeasureString("ircuitry");
-        r.Text(brand, "ircuitry", new Vector2(bx, (bar.H - bsz.Y) / 2f - 1), Theme.Mix(Theme.Cyan, Theme.Text, 0.3f));
-        float tagX = bx + bsz.X + 14;
-        r.Text(r.Fonts.Get(FontKind.Sans, 13), "· IRCv3 Bot Bakery", new Vector2(tagX, bar.H / 2f - 9), Theme.Mix(Theme.Amber, Theme.Text, 0.25f));
-        r.Text(r.Fonts.Get(FontKind.Sans, 11), "v" + Ircuitry.App.AppInfo.Version, new Vector2(tagX, bar.H / 2f + 8), Theme.TextFaint);
-
-        var pf = r.Fonts.Get(FontKind.SansBold, 14);
-        r.TextCenteredX(pf, _app.ProjectName + (_app.Dirty ? " *" : ""), bar.W / 2f, bar.H / 2f - 8, Theme.Text);
-
-        var time = DateTime.Now.ToString("HH:mm:ss");
-        var tf = r.Fonts.Get(FontKind.SansBold, 16);
-        r.TextRight(tf, time, bar.W - 22, bar.H / 2f - 9, Theme.TextDim);
-
-        var (label, col, pulse) = StatusInfo();
-        float clockW = tf.MeasureString(time).X;
-        var pillRect = new RectF(bar.W - 22 - clockW - 16 - 150 - 12 - 150, 14, 150, 28);
-        Hud.Pill(r, pillRect, label, col, clock, pulse);
-    }
 
     private void RunButton(Renderer r, Clock clock)
     {
         var bar = _l.TopBar;
         var tf = r.Fonts.Get(FontKind.SansBold, 16);
         float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
-        var rect = new RectF(bar.W - 22 - clockW - 16 - 150, 12, 150, 32);
+        var rect = new RectF(bar.W - 22 - clockW - 16 - 150, bar.Y + 6, 150, 32);
         bool running = Bot.Runtime.Running;
         if (_ui.Button("top.run", rect, running ? "■ STOP BOT" : "▶ RUN BOT", running ? Theme.Alert : Theme.Cyan, primary: true))
             ToggleRun();
@@ -3013,7 +2908,7 @@ public sealed partial class MainScreen : IScreen
         float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
         float runX = bar.W - 22 - clockW - 16 - 150;
         float histX = runX - 12 - 128;
-        var rect = new RectF(histX - 12 - 94, 12, 94, 32);   // dry-run test, sat next to RUN BOT
+        var rect = new RectF(histX - 12 - 94, bar.Y + 6, 94, 32);   // dry-run test, sat next to RUN BOT
         if (_ui.Button("top.test", rect, "🧪 TEST", Theme.Cyan)) { _testOpen = true; _testJustOpened = true; RunTest(); }
     }
 
@@ -3025,7 +2920,7 @@ public sealed partial class MainScreen : IScreen
         float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
         float runX = bar.W - 22 - clockW - 16 - 150;
         float histX = runX - 12 - 128;
-        var rect = new RectF(histX - 12 - 94 - 12 - 110, 12, 110, 32);
+        var rect = new RectF(histX - 12 - 94 - 12 - 110, bar.Y + 6, 110, 32);
         if (_ui.Button("top.apply", rect, "⟲ APPLY", Theme.Ok, primary: true))
             Bot.Runtime.ApplyGraph(Bot.Graph);
     }
@@ -3037,7 +2932,7 @@ public sealed partial class MainScreen : IScreen
         float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
         float runX = bar.W - 22 - clockW - 16 - 150;
         int count = Bot.Runtime.HistoryCount;
-        var rect = new RectF(runX - 12 - 128, 12, 128, 32);
+        var rect = new RectF(runX - 12 - 128, bar.Y + 6, 128, 32);
         if (_ui.Button("top.hist", rect, count > 0 ? $"⟲ HISTORY {count}" : "⟲ HISTORY", Theme.Amber))
             OpenHistory();
     }

@@ -82,7 +82,7 @@ public sealed partial class MainScreen
     }
 
     // TEST button lives in the top tab bar's right cluster: [TIDY 80][TEST 86] from the right edge.
-    private RectF TestButtonRect() => new(_l.Tabs.Right - 172, _l.Tabs.Y, 86, _l.Tabs.H);
+    private RectF TestButtonRect() => new(_l.TopBar.Right - 172, _l.TopBar.Y, 86, _l.TopBar.H);
 
     private void OnTutEnter(int step)
     {
