@@ -23,7 +23,7 @@ public readonly struct NodeLayout
 
     public static NodeLayout For(Node n)
     {
-        int rows = Math.Max(1, Math.Max(n.Def.Inputs.Length, n.Def.Outputs.Length));
+        int rows = Math.Max(1, Math.Max(n.Inputs.Length, n.Outputs.Length));
         bool summary = n.Def.SummaryParam != null;
         float h = Header + rows * RowH + (summary ? SummaryH : 0) + BottomPad;
         return new NodeLayout(new RectF(n.Pos.X, n.Pos.Y, Width, h), rows, summary);

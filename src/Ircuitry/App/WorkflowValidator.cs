@@ -26,8 +26,10 @@ public static class WorkflowValidator
         if (!root.TryGetProperty("name", out var nameEl) || string.IsNullOrWhiteSpace(nameEl.GetString()))
             errors.Add("missing non-empty 'name'");
 
-        // index nodes by id → typeId; flag unknown types and duplicate ids
+        // index nodes by id → typeId; flag unknown types and duplicate ids. We also build a live Node per id
+        // (with its params) so pin-range checks honour per-instance dynamic pins, e.g. a Switch's case outputs.
         var nodeType = new Dictionary<string, string>();
+        var nodeById = new Dictionary<string, Node>();
         int triggers = 0;
         if (!root.TryGetProperty("nodes", out var nodesEl) || nodesEl.ValueKind != JsonValueKind.Array || nodesEl.GetArrayLength() == 0)
             errors.Add("'nodes' must be a non-empty array");
@@ -40,6 +42,11 @@ public static class WorkflowValidator
                 if (nodeType.ContainsKey(id)) { errors.Add($"duplicate node id '{id}'"); continue; }
                 if (!NodeCatalog.TryGet(type, out var def)) { errors.Add($"node '{id}': unknown type '{type}'"); nodeType[id] = type; continue; }
                 nodeType[id] = type;
+                var inst = new Node(id, type) { Def = def };
+                if (n.TryGetProperty("params", out var pp) && pp.ValueKind == JsonValueKind.Object)
+                    foreach (var pr in pp.EnumerateObject())
+                        inst.Params[pr.Name] = pr.Value.ValueKind == JsonValueKind.String ? pr.Value.GetString() ?? "" : pr.Value.ToString();
+                nodeById[id] = inst;
                 if (def.IsTrigger) triggers++;
             }
 
@@ -55,11 +62,12 @@ public static class WorkflowValidator
                 int tp = c.TryGetProperty("toPin", out var tpe) ? tpe.GetInt32() : 0;
                 if (!nodeType.TryGetValue(from, out var ft)) { errors.Add($"connection from unknown node '{from}'"); continue; }
                 if (!nodeType.TryGetValue(to, out var tt)) { errors.Add($"connection to unknown node '{to}'"); continue; }
-                if (!NodeCatalog.TryGet(ft, out var fd) || !NodeCatalog.TryGet(tt, out var td)) continue;   // unknown type already reported
-                if (fp < 0 || fp >= fd.Outputs.Length) { errors.Add($"{from}({ft}).out[{fp}] out of range (has {fd.Outputs.Length})"); continue; }
-                if (tp < 0 || tp >= td.Inputs.Length) { errors.Add($"{to}({tt}).in[{tp}] out of range (has {td.Inputs.Length})"); continue; }
-                if (!Pins.Compatible(fd.Outputs[fp].Kind, td.Inputs[tp].Kind))
-                    errors.Add($"incompatible wire {from}.{fd.Outputs[fp].Name}({fd.Outputs[fp].Kind}) -> {to}.{td.Inputs[tp].Name}({td.Inputs[tp].Kind})");
+                if (!nodeById.TryGetValue(from, out var fromN) || !nodeById.TryGetValue(to, out var toN)) continue;   // unknown type already reported
+                var fOut = fromN.Outputs; var tIn = toN.Inputs;   // effective pins (honours dynamic case outputs)
+                if (fp < 0 || fp >= fOut.Length) { errors.Add($"{from}({ft}).out[{fp}] out of range (has {fOut.Length})"); continue; }
+                if (tp < 0 || tp >= tIn.Length) { errors.Add($"{to}({tt}).in[{tp}] out of range (has {tIn.Length})"); continue; }
+                if (!Pins.Compatible(fOut[fp].Kind, tIn[tp].Kind))
+                    errors.Add($"incompatible wire {from}.{fOut[fp].Name}({fOut[fp].Kind}) -> {to}.{tIn[tp].Name}({tIn[tp].Kind})");
             }
 
         if (errors.Count == 0)

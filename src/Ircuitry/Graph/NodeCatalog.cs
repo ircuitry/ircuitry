@@ -890,14 +890,14 @@ public static class NodeCatalog
                                 editorBot[d.Name] = defBot;
                             }
                         }
-                        else if (Array.Exists(tn.Def.Outputs, p => p.Kind == PinKind.Tool))
+                        else if (Array.Exists(tn.Outputs, p => p.Kind == PinKind.Tool))
                         {
                             // any other node that advertises a Tool output is a self-contained tool (e.g. a
                             // custom .ircnode): its data inputs are the model's args, its first data output the result
                             string nm = AiToolName(tn);
                             if (nm.Length == 0 || byName.ContainsKey(nm) || editorBot.ContainsKey(nm) || nodeTools.ContainsKey(nm)) continue;
                             var a = new List<(string, string)>();
-                            foreach (var pin in tn.Def.Inputs)
+                            foreach (var pin in tn.Inputs)
                                 if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0)
                                     a.Add((pin.Name, pin.Name));   // arg name = input pin name
                             defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a));
@@ -1350,26 +1350,42 @@ public static class NodeCatalog
             {
                 TypeId = "logic.switch", Icon = "🔀", Title = "Switch", Subtitle = "logic",
                 Category = NodeCategory.Logic,
-                Description = "Routes to the output whose case matches the value (else 'default'). Great for command menus.",
+                Description = "Routes to the output whose case matches the value, else 'default'. Add as many cases as you like with 'Add case' - each one grows its own output pin. Great for command menus. (The 'default' pin stays on top so adding a case never disturbs your existing wires.)",
                 Inputs = new[] { Ex(), Tx("value") },
-                Outputs = new[] { Ex("1"), Ex("2"), Ex("3"), Ex("4"), Ex("default") },
+                // static fallback for tooling that never sees an instance; real instances use DynOutputs below
+                Outputs = new[] { Ex("default") },
+                // default is output 0 (kept first so adding a case never shifts existing case wires); then one
+                // exec output per case row, in list order - so case row i lines up with Pulse(i+1) in Exec.
+                DynOutputs = n =>
+                {
+                    var outs = new List<PinDef> { Ex("default") };
+                    int idx = 0;
+                    foreach (var cv in Ircuitry.Core.ParamList.Values(n.GetParam("cases")))
+                    {
+                        idx++;
+                        var label = cv.Trim();
+                        if (label.Length > 16) label = label[..16];
+                        outs.Add(Ex(label.Length > 0 ? label : "case " + idx));
+                    }
+                    return outs.ToArray();
+                },
                 Params = new[]
                 {
-                    P("case1", "Case 1", ParamType.Text, ""), P("case2", "Case 2", ParamType.Text, ""),
-                    P("case3", "Case 3", ParamType.Text, ""), P("case4", "Case 4", ParamType.Text, ""),
+                    P("value", "Value to match", ParamType.Text, "", "blank = the command (or message) · or {nick}, {arg1} …"),
+                    PL("cases", "Cases (one output each)", false, "Add case"),
                     P("ci", "Ignore case", ParamType.Bool, "true"),
                 },
-                SummaryParam = "case1",
+                SummaryParam = "value",
                 Exec = c =>
                 {
-                    var v = c.InOr(1, c.Var("command").Length > 0 ? c.Var("command") : c.Var("message"));
+                    var cases = Ircuitry.Core.ParamList.Values(c.Param("cases")).ToList();
+                    string raw = c.Param("value");
+                    string fallback = c.Var("command").Length > 0 ? c.Var("command") : c.Var("message");
+                    var v = c.InOr(1, raw.Length > 0 ? c.Resolve(raw) : fallback);
                     var cmp = c.ParamBool("ci") ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-                    for (int i = 1; i <= 4; i++)
-                    {
-                        var cs = c.Param("case" + i);
-                        if (cs.Length > 0 && string.Equals(v, cs, cmp)) { c.Pulse(i - 1); return; }
-                    }
-                    c.Pulse(4);
+                    for (int i = 0; i < cases.Count; i++)
+                        if (string.Equals(v, c.Resolve(cases[i]).Trim(), cmp)) { c.Pulse(i + 1); return; }
+                    c.Pulse(0);   // no case matched -> default (output 0)
                 },
             },
             new()

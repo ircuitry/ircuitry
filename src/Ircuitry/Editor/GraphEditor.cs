@@ -242,8 +242,8 @@ public sealed class GraphEditor
         if (nodes.Count == 0) { error = "Pick a few wired-up nodes to bake together first (triggers can't go inside)."; return null; }
         var ids = nodes.Select(n => n.Id).ToHashSet();
 
-        PinKind? InKind(string id, int p) { var n = nodes.FirstOrDefault(x => x.Id == id); return n != null && p >= 0 && p < n.Def.Inputs.Length ? n.Def.Inputs[p].Kind : null; }
-        PinKind? OutKind(string id, int p) { var n = nodes.FirstOrDefault(x => x.Id == id); return n != null && p >= 0 && p < n.Def.Outputs.Length ? n.Def.Outputs[p].Kind : null; }
+        PinKind? InKind(string id, int p) { var n = nodes.FirstOrDefault(x => x.Id == id); if (n == null) return null; var ins = n.Inputs; return p >= 0 && p < ins.Length ? ins[p].Kind : null; }
+        PinKind? OutKind(string id, int p) { var n = nodes.FirstOrDefault(x => x.Id == id); if (n == null) return null; var outs = n.Outputs; return p >= 0 && p < outs.Length ? outs[p].Kind : null; }
 
         var sub = new NodeGraph();
         foreach (var n in nodes) sub.Nodes.Add(CloneForClip(n));
@@ -264,15 +264,18 @@ public sealed class GraphEditor
         // exec-in pins with nothing feeding them (internally) are the entry points the Start drives
         var fedExec = new HashSet<(string, int)>(sub.Connections.Where(c => InKind(c.ToNode, c.ToPin) == PinKind.Exec).Select(c => (c.ToNode, c.ToPin)));
         foreach (var n in nodes)
-            for (int p = 0; p < n.Def.Inputs.Length; p++)
-                if (n.Def.Inputs[p].Kind == PinKind.Exec && !fedExec.Contains((n.Id, p)))
+        {
+            var ins = n.Inputs;
+            for (int p = 0; p < ins.Length; p++)
+                if (ins[p].Kind == PinKind.Exec && !fedExec.Contains((n.Id, p)))
                     sub.Connect(flowIn.Id, 0, n.Id, p);
+        }
 
         float ay = -160;
         foreach (var c in inbound)
         {
             if (InKind(c.ToNode, c.ToPin) is not { } k || k == PinKind.Exec) continue;   // exec inbound -> flow.in already
-            var pinName = nodes.First(n => n.Id == c.ToNode).Def.Inputs[c.ToPin].Name;
+            var pinName = nodes.First(n => n.Id == c.ToNode).Inputs[c.ToPin].Name;
             var name = Uniq(pinName.Length > 0 ? pinName : "in");
             var arg = sub.Add(NodeCatalog.Get("flow.arg"), new Vector2(-280, ay)); ay += 64;
             arg.SetParam("name", name);
@@ -286,7 +289,7 @@ public sealed class GraphEditor
         float ry = 120;
         foreach (var (fromNode, fromPin) in outSrc)
         {
-            var name = Uniq(nodes.First(n => n.Id == fromNode).Def.Outputs[fromPin].Name);
+            var name = Uniq(nodes.First(n => n.Id == fromNode).Outputs[fromPin].Name);
             var ret = sub.Add(NodeCatalog.Get("flow.return"), new Vector2(340, ry)); ry += 64;
             ret.SetParam("name", name);
             sub.Connect(fromNode, fromPin, ret.Id, 1);   // -> value
@@ -298,8 +301,8 @@ public sealed class GraphEditor
         // the Start when the selection is pure data (so the returns pull their values)
         if (returns.Count > 0)
         {
-            var leaf = nodes.SelectMany(n => Enumerable.Range(0, n.Def.Outputs.Length)
-                          .Where(p => n.Def.Outputs[p].Kind == PinKind.Exec && !sub.Connections.Any(c => c.FromNode == n.Id && c.FromPin == p))
+            var leaf = nodes.SelectMany(n => Enumerable.Range(0, n.Outputs.Length)
+                          .Where(p => n.Outputs[p].Kind == PinKind.Exec && !sub.Connections.Any(c => c.FromNode == n.Id && c.FromPin == p))
                           .Select(p => (n.Id, p))).FirstOrDefault();
             if (leaf.Id != null) sub.Connect(leaf.Id, leaf.p, returns[0].Id, 0);
             else sub.Connect(flowIn.Id, 0, returns[0].Id, 0);
@@ -551,7 +554,7 @@ public sealed class GraphEditor
         {
             var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
             if (a == null || b == null || a.Muted || b.Muted) continue;
-            if (c.FromPin >= a.Def.Outputs.Length || c.ToPin >= b.Def.Inputs.Length) continue;
+            if (c.FromPin >= a.Outputs.Length || c.ToPin >= b.Inputs.Length) continue;
             var world = WorldRoute(c);
             for (int i = 1; i < world.Count; i++)
             {
@@ -577,8 +580,8 @@ public sealed class GraphEditor
         if (port.HasValue)
         {
             var (node, pin, isInput) = port.Value;
-            var def = Graph.Find(node)!.Def;
-            if (!isInput) StartWire(node, pin, def.Outputs[pin].Kind, true);
+            var nd = Graph.Find(node)!;
+            if (!isInput) StartWire(node, pin, nd.Outputs[pin].Kind, true);
             else
             {
                 var existing = Graph.IntoPin(node, pin);
@@ -587,11 +590,11 @@ public sealed class GraphEditor
                     PushUndo(); _wireUndo = true;
                     Graph.Disconnect(existing);
                     var src = Graph.Find(existing.FromNode);
-                    var kind = src != null && existing.FromPin < src.Def.Outputs.Length
-                        ? src.Def.Outputs[existing.FromPin].Kind : def.Inputs[pin].Kind;
+                    var kind = src != null && existing.FromPin < src.Outputs.Length
+                        ? src.Outputs[existing.FromPin].Kind : nd.Inputs[pin].Kind;
                     StartWire(existing.FromNode, existing.FromPin, kind, true);   // colour by source output
                 }
-                else StartWire(node, pin, def.Inputs[pin].Kind, false);
+                else StartWire(node, pin, nd.Inputs[pin].Kind, false);
             }
             return;
         }
@@ -665,9 +668,10 @@ public sealed class GraphEditor
         {
             var n = Graph.Nodes[i];
             var l = NodeLayout.For(n);
-            for (int p = 0; p < n.Def.Inputs.Length; p++)
+            var ins = n.Inputs; var outs = n.Outputs;
+            for (int p = 0; p < ins.Length; p++)
                 if (Vector2.Distance(screen, Cam.WorldToScreen(l.InPin(p))) <= R) return (n.Id, p, true);
-            for (int p = 0; p < n.Def.Outputs.Length; p++)
+            for (int p = 0; p < outs.Length; p++)
                 if (Vector2.Distance(screen, Cam.WorldToScreen(l.OutPin(p))) <= R) return (n.Id, p, false);
         }
         return null;
@@ -730,8 +734,8 @@ public sealed class GraphEditor
                 if (hot <= 0.02f) continue;
                 var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
                 if (a == null || b == null || a.Muted || b.Muted) continue;
-                if (c.FromPin >= a.Def.Outputs.Length || c.ToPin >= b.Def.Inputs.Length) continue;
-                var col = Pins.Color(a.Def.Outputs[c.FromPin].Kind);
+                if (c.FromPin >= a.Outputs.Length || c.ToPin >= b.Inputs.Length) continue;
+                var col = Pins.Color(a.Outputs[c.FromPin].Kind);
                 var world = WorldRoute(c);
                 var pts = new List<Vector2>(world.Count);
                 foreach (var wp in world) pts.Add(Cam.WorldToScreen(wp));
@@ -824,8 +828,8 @@ public sealed class GraphEditor
     {
         var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
         if (a == null || b == null) return;
-        if (c.FromPin >= a.Def.Outputs.Length || c.ToPin >= b.Def.Inputs.Length) return;
-        var col = Pins.Color(a.Def.Outputs[c.FromPin].Kind);
+        if (c.FromPin >= a.Outputs.Length || c.ToPin >= b.Inputs.Length) return;
+        var col = Pins.Color(a.Outputs[c.FromPin].Kind);
         bool muted = a.Muted || b.Muted;
         // grid-snapped, obstacle-avoiding route (cached in world space; project to screen for drawing)
         var world = WorldRoute(c);
@@ -1051,7 +1055,7 @@ public sealed class GraphEditor
     private List<Vector2>? ComputeRoute(Connection c)
     {
         var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
-        if (a == null || b == null || c.FromPin >= a.Def.Outputs.Length || c.ToPin >= b.Def.Inputs.Length) return null;
+        if (a == null || b == null || c.FromPin >= a.Outputs.Length || c.ToPin >= b.Inputs.Length) return null;
         Vector2 outP = NodeLayout.For(a).OutPin(c.FromPin);
         Vector2 inP = NodeLayout.For(b).InPin(c.ToPin);
         float step = RouteStep;
@@ -1232,18 +1236,19 @@ public sealed class GraphEditor
 
         // pins + labels
         var lf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(10.5f * z), 7, 15));
-        for (int p = 0; p < n.Def.Inputs.Length; p++)
+        var ins = n.Inputs; var outs = n.Outputs;
+        for (int p = 0; p < ins.Length; p++)
         {
             var ps = Cam.WorldToScreen(l.InPin(p));
-            var pd = n.Def.Inputs[p];
+            var pd = ins[p];
             DrawPort(r, ps, pd.Kind, Graph.InputConnected(n.Id, p), z);
             if (z > 0.55f && pd.Name.Length > 0)
                 r.Text(lf, pd.Name, new Vector2(ps.X + 10 * z, ps.Y - lf.MeasureString(pd.Name).Y / 2f), Theme.TextDim);
         }
-        for (int p = 0; p < n.Def.Outputs.Length; p++)
+        for (int p = 0; p < outs.Length; p++)
         {
             var ps = Cam.WorldToScreen(l.OutPin(p));
-            var pd = n.Def.Outputs[p];
+            var pd = outs[p];
             DrawPort(r, ps, pd.Kind, Graph.OutputConnected(n.Id, p), z);
             if (z > 0.55f && pd.Name.Length > 0)
             {
@@ -1321,7 +1326,7 @@ public sealed class GraphEditor
         var n = Graph.Find(p.node); if (n == null) return;
         var l = NodeLayout.For(n);
         var s = Cam.WorldToScreen(p.input ? l.InPin(p.pin) : l.OutPin(p.pin));
-        var kind = p.input ? n.Def.Inputs[p.pin].Kind : n.Def.Outputs[p.pin].Kind;
+        var kind = p.input ? n.Inputs[p.pin].Kind : n.Outputs[p.pin].Kind;
         // soft halo behind the hovered port
         r.Disc(s, 11f, Theme.WithAlpha(Pins.Color(kind), 0.22f));
     }

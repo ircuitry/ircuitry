@@ -20,6 +20,13 @@ public sealed class Node
     /// <summary>The label shown on the card/inspector/history - custom title, or the catalog title.</summary>
     public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? Def.Title : Title;
 
+    /// <summary>This instance's effective pins. Most nodes just expose their <see cref="NodeDef"/> pins, but a
+    /// few (e.g. Switch) compute extra pins from their params via <see cref="NodeDef.DynInputs"/>/
+    /// <see cref="NodeDef.DynOutputs"/>. Read pins through these everywhere (rendering, wiring, execution,
+    /// serialization) so per-instance pins are honoured. Cheap for static nodes (returns the Def array).</summary>
+    public PinDef[] Inputs => Def.DynInputs?.Invoke(this) ?? Def.Inputs;
+    public PinDef[] Outputs => Def.DynOutputs?.Invoke(this) ?? Def.Outputs;
+
     private static int _counter;
 
     public Node(string id, string typeId) { Id = id; TypeId = typeId; }

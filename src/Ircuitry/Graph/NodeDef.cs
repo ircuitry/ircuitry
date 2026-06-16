@@ -53,6 +53,14 @@ public sealed class NodeDef
     public ParamDef[] Params = System.Array.Empty<ParamDef>();
     public NodeExec Exec = _ => { };
 
+    /// <summary>Optional per-instance pins: when set, a node instance computes its OWN pin list from its
+    /// params (e.g. Switch grows one exec output per case). The delegate returns the COMPLETE array,
+    /// including any fixed prefix. Null means every instance uses the static <see cref="Inputs"/>/
+    /// <see cref="Outputs"/> above. Always read pins through <see cref="Node.Inputs"/>/<see cref="Node.Outputs"/>,
+    /// never <c>Def.Inputs</c>/<c>Def.Outputs</c>, so dynamic pins are honoured everywhere.</summary>
+    public System.Func<Node, PinDef[]>? DynInputs;
+    public System.Func<Node, PinDef[]>? DynOutputs;
+
     /// <summary>Key param shown as a one-line summary on the node body.</summary>
     public string? SummaryParam;
 

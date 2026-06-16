@@ -74,19 +74,20 @@ public static class GraphExecutor
             bool addToTrace = Trace != null && Trace.Nodes.Count < 400;
             if (!addToTrace && OnNode == null) return;
             var t = new NodeTrace { NodeId = node.Id, Title = node.DisplayTitle, Icon = node.Def.Icon };
-            for (int i = 0; i < node.Def.Inputs.Length; i++)
+            var ins = node.Inputs; var outs = node.Outputs;
+            for (int i = 0; i < ins.Length; i++)
             {
-                var pd = node.Def.Inputs[i];
+                var pd = ins[i];
                 if (pd.Kind == PinKind.Exec || pd.Kind == PinKind.Tool) continue;
                 if (Graph.InputConnected(node.Id, i)) t.Inputs.Add((PinName(pd, i), ResolveInput(node, i)));
             }
-            for (int i = 0; i < node.Def.Outputs.Length; i++)
+            for (int i = 0; i < outs.Length; i++)
             {
-                var pd = node.Def.Outputs[i];
+                var pd = outs[i];
                 if (pd.Kind == PinKind.Exec || pd.Kind == PinKind.Tool) continue;
                 if (Outputs.TryGetValue((node.Id, i), out var v)) t.Outputs.Add((PinName(pd, i), v));
             }
-            foreach (var p in pulses) if (p >= 0 && p < node.Def.Outputs.Length) t.Pulsed.Add(PinName(node.Def.Outputs[p], p));
+            foreach (var p in pulses) if (p >= 0 && p < outs.Length) t.Pulsed.Add(PinName(outs[p], p));
             if (addToTrace) Trace!.Nodes.Add(t);
             OnNode?.Invoke(t);   // emit the bot-tools step right now, as the node completes
         }
@@ -98,8 +99,9 @@ public static class GraphExecutor
             {
                 var target = Graph.Find(conn.ToNode);
                 if (target == null) continue;
-                if (conn.ToPin >= 0 && conn.ToPin < target.Def.Inputs.Length &&
-                    target.Def.Inputs[conn.ToPin].Kind == PinKind.Exec)
+                var tIn = target.Inputs;
+                if (conn.ToPin >= 0 && conn.ToPin < tIn.Length &&
+                    tIn[conn.ToPin].Kind == PinKind.Exec)
                     RunExec(target);
             }
         }
@@ -291,9 +293,10 @@ public static class GraphExecutor
         {
             foreach (var kv in args) _run.Vars["__arg." + kv.Key] = kv.Value;
             _run.RunExec(node);
-            for (int i = 0; i < node.Def.Outputs.Length; i++)
+            var outs = node.Outputs;
+            for (int i = 0; i < outs.Length; i++)
             {
-                var k = node.Def.Outputs[i].Kind;
+                var k = outs[i].Kind;
                 if (k != PinKind.Exec && k != PinKind.Tool && _run.Outputs.TryGetValue((node.Id, i), out var v)) return v;
             }
             return "";

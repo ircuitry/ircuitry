@@ -36,13 +36,14 @@ public sealed class NodeGraph
         if (fromNode == toNode) return false;
         var a = Find(fromNode); var b = Find(toNode);
         if (a == null || b == null) return false;
-        if (fromPin < 0 || fromPin >= a.Def.Outputs.Length) return false;
-        if (toPin < 0 || toPin >= b.Def.Inputs.Length) return false;
-        if (!Pins.Compatible(a.Def.Outputs[fromPin].Kind, b.Def.Inputs[toPin].Kind)) return false;
+        var aOut = a.Outputs; var bIn = b.Inputs;
+        if (fromPin < 0 || fromPin >= aOut.Length) return false;
+        if (toPin < 0 || toPin >= bIn.Length) return false;
+        if (!Pins.Compatible(aOut[fromPin].Kind, bIn[toPin].Kind)) return false;
 
         // a data input takes a single wire (replace the existing one); exec inputs and multi
         // pins accept fan-in, so several upstream sources can drive the same node
-        if (!b.Def.Inputs[toPin].Multi && !b.Def.Inputs[toPin].Kind.IsExec())
+        if (!bIn[toPin].Multi && !bIn[toPin].Kind.IsExec())
             Connections.RemoveAll(c => c.ToNode == toNode && c.ToPin == toPin);
         // avoid exact duplicates
         var conn = new Connection(fromNode, fromPin, toNode, toPin);

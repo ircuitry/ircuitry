@@ -562,20 +562,28 @@ public static class SelfTest
             fails += Expect("if-false", s2.Sent.Count == 1 && s2.Sent[0].text == "F", Dump(s2));
         }
 
-        // Switch on message value
+        // Switch on message value - dynamic case outputs: default = pin 0, cases = pins 1..N (list order)
         {
             var g = new NodeGraph();
             var msg = N(g, "event.message", 0, 0);
-            var sw = N(g, "logic.switch", 250, 0); sw.SetParam("case1", "red"); sw.SetParam("case2", "blue");
+            var sw = N(g, "logic.switch", 250, 0); sw.SetParam("cases", "[\"red\",\"blue\"]");
             var r = N(g, "action.reply", 500, -60); r.SetParam("message", "R");
             var b = N(g, "action.reply", 500, 0); b.SetParam("message", "B");
             var d = N(g, "action.reply", 500, 60); d.SetParam("message", "D");
             g.Connect(msg.Id, 0, sw.Id, 0); g.Connect(msg.Id, 1, sw.Id, 1);
-            g.Connect(sw.Id, 0, r.Id, 0); g.Connect(sw.Id, 1, b.Id, 0); g.Connect(sw.Id, 4, d.Id, 0);
+            // wire default(0)->D, case "red"(1)->R, case "blue"(2)->B  (pin 2 only exists because cases is dynamic)
+            bool wired = g.Connect(sw.Id, 0, d.Id, 0) & g.Connect(sw.Id, 1, r.Id, 0) & g.Connect(sw.Id, 2, b.Id, 0);
+            fails += Expect("switch-dynamic-pins-wire", wired, "could not wire dynamic case pin");
             var s = new FakeSink(); GraphExecutor.Fire(g, s, msg, Vars("blue", "u", "#c"));
             fails += Expect("switch-case", s.Sent.Count == 1 && s.Sent[0].text == "B", Dump(s));
             var s2 = new FakeSink(); GraphExecutor.Fire(g, s2, msg, Vars("green", "u", "#c"));
             fails += Expect("switch-default", s2.Sent.Count == 1 && s2.Sent[0].text == "D", Dump(s2));
+            // pin count reflects the case list: 1 default + 2 cases
+            fails += Expect("switch-output-count", sw.Outputs.Length == 3, $"outs={sw.Outputs.Length}");
+            // adding a 3rd case must NOT disturb existing wires (default + red + blue still land correctly)
+            sw.SetParam("cases", "[\"red\",\"blue\",\"green\"]");
+            var s3 = new FakeSink(); GraphExecutor.Fire(g, s3, msg, Vars("blue", "u", "#c"));
+            fails += Expect("switch-add-case-stable", s3.Sent.Count == 1 && s3.Sent[0].text == "B", Dump(s3));
         }
 
         // Counter: Get -> Math(+1) -> Set, reply with new value (persists across fires)
