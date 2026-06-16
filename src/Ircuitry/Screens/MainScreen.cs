@@ -143,7 +143,7 @@ public sealed partial class MainScreen : IScreen
     private float _testScroll;
 
     // save-selection-as-reusable-node
-    private bool _saveNodeOpen, _saveNodeJustOpened;
+    private bool _saveNodeOpen, _saveNodeJustOpened, _saveNodeAsTool;
     private string _saveNodeName = "My Node";
     private string _saveNodeIcon = "🧩", _saveNodeCat = "Logic", _saveNodeDesc = "";
     private static readonly string[] _bakeCats = { "Action", "Data", "Logic", "Ai", "Filter", "Storage" };
@@ -906,7 +906,7 @@ public sealed partial class MainScreen : IScreen
     private void DrawSaveNodeModal(Renderer r)
     {
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
-        float pw = 520, ph = 320;
+        float pw = 520, ph = 366;
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         int count = _editor.Selection.Count;
         Hud.Panel(r, panel, "Bake nodes into one", Theme.Violet);
@@ -926,7 +926,10 @@ public sealed partial class MainScreen : IScreen
         _saveNodeCat = _ui.Choice("savenode.cat", new RectF(x + nameW + gap + iconW + gap, y, catW, 28), _bakeCats, _saveNodeCat);
         y += 28 + 12;
         r.Text(r.Fonts.Get(FontKind.SansBold, 10), "DESCRIPTION", new Vector2(x, y), Theme.TextDim); y += 15;
-        _saveNodeDesc = _ui.TextField("savenode.desc", new RectF(x, y, w, 28), _saveNodeDesc, "what this node does");
+        _saveNodeDesc = _ui.TextField("savenode.desc", new RectF(x, y, w, 28), _saveNodeDesc, "what this node does"); y += 28 + 10;
+        // makes the baked node wireable into Ask AI: its input pins become the model's arguments, its first
+        // data output the result (or, if it contains an AI Tool node, that tool is used directly)
+        _saveNodeAsTool = _ui.Toggle("savenode.astool", new RectF(x, y, w, 24), _saveNodeAsTool, "🧰 Usable as an AI tool (wire into Ask AI)");
 
         var saveR = new RectF(panel.Right - 22 - 132, panel.Bottom - 50, 132, 34);
         var cancelR = new RectF(saveR.X - 12 - 110, panel.Bottom - 50, 110, 34);
@@ -936,8 +939,8 @@ public sealed partial class MainScreen : IScreen
             var name = _saveNodeName.Trim(); if (name.Length == 0) name = "My Node";
             // an explicit Subflow Start means the author defined the pins by hand; otherwise auto-wrap them
             string? manifest = _editor.SelectionIsSubflow
-                ? _editor.SaveSelectionAsNode(name)
-                : _editor.BuildCompositeFromSelection(name, _saveNodeIcon, _saveNodeCat, _saveNodeDesc, out _);
+                ? _editor.SaveSelectionAsNode(name, _saveNodeAsTool)
+                : _editor.BuildCompositeFromSelection(name, _saveNodeIcon, _saveNodeCat, _saveNodeDesc, _saveNodeAsTool, out _);
             if (manifest == null) { Bot.Log.Add(LogLevel.Error, "Select a couple of wired-up nodes to bake first."); PushToast("⚠ nothing to bake - select some nodes"); }
             else
             {

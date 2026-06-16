@@ -168,7 +168,7 @@ public sealed class GraphEditor
 
     /// <summary>Serialize the selection into a reusable-subflow node manifest (.ircnode JSON). Pins are derived
     /// from the Subflow Input/Output nodes inside it. Returns null if there's no Subflow Start (flow.in) entry.</summary>
-    public string? SaveSelectionAsNode(string title)
+    public string? SaveSelectionAsNode(string title, bool asTool = false)
     {
         var sel = Selection.ToHashSet();
         var nodes = Graph.Nodes.Where(n => sel.Contains(n.Id)).ToList();
@@ -187,6 +187,7 @@ public sealed class GraphEditor
         var outputs = new List<string> { "{\"name\":\"then\",\"kind\":\"Exec\"}" };
         foreach (var rr in nodes.Where(n => n.TypeId == "flow.return").Select(n => n.GetParam("name")).Where(s => s.Length > 0).Distinct())
             outputs.Add("{\"name\":" + J(rr) + ",\"kind\":\"Text\"}");
+        if (asTool) outputs.Add("{\"name\":\"tool\",\"kind\":\"Tool\"}");
 
         var slug = new string(title.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
         if (slug.Length == 0) slug = "node";
@@ -204,7 +205,7 @@ public sealed class GraphEditor
     /// (name -> default) become the composite node's user-editable params, which inner nodes read as {name}.
     /// Needs a Subflow Start.</summary>
     public string? SerializeAsComposite(string typeId, string title, string icon, string category, string description,
-        System.Collections.Generic.IReadOnlyDictionary<string, string>? exposed = null)
+        System.Collections.Generic.IReadOnlyDictionary<string, string>? exposed = null, bool asTool = false)
     {
         var nodes = Graph.Nodes;
         if (!nodes.Any(n => n.TypeId == "flow.in")) return null;
@@ -219,6 +220,7 @@ public sealed class GraphEditor
         var outputs = new List<string> { "{\"name\":\"then\",\"kind\":\"Exec\"}" };
         foreach (var rr in nodes.Where(n => n.TypeId == "flow.return").Select(n => n.GetParam("name")).Where(s => s.Length > 0).Distinct())
             outputs.Add("{\"name\":" + J(rr) + ",\"kind\":\"Text\"}");
+        if (asTool) outputs.Add("{\"name\":\"tool\",\"kind\":\"Tool\"}");   // makes the node wireable into Ask AI
 
         var prms = new List<string>();
         if (exposed != null)
@@ -240,7 +242,7 @@ public sealed class GraphEditor
     /// from the wires that cross the selection boundary - so you never have to place Subflow Input/Output
     /// nodes by hand. Returns the .ircnode manifest, or null with a reason in <paramref name="error"/>.
     /// </summary>
-    public string? BuildCompositeFromSelection(string title, string icon, string category, string description, out string error)
+    public string? BuildCompositeFromSelection(string title, string icon, string category, string description, bool asTool, out string error)
     {
         error = "";
         var sel = Selection.ToHashSet();
@@ -322,6 +324,7 @@ public sealed class GraphEditor
         foreach (var (name, kind) in inPins) inputs.Add("{\"name\":" + J(name) + ",\"kind\":" + J(kind.ToString()) + "}");
         var outputs = new List<string> { "{\"name\":\"then\",\"kind\":\"Exec\"}" };
         foreach (var (name, kind) in outPins) outputs.Add("{\"name\":" + J(name) + ",\"kind\":" + J(kind.ToString()) + "}");
+        if (asTool && !outPins.Any(o => o.kind == PinKind.Tool)) outputs.Add("{\"name\":\"tool\",\"kind\":\"Tool\"}");
 
         var slug = new string(title.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
         if (slug.Length == 0) slug = "node";

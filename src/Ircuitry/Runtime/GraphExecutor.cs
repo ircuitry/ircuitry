@@ -125,6 +125,24 @@ public static class GraphExecutor
             return child;
         }
 
+        /// <summary>Run a baked composite's inner AI Tool as a tool call: a child scope over the composite's
+        /// subgraph, seeded with the model's args as __arg.*, runs the inner ai.tool (which fires its 'call'
+        /// sub-flow); the Tool Reply inside writes __tool_result, which we hand back to the model.</summary>
+        public string RunSubflowTool(NodeGraph sub, string innerId, Dictionary<string, string> args)
+        {
+            if (_depth >= 16) { Sink.Log("tool nesting too deep - aborted", LogLevel.Error); return ""; }
+            Node? inner = null;
+            foreach (var n in sub.Nodes) if (n.Id == innerId) { inner = n; break; }
+            if (inner == null) return "";
+            var child = new Dictionary<string, string>(Vars);
+            foreach (var kv in args) child["__arg." + kv.Key] = kv.Value;
+            child["__tool_result"] = "";
+            var cr = new Run(sub, Sink, child, Trace, OnNode, _depth + 1);
+            cr.RunExec(inner);
+            foreach (var t in cr.ExecutedTypes) ExecutedTypes.Add(t);
+            return child.TryGetValue("__tool_result", out var v) ? v : "";
+        }
+
         /// <summary>Fire every On Signal trigger with a matching name, in this same run (shared step budget
         /// guards against signal loops). A signal carries optional data on the {data} pin / __signaldata var.</summary>
         public void EmitSignal(string name, string data)
@@ -291,16 +309,36 @@ public static class GraphExecutor
 
         public string InvokeNodeTool(Node node, Dictionary<string, string> args)
         {
-            foreach (var kv in args) _run.Vars["__arg." + kv.Key] = kv.Value;
-            _run.RunExec(node);
-            var outs = node.Outputs;
-            for (int i = 0; i < outs.Length; i++)
+            // bind the model's args as __arg.* then restore - so a later tool call / node never sees stale args
+            var saved = new Dictionary<string, (bool had, string? val)>();
+            foreach (var kv in args)
             {
-                var k = outs[i].Kind;
-                if (k != PinKind.Exec && k != PinKind.Tool && _run.Outputs.TryGetValue((node.Id, i), out var v)) return v;
+                var key = "__arg." + kv.Key;
+                saved[key] = (_run.Vars.TryGetValue(key, out var prev), prev);
+                _run.Vars[key] = kv.Value;
             }
-            return "";
+            try
+            {
+                _run.RunExec(node);
+                var outs = node.Outputs;
+                bool hasData = false;
+                for (int i = 0; i < outs.Length; i++)
+                {
+                    var k = outs[i].Kind;
+                    if (k == PinKind.Exec || k == PinKind.Tool) continue;
+                    hasData = true;
+                    if (_run.Outputs.TryGetValue((node.Id, i), out var v)) return v;
+                }
+                return hasData ? "" : "(done)";   // a tool with no data output still owes the model a non-empty ack
+            }
+            finally
+            {
+                foreach (var kv in saved)
+                    if (kv.Value.had) _run.Vars[kv.Key] = kv.Value.val!; else _run.Vars.Remove(kv.Key);
+            }
         }
+        public string InvokeSubflowTool(NodeGraph sub, string innerToolId, Dictionary<string, string> args)
+            => _run.RunSubflowTool(sub, innerToolId, args);
         public double NowSeconds() => (System.DateTime.UtcNow - System.DateTime.UnixEpoch).TotalSeconds;
 
         /// <summary>The sink an IRC effect from this node should use: the origin server by default, or the

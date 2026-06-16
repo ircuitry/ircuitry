@@ -53,6 +53,10 @@ public sealed class NodeDef
     public ParamDef[] Params = System.Array.Empty<ParamDef>();
     public NodeExec Exec = _ => { };
 
+    /// <summary>For composite (subflow) nodes: returns the saved inner graph. Lets the AI-tool harness look
+    /// inside a baked node and expose an inner AI Tool as a callable tool. Null for plain/code nodes.</summary>
+    public System.Func<NodeGraph>? SubgraphProvider;
+
     /// <summary>Optional per-instance pins: when set, a node instance computes its OWN pin list from its
     /// params (e.g. Switch grows one exec output per case). The delegate returns the COMPLETE array,
     /// including any fixed prefix. Null means every instance uses the static <see cref="Inputs"/>/

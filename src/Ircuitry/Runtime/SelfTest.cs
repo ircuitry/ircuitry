@@ -155,6 +155,7 @@ public static class SelfTest
         fails += ConcurrentExecutorTest();
         fails += JsonAndLoopsTest();
         fails += NodeAsToolTest();
+        fails += ToolBakeTest();
         fails += CompositeBakeTest();
         fails += CompositeMiniSerializeTest();
         fails += CompositeExposeTest();
@@ -2115,7 +2116,7 @@ public static class SelfTest
 
             var ed = new Ircuitry.Editor.GraphEditor(g);
             ed.Selection.Add(t1.Id); ed.Selection.Add(t2.Id);
-            var manifest = ed.BuildCompositeFromSelection("Shout Reverse", "🔁", "Data", "upper then reverse", out var err);
+            var manifest = ed.BuildCompositeFromSelection("Shout Reverse", "🔁", "Data", "upper then reverse", false, out var err);
             if (manifest == null) return Expect("composite-bake", false, "build failed: " + err);
 
             Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
@@ -2314,6 +2315,147 @@ public static class SelfTest
         }
         return fails;
     }
+
+    /// <summary>Baked composites used as AI tools, both ways: (A) an AI Tool sub-flow baked into one node -
+    /// Ask AI looks inside, exposes the inner tool by name, runs its sub-flow and returns the Tool Reply;
+    /// (B) an inputs-&gt;output composite ticked "usable as AI tool" - its input pins are the model's args and
+    /// its first data output the result.</summary>
+    private static int ToolBakeTest()
+    {
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-toolbake-" + Guid.NewGuid().ToString("N")[..8]);
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("tool-bake (skipped: " + ex.Message + ")", true, ""); }
+
+        // mock OpenAI: odd request -> a tool_call for curName(curArgs); even request -> final content "ok"
+        var bodies = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        bool stop = false; int reqs = 0; string curName = "", curArgs = "{}";
+        var server = new Thread(() =>
+        {
+            try
+            {
+                while (!stop)
+                {
+                    var ctx = listener.GetContext();
+                    using (var sr = new StreamReader(ctx.Request.InputStream)) bodies.Enqueue(sr.ReadToEnd());
+                    int n = Interlocked.Increment(ref reqs);
+                    string json = (n % 2 == 1)
+                        ? "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"" + curName + "\",\"arguments\":" + System.Text.Json.JsonSerializer.Serialize(curArgs) + "}}]}}]}"
+                        : "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}";
+                    var b = Encoding.UTF8.GetBytes(json);
+                    ctx.Response.ContentType = "application/json";
+                    ctx.Response.OutputStream.Write(b, 0, b.Length);
+                    ctx.Response.Close();
+                }
+            }
+            catch { }
+        }) { IsBackground = true };
+        server.Start();
+
+        int fails = 0;
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            Directory.CreateDirectory(Path.Combine(tmp, "nodes"));
+
+            // (A) bake an AI Tool sub-flow: ai.tool(name=echo_baked) -> tool.reply, with the arg wired to the result
+            var subA = new NodeGraph();
+            var aiTool = subA.Add(NodeCatalog.Get("ai.tool"), Vector2.Zero);
+            aiTool.SetParam("name", "echo_baked"); aiTool.SetParam("description", "echo a string");
+            aiTool.SetParam("args", ParamList.Encode(new List<string[]> { new[] { "query", "the text to echo" } }, true));
+            var tReply = subA.Add(NodeCatalog.Get("tool.reply"), new Vector2(220, 0));
+            subA.Connect(aiTool.Id, 1, tReply.Id, 0);   // call -> reply exec
+            subA.Connect(aiTool.Id, 2, tReply.Id, 1);   // arg 1 (query) -> reply result
+            string manifestA = "{\"typeId\":\"custom.echoa\",\"title\":\"Echo A\",\"icon\":\"🧰\",\"category\":\"Logic\",\"description\":\"\","
+                + "\"inputs\":[{\"name\":\"\",\"kind\":\"Exec\"}],\"outputs\":[{\"name\":\"then\",\"kind\":\"Exec\"},{\"name\":\"tool\",\"kind\":\"Tool\"}],"
+                + "\"subgraph\":" + GraphSerializer.Save(subA, "Echo A") + "}";
+            File.WriteAllText(Path.Combine(tmp, "nodes", "custom.echoa.ircnode"), manifestA);
+
+            // (B) an inputs->output composite, ticked "usable as AI tool": query input -> result output
+            var subB = new NodeGraph();
+            var bin = subB.Add(NodeCatalog.Get("flow.in"), Vector2.Zero);
+            var barg = subB.Add(NodeCatalog.Get("flow.arg"), new Vector2(0, 90)); barg.SetParam("name", "query");
+            var bret = subB.Add(NodeCatalog.Get("flow.return"), new Vector2(220, 0)); bret.SetParam("name", "result");
+            subB.Connect(bin.Id, 0, bret.Id, 0); subB.Connect(barg.Id, 0, bret.Id, 1);
+            string manifestB = new Ircuitry.Editor.GraphEditor(subB)
+                .SerializeAsComposite("custom.echob", "Echo B", "🧰", "Logic", "echoes its argument", null, true) ?? "";
+            File.WriteAllText(Path.Combine(tmp, "nodes", "custom.echob.ircnode"), manifestB);
+
+            // (C) a self-contained tool whose AiToolName collides with (A)'s inner tool name "echo_baked":
+            // the harness must dedup to ONE function spec or the model API rejects the duplicate.
+            var subC = new NodeGraph();
+            var cin = subC.Add(NodeCatalog.Get("flow.in"), Vector2.Zero);
+            var carg = subC.Add(NodeCatalog.Get("flow.arg"), new Vector2(0, 90)); carg.SetParam("name", "query");
+            var cret = subC.Add(NodeCatalog.Get("flow.return"), new Vector2(220, 0)); cret.SetParam("name", "result");
+            subC.Connect(cin.Id, 0, cret.Id, 0); subC.Connect(carg.Id, 0, cret.Id, 1);
+            string manifestC = new Ircuitry.Editor.GraphEditor(subC)
+                .SerializeAsComposite("echo_baked", "Echo Collide", "🧰", "Logic", "dup", null, true) ?? "";
+            File.WriteAllText(Path.Combine(tmp, "nodes", "echo_baked.ircnode"), manifestC);
+
+            NodeCatalog.LoadCustom();
+            if (!NodeCatalog.TryGet("custom.echoa", out var defA) || !NodeCatalog.TryGet("custom.echob", out var defB) || !NodeCatalog.TryGet("echo_baked", out var defC))
+            { stop = true; try { listener.Stop(); } catch { } return Expect("tool-bake (skipped: custom load)", true, ""); }
+
+            int ToolPin(NodeDef d) { for (int i = 0; i < d.Outputs.Length; i++) if (d.Outputs[i].Kind == PinKind.Tool) return i; return -1; }
+
+            string RunScenario(string typeId, int toolPin, string toolName, string argVal)
+            {
+                curName = toolName; curArgs = "{\"query\":\"" + argVal + "\"}";
+                var g = new NodeGraph();
+                var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "x");
+                var ai = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+                ai.SetParam("baseUrl", $"http://localhost:{port}/v1"); ai.SetParam("apiKey", "t"); ai.SetParam("model", "m");
+                var comp = g.Add(NodeCatalog.Get(typeId), new Vector2(100, 160));
+                g.Connect(cmd.Id, 0, ai.Id, 0);
+                g.Connect(comp.Id, toolPin, ai.Id, 2);   // composite's Tool output -> Ask AI 'tools'
+                int before = bodies.Count;
+                GraphExecutor.Fire(g, new FakeSink(), cmd, Vars("!x go", "u", "#c"));
+                return string.Join("\n", bodies.ToArray()[before..]);   // just this scenario's requests
+            }
+
+            var aLog = RunScenario("custom.echoa", ToolPin(defA), "echo_baked", "alpha");
+            bool aOffered = aLog.Contains("echo_baked"), aResult = aLog.Contains("alpha");   // arg echoed back via Tool Reply
+            fails += Expect("tool-bake-A-offered", aOffered, "inner ai.tool not exposed: " + Trunc(aLog));
+            fails += Expect("tool-bake-A-result", aResult, "Tool Reply result not returned to the model");
+
+            var bLog = RunScenario("custom.echob", ToolPin(defB), "custom_echob", "bravo");
+            bool bOffered = bLog.Contains("custom_echob"), bResult = bLog.Contains("bravo");   // arg -> input pin -> output
+            fails += Expect("tool-bake-B-offered", bOffered, "composite tool not exposed: " + Trunc(bLog));
+            fails += Expect("tool-bake-B-result", bResult, "input-pin arg didn't flow to the result output");
+
+            // (C) both echoa (inner "echo_baked") AND echo_baked (self-contained) wired in -> exactly ONE def
+            curName = "echo_baked"; curArgs = "{\"query\":\"cee\"}";
+            var gC = new NodeGraph();
+            var cmdC = gC.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmdC.SetParam("command", "x");
+            var aiC = gC.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+            aiC.SetParam("baseUrl", $"http://localhost:{port}/v1"); aiC.SetParam("apiKey", "t"); aiC.SetParam("model", "m");
+            var c1 = gC.Add(NodeCatalog.Get("custom.echoa"), new Vector2(100, 160));
+            var c2 = gC.Add(NodeCatalog.Get("echo_baked"), new Vector2(100, 320));
+            gC.Connect(cmdC.Id, 0, aiC.Id, 0);
+            gC.Connect(c1.Id, ToolPin(defA), aiC.Id, 2);
+            gC.Connect(c2.Id, ToolPin(defC), aiC.Id, 2);
+            int cBefore = bodies.Count;
+            GraphExecutor.Fire(gC, new FakeSink(), cmdC, Vars("!x go", "u", "#c"));
+            var cArr = bodies.ToArray();
+            string firstReq = cArr.Length > cBefore ? cArr[cBefore] : "";   // request 1 carries the tools list
+            int dup = 0; for (int i = firstReq.IndexOf("echo_baked", StringComparison.Ordinal); i >= 0; i = firstReq.IndexOf("echo_baked", i + 1, StringComparison.Ordinal)) dup++;
+            fails += Expect("tool-bake-dedup", dup == 1, $"duplicate tool name sent to the model ({dup}x echo_baked)");
+        }
+        finally
+        {
+            stop = true; try { listener.Stop(); } catch { }
+            try { Directory.Delete(Path.Combine(tmp, "nodes"), true); } catch { }
+            NodeCatalog.LoadCustom();
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
+    }
+
+    private static string Trunc(string s) => s.Length > 160 ? s[..160] : s;
 
     /// <summary>n8n-style data plumbing: {var.path} dot-notation into JSON, For-Each over a JSON array with
     /// {item.field}, and a counted Repeat loop.</summary>

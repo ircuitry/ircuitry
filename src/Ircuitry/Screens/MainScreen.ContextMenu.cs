@@ -47,7 +47,7 @@ public sealed partial class MainScreen
             Item("📋", "Copy" + suffix, "Ctrl+C", true, () => _editor.CopySelection());
             Item("📑", "Duplicate" + suffix, "Ctrl+D", true, () => { _editor.DuplicateSelection(); _app.MarkDirty(); });
             Item("📥", "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
-            Item("🧁", "Bake into a node…", "", _editor.SelectionCanBake, () => { _saveNodeName = "My Node"; _saveNodeIcon = "🧩"; _saveNodeCat = "Logic"; _saveNodeDesc = ""; _saveNodeOpen = true; _saveNodeJustOpened = true; _ui.Focus = "savenode.name"; });
+            Item("🧁", "Bake into a node…", "", _editor.SelectionCanBake, () => { _saveNodeName = "My Node"; _saveNodeIcon = "🧩"; _saveNodeCat = "Logic"; _saveNodeDesc = ""; _saveNodeAsTool = false; _saveNodeOpen = true; _saveNodeJustOpened = true; _ui.Focus = "savenode.name"; });
             var only = n == 1 ? Bot.Graph.Find(_editor.Selection.First()) : null;
             if (only != null && NodeCatalog.IsCustom(only.TypeId))
                 Item("✏️", "Edit node…", "", true, () => OpenNodeBuilderForEdit(only.TypeId));

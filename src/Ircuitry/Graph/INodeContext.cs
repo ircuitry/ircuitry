@@ -98,4 +98,9 @@ public interface INodeContext
     /// <summary>Run another node as an AI tool: bind the model's <paramref name="args"/> to its inputs by
     /// name, execute it, and return its first data output as the tool result.</summary>
     string InvokeNodeTool(Node node, System.Collections.Generic.Dictionary<string, string> args);
+
+    /// <summary>Run an AI Tool that lives INSIDE a baked composite: seed the model's <paramref name="args"/>,
+    /// run the inner <paramref name="innerToolId"/> node in a child scope over <paramref name="sub"/>, and
+    /// return what its Tool Reply produced.</summary>
+    string InvokeSubflowTool(NodeGraph sub, string innerToolId, System.Collections.Generic.Dictionary<string, string> args);
 }

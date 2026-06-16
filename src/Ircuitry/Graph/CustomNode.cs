@@ -44,7 +44,9 @@ public static class CustomNode
         {
             string subJson = sg.GetRawText();   // deserialized lazily on first run, once the catalog is fully built
             NodeGraph? sub = null;
-            def.Exec = c => { sub ??= GraphSerializer.Load(subJson).graph; RunSubflow(c, sub); };
+            NodeGraph Sub() => sub ??= GraphSerializer.Load(subJson).graph;
+            def.SubgraphProvider = Sub;          // so Ask AI can find an inner AI Tool inside a baked node
+            def.Exec = c => RunSubflow(c, Sub());
         }
         else
         {
@@ -67,7 +69,13 @@ public static class CustomNode
         // setting) resolves to whatever the user set on this node. Wired inputs override a same-named param.
         foreach (var p in d.Params) inputs[p.Key] = c.Resolve(c.Param(p.Key));
         for (int i = 0; i < d.Inputs.Length; i++)
-            if (!d.Inputs[i].Kind.IsExec()) inputs[d.Inputs[i].Name] = c.In(i);
+            if (!d.Inputs[i].Kind.IsExec())
+            {
+                var v = c.In(i);
+                // when this composite is invoked as an AI tool, its unwired inputs are the model's args
+                if (v.Length == 0 && d.Inputs[i].Name.Length > 0 && c.Var("__arg." + d.Inputs[i].Name) is { Length: > 0 } a) v = a;
+                inputs[d.Inputs[i].Name] = v;
+            }
         var outv = c.RunSubflow(sub, inputs);
         for (int i = 0; i < d.Outputs.Length; i++)
             if (!d.Outputs[i].Kind.IsExec()) c.SetOut(i, outv.TryGetValue(d.Outputs[i].Name, out var v) ? v : "");

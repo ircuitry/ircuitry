@@ -23,6 +23,7 @@ public partial class MainScreen
     private string _nbTitle = "", _nbIcon = "🧩", _nbCategory = "Action", _nbDesc = "";
     private string _nbStatus = "", _nbAdd = "";
     private bool _nbMax;
+    private bool _nbAsTool;   // tick: the baked node carries a Tool output so it can be wired into Ask AI
 
     private NodeGraph? _nbGraph;            // the recipe's inner graph
     private GraphEditor? _nbEditor;         // mini editor over _nbGraph
@@ -43,7 +44,7 @@ public partial class MainScreen
     public void OpenNodeBuilder()
     {
         EnsureCompositeEditor();
-        _nbEditId = ""; _nbExposed.Clear(); _nbOpen = true; _nbJustOpened = true; _ui.Focus = "nb.title";
+        _nbEditId = ""; _nbExposed.Clear(); _nbAsTool = false; _nbOpen = true; _nbJustOpened = true; _ui.Focus = "nb.title";
     }
 
     /// <summary>Re-open an installed custom node to edit its recipe in the mini editor.</summary>
@@ -66,6 +67,10 @@ public partial class MainScreen
 
             _nbTitle = S("title", typeId); _nbIcon = S("icon", "🧩"); _nbCategory = S("category", "Logic"); _nbDesc = S("description");
             _nbEditId = typeId; _nbStatus = "";
+            _nbAsTool = false;   // re-tick if this node already advertises a Tool output, so re-saving keeps it
+            if (rt.TryGetProperty("outputs", out var outs2) && outs2.ValueKind == JsonValueKind.Array)
+                foreach (var o in outs2.EnumerateArray())
+                    if (o.TryGetProperty("kind", out var kk2) && kk2.ValueKind == JsonValueKind.String && string.Equals(kk2.GetString(), "Tool", StringComparison.OrdinalIgnoreCase)) _nbAsTool = true;
             _nbGraph = GraphSerializer.Load(sg.GetRawText()).graph;
             _nbEditor = new GraphEditor(_nbGraph) { ShowMinimap = false };
             _nbExposed.Clear();
@@ -115,7 +120,7 @@ public partial class MainScreen
     private string NbBuildManifest()
         => _nbEditor?.SerializeAsComposite(NbTypeId(),
             _nbTitle.Trim().Length > 0 ? _nbTitle.Trim() : "Custom Node",
-            _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "🧩", _nbCategory, _nbDesc.Trim(), _nbExposed) ?? "";
+            _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "🧩", _nbCategory, _nbDesc.Trim(), _nbExposed, _nbAsTool) ?? "";
 
     private string NbValidate(string manifest)
     {
@@ -165,7 +170,9 @@ public partial class MainScreen
         _nbCategory = _ui.Choice("nb.cat", new RectF(cx + titleW + gap + iconW + gap, fy, catW, 28), NbCategories, _nbCategory);
         y = fy + 28 + 10;
         _nbDesc = _ui.TextField("nb.desc", new RectF(cx, y, cw, 26), _nbDesc, "what this node does (one sentence)");
-        y += 26 + 12;
+        y += 26 + 8;
+        _nbAsTool = _ui.Toggle("nb.astool", new RectF(cx, y, cw, 22), _nbAsTool, "🧰  Usable as an AI tool - wire into Ask AI (input pins = the model's arguments, first output = result)");
+        y += 22 + 10;
 
         DrawNbCompositeBody(r, panel, cx, cw, y, clock, Label);
 

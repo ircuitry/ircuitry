@@ -948,6 +948,7 @@ public static class NodeCatalog
                     var byName = new Dictionary<string, Node>();          // ai.tool name -> sub-flow node
                     var editorBot = new Dictionary<string, string>();     // editor tool name -> default bot
                     var nodeTools = new Dictionary<string, Node>();       // node-tool name -> the node (e.g. a custom .ircnode)
+                    var subTools = new Dictionary<string, (NodeGraph sub, string innerId)>();   // ai.tool baked inside a composite
                     foreach (var tn in c.SourcesInto(2))
                     {
                         if (tn.TypeId == "ai.tool")
@@ -968,18 +969,37 @@ public static class NodeCatalog
                                 editorBot[d.Name] = defBot;
                             }
                         }
-                        else if (Array.Exists(tn.Outputs, p => p.Kind == PinKind.Tool))
+                        else
                         {
-                            // any other node that advertises a Tool output is a self-contained tool (e.g. a
-                            // custom .ircnode): its data inputs are the model's args, its first data output the result
-                            string nm = AiToolName(tn);
-                            if (nm.Length == 0 || byName.ContainsKey(nm) || editorBot.ContainsKey(nm) || nodeTools.ContainsKey(nm)) continue;
-                            var a = new List<(string, string)>();
-                            foreach (var pin in tn.Inputs)
-                                if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0)
-                                    a.Add((pin.Name, pin.Name));   // arg name = input pin name
-                            defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a));
-                            nodeTools[nm] = tn;
+                            // a BAKED composite may hold AI Tool nodes inside it: expose each inner ai.tool
+                            // directly (its name/description/args), so baking a tool sub-flow just works
+                            bool handled = false;
+                            if (tn.Def.SubgraphProvider is { } prov)
+                            {
+                                var sub = prov();
+                                foreach (var inner in sub.Nodes)
+                                {
+                                    if (inner.TypeId != "ai.tool") continue;
+                                    var im = inner.GetParam("name");
+                                    if (im.Length == 0 || byName.ContainsKey(im) || editorBot.ContainsKey(im) || nodeTools.ContainsKey(im) || subTools.ContainsKey(im)) continue;
+                                    defs.Add(new Ai.ToolDef(im, inner.GetParam("description"), AiToolArgs(inner)));
+                                    subTools[im] = (sub, inner.Id); handled = true;
+                                }
+                            }
+                            // otherwise any node advertising a Tool output is a self-contained tool (a custom
+                            // .ircnode, or a composite ticked 'usable as AI tool'): data inputs = the model's
+                            // args, first data output = the result
+                            if (!handled && Array.Exists(tn.Outputs, p => p.Kind == PinKind.Tool))
+                            {
+                                string nm = AiToolName(tn);
+                                if (nm.Length == 0 || byName.ContainsKey(nm) || editorBot.ContainsKey(nm) || nodeTools.ContainsKey(nm) || subTools.ContainsKey(nm)) continue;
+                                var a = new List<(string, string)>();
+                                foreach (var pin in tn.Inputs)
+                                    if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0)
+                                        a.Add((pin.Name, pin.Name));   // arg name = input pin name
+                                defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a));
+                                nodeTools[nm] = tn;
+                            }
                         }
                     }
 
@@ -995,6 +1015,8 @@ public static class NodeCatalog
                                     return Ircuitry.App.Mcp.McpBridge.Invoke(name, args, db.Length > 0 ? db : null);
                                 if (nodeTools.TryGetValue(name, out var ntn))   // a self-contained node tool (e.g. a custom .ircnode)
                                     return c.InvokeNodeTool(ntn, args);
+                                if (subTools.TryGetValue(name, out var stp))    // an AI Tool baked inside a composite
+                                    return c.InvokeSubflowTool(stp.sub, stp.innerId, args);
                                 if (!byName.TryGetValue(name, out var tn)) return "(unknown tool: " + name + ")";
                                 foreach (var kv in args) c.SetVar("__arg." + kv.Key, kv.Value);
                                 c.SetVar("__tool_result", "");
@@ -1177,6 +1199,7 @@ public static class NodeCatalog
                     var byName = new Dictionary<string, Node>();
                     var editorBot = new Dictionary<string, string>();
                     var nodeTools = new Dictionary<string, Node>();
+                    var subTools = new Dictionary<string, (NodeGraph sub, string innerId)>();
                     foreach (var tn in c.SourcesInto(2))
                     {
                         if (tn.TypeId == "ai.tool")
@@ -1193,14 +1216,30 @@ public static class NodeCatalog
                                 defs.Add(d); editorBot[d.Name] = defBot;
                             }
                         }
-                        else if (Array.Exists(tn.Outputs, p => p.Kind == PinKind.Tool))
+                        else
                         {
-                            string nm = AiToolName(tn);
-                            if (nm.Length == 0 || CodeAgent.Handles(nm) || byName.ContainsKey(nm) || nodeTools.ContainsKey(nm)) continue;
-                            var a = new List<(string, string)>();
-                            foreach (var pin in tn.Inputs)
-                                if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0) a.Add((pin.Name, pin.Name));
-                            defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a)); nodeTools[nm] = tn;
+                            bool handled = false;
+                            if (tn.Def.SubgraphProvider is { } prov)   // an AI Tool baked inside a composite
+                            {
+                                var sub = prov();
+                                foreach (var inner in sub.Nodes)
+                                {
+                                    if (inner.TypeId != "ai.tool") continue;
+                                    var im = inner.GetParam("name");
+                                    if (im.Length == 0 || CodeAgent.Handles(im) || byName.ContainsKey(im) || editorBot.ContainsKey(im) || nodeTools.ContainsKey(im) || subTools.ContainsKey(im)) continue;
+                                    defs.Add(new Ai.ToolDef(im, inner.GetParam("description"), AiToolArgs(inner)));
+                                    subTools[im] = (sub, inner.Id); handled = true;
+                                }
+                            }
+                            if (!handled && Array.Exists(tn.Outputs, p => p.Kind == PinKind.Tool))
+                            {
+                                string nm = AiToolName(tn);
+                                if (nm.Length == 0 || CodeAgent.Handles(nm) || byName.ContainsKey(nm) || editorBot.ContainsKey(nm) || nodeTools.ContainsKey(nm) || subTools.ContainsKey(nm)) continue;
+                                var a = new List<(string, string)>();
+                                foreach (var pin in tn.Inputs)
+                                    if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0) a.Add((pin.Name, pin.Name));
+                                defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a)); nodeTools[nm] = tn;
+                            }
                         }
                     }
 
@@ -1213,6 +1252,7 @@ public static class NodeCatalog
                             if (res != null) return res;
                             if (editorBot.TryGetValue(name, out var db)) return Ircuitry.App.Mcp.McpBridge.Invoke(name, args, db.Length > 0 ? db : null);
                             if (nodeTools.TryGetValue(name, out var ntn)) return c.InvokeNodeTool(ntn, args);
+                            if (subTools.TryGetValue(name, out var stp)) return c.InvokeSubflowTool(stp.sub, stp.innerId, args);
                             if (byName.TryGetValue(name, out var tn))
                             {
                                 foreach (var kv in args) c.SetVar("__arg." + kv.Key, kv.Value);
