@@ -1,0 +1,84 @@
+{"typeId":"filehost.image","title":"Push Image to Filehost","subtitle":"composite","icon":"\uD83D\uDDBC\uFE0F","category":"Storage","description":"Uploads an image (a path under ~/ircuitry/files - e.g. straight from a Download File node) to a filehost via standard multipart/form-data, and outputs the returned link. It is just an HTTP Request node in multipart mode, so right-click -\u003E Edit to see how it works or point it at your own host. Defaults to 0x0.st. For catbox.moe set endpoint to https://catbox.moe/user/api.php, field to fileToUpload, and add a form field line \u0027reqtype=fileupload\u0027.","inputs":[{"name":"","kind":"Exec"},{"name":"image","kind":"Text"}],"outputs":[{"name":"then","kind":"Exec"},{"name":"url","kind":"Text"}],"params":[{"key":"endpoint","label":"Endpoint","type":"Text","default":"https://0x0.st"},{"key":"field","label":"Field","type":"Text","default":"file"},{"key":"fields","label":"Fields","type":"Text","default":""},{"key":"headers","label":"Headers","type":"Text","default":""}],"subgraph":{
+  "format": "ircuitry.workflow.v1",
+  "name": "Push Image to Filehost",
+  "nodes": [
+    {
+      "id": "n12e89",
+      "type": "flow.in",
+      "x": -380,
+      "y": -40,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {}
+    },
+    {
+      "id": "n22e89",
+      "type": "flow.arg",
+      "x": -380,
+      "y": 120,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {
+        "name": "image"
+      }
+    },
+    {
+      "id": "n32e8a",
+      "type": "net.http",
+      "x": -40,
+      "y": -40,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {
+        "method": "POST",
+        "url": "{endpoint}",
+        "send": "file (multipart)",
+        "field": "{field}",
+        "file": "",
+        "headers": "{headers}",
+        "body": "{fields}"
+      }
+    },
+    {
+      "id": "n42e8a",
+      "type": "flow.return",
+      "x": 320,
+      "y": -40,
+      "muted": false,
+      "streamAsTool": false,
+      "title": "",
+      "params": {
+        "name": "url"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "n12e89",
+      "fromPin": 0,
+      "to": "n32e8a",
+      "toPin": 0
+    },
+    {
+      "from": "n22e89",
+      "fromPin": 0,
+      "to": "n32e8a",
+      "toPin": 2
+    },
+    {
+      "from": "n32e8a",
+      "fromPin": 0,
+      "to": "n42e8a",
+      "toPin": 0
+    },
+    {
+      "from": "n32e8a",
+      "fromPin": 1,
+      "to": "n42e8a",
+      "toPin": 1
+    }
+  ]
+}}

@@ -255,6 +255,7 @@ public sealed partial class MainScreen
         var grab = new RectF(cx - 28, p.Y - 5, 56, 12);
         var hit = grab.Inflate(8, 8);
         bool hot = _consoleResizing || (!Modal && hit.Contains(In.Mouse));
+        _consoleResizeHot = hot;   // let the frame's cursor logic show the vertical-resize pointer here
 
         if (!Modal)
         {

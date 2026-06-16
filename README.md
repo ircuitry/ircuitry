@@ -103,10 +103,11 @@ single wire.
 | **Events** (triggers) | On Connect · On Message · On Command · On Join · On Timer · **On Schedule** (interval / daily / weekly / once) |
 | **Conditions** (branch) | If / Compare · Text Contains · From User · From Account (IRCv3 account-tag) · Is Bot (IRCv3 bot flag) · Random Chance · Regex Match |
 | **Logic & Flow** | Switch · Cooldown · For Each · Set Variable · Delay (capped wait) · **Code** (run JavaScript / Python) |
-| **Text & Values** | Get Variable · Math · Text Transform · Random Reply · Random Number · Format Text · JSON Field · Get Tag |
-| **AI** | Ask AI · AI Tool · Tool Reply · AI Memory (conversation continuity) |
-| **Files & Database** | Read File · Write File · **DB Set / DB Get** (newbie-friendly file-backed key/value) · **SQL Query** (advanced: raw SQLite) · Calendar (iCal) · Add Calendar Event · Search Calendar |
-| **Actions** | Send Reply · Reply (threaded) (`+reply`) · Add Reaction (`+draft/react`) · Send Action (`/me`) · Send to Channel · Join Channel · Set Topic · Kick User · Set Mode (op/voice/ban) · Console Log · HTTP Request |
+| **Text & Values** | Get Variable · Math · Text Transform · Format Text · JSON Field · Random Reply / Number · **Encode/Decode** (base64/hex/url/html/binary/morse/rot13) · **Hash** (md5/sha/crc32) · **Change Case** · **Shape Text** · **Regex** · **Math expression** · **Unit Convert** · **Number Theory / Format** · **Date/Time** · **Random Generator** · **Pick from List** · **Number Stats** |
+| **AI** | Ask AI · AI Tool · Tool Reply · AI Memory · **Programmer AI** (a sandboxed coding agent: reads/edits a codebase, runs build/test, then delivers it) |
+| **Code** (program a codebase, also AI tools) | Read · Write · Edit · Insert · Append · Delete · Move · Copy · Make Dir · List · Project Tree · Find Files · Search Code · Replace Across · File Info · Path Exists · Diff · Run Command · Code Outline · Project Stats - all confined to a chosen codebase folder |
+| **Files & Database** | Read File · Write File · **DB Set / DB Get** · **SQL Query** (raw SQLite) · Calendar (iCal) · **Image Info** · **Download File** · **Organize Media** · **Transform Image** · **Zip / Unzip** |
+| **Actions** | Send Reply · Reply (threaded) (`+reply`) · Add Reaction (`+draft/react`) · Send Action (`/me`) · Send to Channel · Join Channel · Set Topic · Kick User · Set Mode (op/voice/ban) · Console Log · **HTTP Request** (now also multipart **file upload**) |
 
 **Variables** (Set/Get) are a per-bot key/value store that **persists** in the
 workspace - so counters, scores and "seen" lists survive restarts. Combined with
@@ -204,7 +205,9 @@ ircuitry ships with built-in nodes only; everything else is community content yo
   `Ctrl+V` on the canvas, or **IMPORT** the file as a new bot. Share yours via
   [ircuitry/community-workflows](https://github.com/ircuitry/community-workflows).
 
-Scripted nodes and workflows run code on your machine, so the installer shows the source for review first.
+Community nodes are **recipes of built-in nodes** (composites), not code blobs - drop one in and right-click
+**Edit** to see exactly how it is wired and learn from it. Workflows run on your machine, so the installer
+shows the source for review first.
 
 ## MCP server (let an AI build bots)
 

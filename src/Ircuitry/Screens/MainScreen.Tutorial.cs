@@ -130,14 +130,14 @@ public sealed partial class MainScreen
                 accent = Theme.Cyan; spot = canvas;
                 title = "Add a trigger";
                 body = "Every command begins with a trigger. \"On Command\" fires when someone types a prefix and a word - like !hello. Pop one onto the canvas.";
-                prim = cmd == null ? "➕  Place 'On Command'" : "Next  ▶";
+                prim = cmd == null ? "+  Place 'On Command'" : "Next  ▶";
                 break;
 
             case 2:   // place reply
                 accent = Theme.Lime; spot = canvas;
                 title = "Add an action";
                 body = "Now the fun part - what the bot does. \"Send Reply\" answers right back in the channel. Add one next to your trigger.";
-                prim = reply == null ? "➕  Place 'Send Reply'" : "Next  ▶";
+                prim = reply == null ? "+  Place 'Send Reply'" : "Next  ▶";
                 break;
 
             case 3:   // wire

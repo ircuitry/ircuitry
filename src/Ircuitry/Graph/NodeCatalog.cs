@@ -134,6 +134,72 @@ public static class NodeCatalog
     private static ParamDef PL(string key, string label, bool pair, string addLabel)
         => new() { Key = key, Label = label, Type = ParamType.List, Pair = pair, AddLabel = addLabel };
 
+    /// <summary>Read a code/tool node input: a wired value wins, then the AI model's argument
+    /// (<c>__arg.NAME</c>), then the node's own param (token-resolved). Used by the <c>code.*</c> tool nodes.</summary>
+    private static string Arg(INodeContext c, int pin, string name)
+    {
+        string v = c.In(pin);
+        if (v.Length == 0) v = c.Var("__arg." + name);
+        if (v.Length == 0) v = c.Resolve(c.Param(name));
+        return v;
+    }
+
+    /// <summary>The confined codebase root for a <c>code.*</c> node - always the node's own <c>root</c> param
+    /// (never an AI argument), so the model cannot widen its own sandbox.</summary>
+    private static string CodeRoot(INodeContext c) => c.Resolve(c.Param("root"));
+
+    /// <summary>Run a code-tool body: put the result (or a tidy error) in <paramref name="resultPin"/> and
+    /// pulse <paramref name="thenPin"/>. A confinement breach becomes a logged error, never an exception.</summary>
+    private static void CodeRun(INodeContext c, int resultPin, int thenPin, Func<string> body)
+    {
+        try { c.SetOut(resultPin, body()); }
+        catch (CodeAccessException ex) { c.SetOut(resultPin, "error: " + ex.Message); c.Log("code: " + ex.Message, LogLevel.Error); }
+        catch (Exception ex) { c.SetOut(resultPin, "error: " + ex.Message); c.Log("code error: " + ex.Message, LogLevel.Error); }
+        c.Pulse(thenPin);
+    }
+
+    /// <summary>The codebase-root param shared by every <c>code.*</c> node - the sandbox boundary.</summary>
+    private static ParamDef RootParam() => P("root", "Codebase folder", ParamType.Text, "",
+        "~/projects/mybot · all paths are relative to this and can't escape it");
+
+    /// <summary>The Programmer AI's system prompt: a senior-engineer persona that never reveals the sandbox
+    /// root, the zip-and-upload behind send_codebase, or any filehost details - it just knows it can edit the
+    /// codebase and deliver it.</summary>
+    private static string ProgrammerSystemPrompt(string extra, bool allowCmd, bool canSend)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("You are a senior software engineer working inside a project's codebase. ");
+        sb.Append("You can read, search and edit any file in the project; every path you use is relative to the project root. ");
+        sb.Append("Work methodically: first explore (project_tree, list_dir, search_code) to learn the layout, read the files you need, ");
+        sb.Append("then make focused changes with edit_file, or write_file for new files. Read a file before you edit it - never invent its contents. ");
+        if (allowCmd) sb.Append("You can run build, test and lint commands with run_command to verify your work. ");
+        if (canSend) sb.Append("When the task is complete and your changes are in place, call send_codebase to deliver the finished project, then tell the user what you changed and include the link it returns. ");
+        sb.Append("Keep going until the task is genuinely done; do not ask permission for routine edits.");
+        if (extra.Trim().Length > 0) { sb.Append("\n\nAdditional instructions:\n").Append(extra.Trim()); }
+        return sb.ToString();
+    }
+
+    /// <summary>Pull a shareable link out of a filehost's response - a bare URL, or a JSON body with a
+    /// url/link field (covers 0x0.st, catbox, transfer.sh, imgur-style hosts). Falls back to the raw body.</summary>
+    private static string ExtractUrl(string body)
+    {
+        body = (body ?? "").Trim();
+        if (body.Length == 0) return "(no response)";
+        if (body.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || body.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return body.Split('\n', ' ', '\t')[0].Trim();
+        try
+        {
+            using var d = System.Text.Json.JsonDocument.Parse(body);
+            foreach (var key in new[] { "url", "link", "href", "downloadUrl" })
+                if (d.RootElement.TryGetProperty(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) return v.GetString() ?? body;
+            if (d.RootElement.TryGetProperty("data", out var data) && data.ValueKind == System.Text.Json.JsonValueKind.Object)
+                foreach (var key in new[] { "link", "url" })
+                    if (data.TryGetProperty(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) return v.GetString() ?? body;
+        }
+        catch { /* not JSON */ }
+        return body;
+    }
+
     /// <summary>Where the file nodes read/write relative paths (absolute paths are honoured as-is).</summary>
     public static readonly string FilesDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry", "files");
@@ -1028,6 +1094,125 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "ai.programmer", Icon = "🛠️", Title = "Programmer AI", Subtitle = "ai",
+                Category = NodeCategory.Ai,
+                Description = "An AI software engineer that reads and edits a whole codebase (read/write/edit/search/move files, run build & test commands) and delivers the finished result. It is sandboxed to the codebase folder you give it and CANNOT touch anything outside. Set a 'task' and wire 'reply' into Send Reply. Wire extra AI Tool nodes into 'tools' to give it more abilities.",
+                Inputs = new[] { Ex(), Tx("task"), To("tools", multi: true) },
+                Outputs = new[] { Ex("then"), Tx("reply") },
+                Params = new[]
+                {
+                    P("root", "Codebase folder", ParamType.Text, "", "~/projects/mybot · the AI is locked inside this folder"),
+                    P("baseUrl", "Base URL", ParamType.Text, "https://api.openai.com/v1", "openai · openrouter · groq · ollama …"),
+                    P("model", "Model", ParamType.Text, "gpt-4o", "gpt-4o · a coding model · llama3 …"),
+                    P("apiKey", "API key", ParamType.Text, "", "blank = $OPENAI_API_KEY", secret: true),
+                    P("task", "Task", ParamType.Multiline, "", "what to build or change (supports {nick} {message} {args})"),
+                    P("instructions", "Extra instructions (optional)", ParamType.Multiline, "", "house style, constraints, what 'done' means"),
+                    P("allowCommands", "Allow running commands", ParamType.Bool, "true", ""),
+                    P("maxTokens", "Max tokens", ParamType.Int, "1500", "1500"),
+                    P("filehostUrl", "Filehost URL", ParamType.Text, "https://0x0.st", "where the finished codebase is uploaded"),
+                    P("filehostField", "Filehost file field", ParamType.Text, "file", "file · fileToUpload (catbox) · image"),
+                    PL("filehostFields", "Filehost extra fields (optional)", true, "Add field"),
+                    PL("filehostHeaders", "Filehost headers (optional)", true, "Add header"),
+                },
+                SummaryParam = "model",
+                Exec = c =>
+                {
+                    string root = c.Resolve(c.Param("root")).Trim();
+                    if (root.Length == 0) { c.Log("Programmer AI: set a codebase folder first", LogLevel.Error); c.SetOut(1, ""); c.Pulse(0); return; }
+                    try { CodeTools.Root(root); }
+                    catch (Exception ex) { c.Log("Programmer AI: " + ex.Message, LogLevel.Error); c.SetOut(1, ""); c.Pulse(0); return; }
+
+                    string task = c.InOr(1, c.Resolve(c.Param("task")));
+                    bool allowCmd = c.ParamBool("allowCommands");
+
+                    var miss = new List<string>();
+                    foreach (var k in new[] { "apiKey", "baseUrl", "model" })
+                        foreach (var nm in Ircuitry.Core.Secrets.Missing(c.Node.GetParam(k)))
+                            if (!miss.Contains(nm)) miss.Add(nm);
+                    if (miss.Count > 0)
+                    {
+                        c.Log("Programmer AI: secret '" + string.Join("', '", miss) + "' not defined - add it under KEYS", LogLevel.Error);
+                        c.SetOut(1, ""); c.Pulse(0); return;
+                    }
+
+                    // the hidden delivery: zip the codebase to a temp file OUTSIDE the tree, upload it, return the link
+                    string fhUrl = c.Resolve(c.Param("filehostUrl")).Trim();
+                    string fhField = c.Param("filehostField"); if (fhField.Length == 0) fhField = "file";
+                    var fhFields = Ircuitry.Core.ParamList.Pairs(c.Param("filehostFields")).Where(p => p.key.Length > 0).Select(p => (p.key, p.val)).ToList();
+                    var fhHeaders = Ircuitry.Core.ParamList.Pairs(c.Param("filehostHeaders")).Where(p => p.key.Length > 0).Select(p => (p.key, p.val)).ToList();
+                    Func<Dictionary<string, string>, string> sendCodebase = _ =>
+                    {
+                        if (fhUrl.Length == 0) return "delivery is not configured (no filehost URL set on this Programmer AI)";
+                        string tmp = "";
+                        try
+                        {
+                            tmp = CodeTools.ZipToTemp(root, ".");
+                            var (status, body) = Ircuitry.Net.Upload.PostFile(fhUrl, tmp, fhField, fhFields, fhHeaders);
+                            if (!Ircuitry.Net.Upload.Ok(status)) { c.Log("send_codebase upload failed (" + status + "): " + body, LogLevel.Error); return "delivery failed: " + body; }
+                            string link = ExtractUrl(body);
+                            c.Log("Programmer AI delivered the codebase -> " + link, LogLevel.Action);
+                            return "Delivered. Link: " + link;
+                        }
+                        catch (Exception ex) { c.Log("send_codebase error: " + ex.Message, LogLevel.Error); return "delivery failed: " + ex.Message; }
+                        finally { if (tmp.Length > 0) { try { System.IO.File.Delete(tmp); } catch { } } }
+                    };
+
+                    // tool defs: curated code tools (+ run_command, + send_codebase), PLUS any externally-wired tools
+                    var defs = CodeAgent.ToolDefs(allowCmd, includeSend: fhUrl.Length > 0);
+                    var byName = new Dictionary<string, Node>();
+                    var editorBot = new Dictionary<string, string>();
+                    var nodeTools = new Dictionary<string, Node>();
+                    foreach (var tn in c.SourcesInto(2))
+                    {
+                        if (tn.TypeId == "ai.tool")
+                        {
+                            var nm = tn.GetParam("name"); if (nm.Length == 0 || CodeAgent.Handles(nm)) continue;
+                            defs.Add(new Ai.ToolDef(nm, tn.GetParam("description"), AiToolArgs(tn))); byName[nm] = tn;
+                        }
+                        else if (tn.TypeId == "ai.editor")
+                        {
+                            bool ro = tn.GetParam("mode") == "read-only"; string defBot = tn.GetParam("bot").Trim();
+                            foreach (var d in Ircuitry.App.Mcp.McpBridge.EditorToolDefs(ro))
+                            {
+                                if (byName.ContainsKey(d.Name) || editorBot.ContainsKey(d.Name) || CodeAgent.Handles(d.Name)) continue;
+                                defs.Add(d); editorBot[d.Name] = defBot;
+                            }
+                        }
+                        else if (Array.Exists(tn.Outputs, p => p.Kind == PinKind.Tool))
+                        {
+                            string nm = AiToolName(tn);
+                            if (nm.Length == 0 || CodeAgent.Handles(nm) || byName.ContainsKey(nm) || nodeTools.ContainsKey(nm)) continue;
+                            var a = new List<(string, string)>();
+                            foreach (var pin in tn.Inputs)
+                                if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0) a.Add((pin.Name, pin.Name));
+                            defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a)); nodeTools[nm] = tn;
+                        }
+                    }
+
+                    string system = ProgrammerSystemPrompt(c.Resolve(c.Param("instructions")), allowCmd, fhUrl.Length > 0);
+                    string reply = Ai.ChatWithTools(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), system,
+                        task, c.ParamInt("maxTokens", 1500), defs,
+                        (name, args) =>
+                        {
+                            var res = CodeAgent.Dispatch(root, name, args, allowCmd, sendCodebase);
+                            if (res != null) return res;
+                            if (editorBot.TryGetValue(name, out var db)) return Ircuitry.App.Mcp.McpBridge.Invoke(name, args, db.Length > 0 ? db : null);
+                            if (nodeTools.TryGetValue(name, out var ntn)) return c.InvokeNodeTool(ntn, args);
+                            if (byName.TryGetValue(name, out var tn))
+                            {
+                                foreach (var kv in args) c.SetVar("__arg." + kv.Key, kv.Value);
+                                c.SetVar("__tool_result", ""); c.RunNode(tn); return c.Var("__tool_result");
+                            }
+                            return "(unknown tool: " + name + ")";
+                        }, out var err);
+
+                    if (err.Length > 0) c.Log("Programmer AI error: " + err, LogLevel.Error);
+                    else c.SetOut(1, reply);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
                 TypeId = "human.alert", Icon = "🔔", Title = "Alert Human", Subtitle = "notify",
                 Category = NodeCategory.Action,
                 Description = "Pops a native desktop notification on the machine running ircuitry, so a human notices something even when they aren't watching chat. notify-send on Linux, osascript on macOS, a toast on Windows (best effort).",
@@ -1092,15 +1277,18 @@ public static class NodeCatalog
             {
                 TypeId = "net.http", Icon = "🌐", Title = "HTTP Request", Subtitle = "web",
                 Category = NodeCategory.Action,
-                Description = "Calls a web API. Outputs the response body and status. Headers are 'Key: value' lines.",
-                Inputs = new[] { Ex(), Tx("url") },
+                Description = "Calls a web API. Sends a text/JSON body, or uploads a file as multipart/form-data (the standard way to push an image or any file to a filehost). Outputs the response body and status. Headers are 'Key: value' lines.",
+                Inputs = new[] { Ex(), Tx("url"), Tx("file") },
                 Outputs = new[] { Ex("then"), Tx("response"), Tx("status") },
                 Params = new[]
                 {
-                    P("method", "Method", ParamType.Choice, "GET", "", new[] { "GET", "POST" }),
+                    P("method", "Method", ParamType.Choice, "GET", "", new[] { "GET", "POST" }, visibleWhen: n => n.GetParam("send") != "file (multipart)"),
                     P("url", "URL", ParamType.Text, "https://", "https://api.example.com/..."),
+                    P("send", "Send", ParamType.Choice, "body", "", new[] { "body", "file (multipart)" }),
+                    P("field", "File field name", ParamType.Text, "file", "file · fileToUpload · image", visibleWhen: n => n.GetParam("send") == "file (multipart)"),
+                    P("file", "File path", ParamType.Text, "", "pic.png (under ~/ircuitry/files) or /abs/pic.png", visibleWhen: n => n.GetParam("send") == "file (multipart)"),
                     P("headers", "Headers", ParamType.Multiline, "", "Authorization: Bearer ..."),
-                    P("body", "Body", ParamType.Multiline, "", "{ ... } for POST"),
+                    P("body", "Body / form fields", ParamType.Multiline, "", "{ ... } for POST  ·  or key=value lines for multipart"),
                 },
                 SummaryParam = "url",
                 Exec = c =>
@@ -1109,7 +1297,26 @@ public static class NodeCatalog
                     var headers = c.Resolve(c.Param("headers")).Split('\n')   // resolve so {{secret.X}} / {tokens} work in headers
                         .Select(l => l.Trim()).Where(l => l.Contains(':'))
                         .Select(l => (l[..l.IndexOf(':')].Trim(), l[(l.IndexOf(':') + 1)..].Trim()))
+                        .Where(t => t.Item1.Length > 0)   // drop malformed ":value" lines (empty header name)
                         .ToArray();
+
+                    if (c.Param("send") == "file (multipart)")
+                    {
+                        var filePath = ResolveFile(c.InOr(2, c.Resolve(c.Param("file"))));
+                        if (filePath.Length == 0) { c.Log("HTTP upload: file path is empty or escapes the files sandbox", LogLevel.Error); c.SetOut(1, ""); c.SetOut(2, "0"); c.Pulse(0); return; }
+                        var fields = c.Resolve(c.Param("body")).Split('\n')   // multipart: extra text fields as key=value lines
+                            .Select(l => l.Trim()).Where(l => l.Contains('=') && !l.StartsWith("{"))
+                            .Select(l => (l[..l.IndexOf('=')].Trim(), l[(l.IndexOf('=') + 1)..].Trim()))
+                            .Where(t => t.Item1.Length > 0)   // drop malformed "=value" lines (empty field name)
+                            .ToArray();
+                        string field = c.Param("field"); if (field.Length == 0) field = "file";
+                        var (st, rb) = Ircuitry.Net.Upload.PostFile(url, filePath, field, fields, headers);
+                        c.SetOut(1, rb); c.SetOut(2, st.ToString());
+                        if (!Ircuitry.Net.Upload.Ok(st)) c.Log("HTTP upload status " + st + ": " + rb, LogLevel.Error);
+                        c.Pulse(0);
+                        return;
+                    }
+
                     var method = c.Param("method");
                     var body = method == "POST" ? c.Resolve(c.Param("body")) : null;
                     var (status, resp) = Http.Send(method, url, headers, body);
@@ -1234,6 +1441,681 @@ public static class NodeCatalog
                         }
                     }
                 },
+            },
+            // ===================== CODE (program a whole codebase; each is also an AI tool) =====================
+            // Every code.* node carries a Tool output, so wiring it into Ask AI (or the Programmer AI) lets the
+            // model call it. The 'root' param is the sandbox: CodeTools.Confine() keeps every path inside it.
+            new()
+            {
+                TypeId = "code.read", Icon = "📖", Title = "Read File", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Reads a text file from the codebase and returns its contents (optionally a line range). Paths are relative to the codebase folder. Branches to 'missing' if the file isn't there.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("then"), Ex("missing"), Tx("content"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "read_file", "read_file"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "src/main.py"),
+                    P("startLine", "From line (optional)", ParamType.Int, "0", "0 = start"),
+                    P("endLine", "To line (optional)", ParamType.Int, "0", "0 = end"),
+                },
+                SummaryParam = "path",
+                Exec = c =>
+                {
+                    try
+                    {
+                        string root = CodeRoot(c), path = Arg(c, 1, "path");
+                        if (!CodeTools.Exists(root, path)) { c.SetOut(2, ""); c.Pulse(1); return; }
+                        c.SetOut(2, CodeTools.Read(root, path, c.ParamInt("startLine", 0), c.ParamInt("endLine", 0)));
+                        c.Pulse(0);
+                    }
+                    catch (Exception ex) { c.SetOut(2, "error: " + ex.Message); c.Log("code: " + ex.Message, LogLevel.Error); c.Pulse(1); }
+                },
+            },
+            new()
+            {
+                TypeId = "code.write", Icon = "📝", Title = "Write File", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Creates or overwrites a file with the given content (parent folders are made). Use for new files or full rewrites; prefer Edit File for small changes. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path"), Tx("content") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "write_file", "write_file"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "src/new.py"),
+                    P("content", "Content", ParamType.Multiline, "", "file contents"),
+                },
+                SummaryParam = "path",
+                Exec = c => CodeRun(c, 1, 0, () => { string root = CodeRoot(c), p = Arg(c, 1, "path"); CodeTools.Write(root, p, Arg(c, 2, "content")); return "wrote " + p; }),
+            },
+            new()
+            {
+                TypeId = "code.edit", Icon = "✍️", Title = "Edit File", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Replaces an exact piece of text in a file with new text - the precise way to change code. By default 'find' must be unique (one edit); turn on Replace all to change every occurrence. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path"), Tx("find"), Tx("replace") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "edit_file", "edit_file"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "src/main.py"),
+                    P("find", "Find (exact)", ParamType.Multiline, "", "text to replace"),
+                    P("replace", "Replace with", ParamType.Multiline, "", "new text"),
+                    P("all", "Replace all", ParamType.Bool, "false", ""),
+                },
+                SummaryParam = "path",
+                Exec = c => CodeRun(c, 1, 0, () =>
+                {
+                    string root = CodeRoot(c), p = Arg(c, 1, "path");
+                    int n = CodeTools.Edit(root, p, Arg(c, 2, "find"), Arg(c, 3, "replace"), c.ParamBool("all"));
+                    return $"edited {p} ({n} replacement{(n == 1 ? "" : "s")})";
+                }),
+            },
+            new()
+            {
+                TypeId = "code.insert", Icon = "➕", Title = "Insert Lines", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Inserts text into a file after a given line number (0 = at the very top). Good for adding imports, functions or config blocks. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path"), Nm("after"), Tx("content") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "insert_lines", "insert_lines"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "src/main.py"),
+                    P("after", "After line", ParamType.Int, "0", "0 = top"),
+                    P("content", "Content", ParamType.Multiline, "", "lines to insert"),
+                },
+                SummaryParam = "path",
+                Exec = c => CodeRun(c, 1, 0, () =>
+                {
+                    string root = CodeRoot(c), p = Arg(c, 1, "path");
+                    int after = int.TryParse(Arg(c, 2, "after"), out var a) ? a : c.ParamInt("after", 0);
+                    int at = CodeTools.Insert(root, p, after, Arg(c, 3, "content"));
+                    return $"inserted into {p} at line {at}";
+                }),
+            },
+            new()
+            {
+                TypeId = "code.append", Icon = "📎", Title = "Append to File", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Appends text to the end of a file (creating it if needed). Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path"), Tx("content") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "append_file", "append_file"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "notes.md"),
+                    P("content", "Content", ParamType.Multiline, "", "text to append"),
+                },
+                SummaryParam = "path",
+                Exec = c => CodeRun(c, 1, 0, () => { string root = CodeRoot(c), p = Arg(c, 1, "path"); CodeTools.Append(root, p, Arg(c, 2, "content")); return "appended to " + p; }),
+            },
+            new()
+            {
+                TypeId = "code.delete", Icon = "🗑️", Title = "Delete Path", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Deletes a file or a folder (recursively) inside the codebase. Refuses to delete the codebase root itself. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "delete_path", "delete_path"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "old/temp.py"),
+                },
+                SummaryParam = "path",
+                Exec = c => CodeRun(c, 1, 0, () => { string p = Arg(c, 1, "path"); CodeTools.Delete(CodeRoot(c), p); return "deleted " + p; }),
+            },
+            new()
+            {
+                TypeId = "code.move", Icon = "🚚", Title = "Move / Rename", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Moves or renames a file or folder within the codebase. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("from"), Tx("to") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "move_path", "move_path"),
+                    RootParam(),
+                    P("from", "From", ParamType.Text, "", "src/old.py"),
+                    P("to", "To", ParamType.Text, "", "src/new.py"),
+                },
+                Exec = c => CodeRun(c, 1, 0, () => { string root = CodeRoot(c), a = Arg(c, 1, "from"), b = Arg(c, 2, "to"); CodeTools.Move(root, a, b); return $"moved {a} -> {b}"; }),
+            },
+            new()
+            {
+                TypeId = "code.copy", Icon = "📑", Title = "Copy Path", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Copies a file or folder (recursively) to a new path within the codebase. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("from"), Tx("to") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "copy_path", "copy_path"),
+                    RootParam(),
+                    P("from", "From", ParamType.Text, "", "src/a.py"),
+                    P("to", "To", ParamType.Text, "", "src/b.py"),
+                },
+                Exec = c => CodeRun(c, 1, 0, () => { string root = CodeRoot(c), a = Arg(c, 1, "from"), b = Arg(c, 2, "to"); CodeTools.Copy(root, a, b); return $"copied {a} -> {b}"; }),
+            },
+            new()
+            {
+                TypeId = "code.mkdir", Icon = "📁", Title = "Make Directory", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Creates a directory (and any missing parents) inside the codebase. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "make_dir", "make_dir"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "src/utils"),
+                },
+                SummaryParam = "path",
+                Exec = c => CodeRun(c, 1, 0, () => { string p = Arg(c, 1, "path"); CodeTools.Mkdir(CodeRoot(c), p); return "created " + p; }),
+            },
+            new()
+            {
+                TypeId = "code.list", Icon = "📃", Title = "List Directory", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Lists the files and subfolders directly inside a directory (folders end with /). Paths are relative to the codebase folder; blank lists the root.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "list_dir", "list_dir"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "src (blank = root)"),
+                },
+                Exec = c => CodeRun(c, 1, 0, () => CodeTools.List(CodeRoot(c), Arg(c, 1, "path"))),
+            },
+            new()
+            {
+                TypeId = "code.tree", Icon = "🌳", Title = "Project Tree", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Shows a compact directory tree (skipping .git, node_modules, build output, etc.) so an AI can orient itself in the codebase. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "project_tree", "project_tree"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "(blank = root)"),
+                    P("depth", "Max depth", ParamType.Int, "3", "3"),
+                },
+                Exec = c => CodeRun(c, 1, 0, () => CodeTools.Tree(CodeRoot(c), Arg(c, 1, "path"), c.ParamInt("depth", 3))),
+            },
+            new()
+            {
+                TypeId = "code.glob", Icon = "🔍", Title = "Find Files", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Finds files by glob pattern (e.g. **/*.cs, src/*.py, **/test_*.py), newest first. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("pattern") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "find_files", "find_files"),
+                    RootParam(),
+                    P("pattern", "Glob", ParamType.Text, "**/*", "**/*.cs"),
+                },
+                SummaryParam = "pattern",
+                Exec = c => CodeRun(c, 1, 0, () => { var r = CodeTools.Glob(CodeRoot(c), Arg(c, 1, "pattern")); return r.Length == 0 ? "(no files match)" : r; }),
+            },
+            new()
+            {
+                TypeId = "code.grep", Icon = "🔎", Title = "Search Code", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Searches the codebase for a regular expression and returns matches as path:line: text. Optionally restrict to files matching a glob. The fast way to find where something is defined or used.",
+                Inputs = new[] { Ex(), Tx("pattern"), Tx("glob") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "search_code", "search_code"),
+                    RootParam(),
+                    P("pattern", "Regex", ParamType.Text, "", "TODO|FIXME"),
+                    P("glob", "Only files (glob, optional)", ParamType.Text, "", "**/*.py"),
+                },
+                SummaryParam = "pattern",
+                Exec = c => CodeRun(c, 1, 0, () => { var r = CodeTools.Grep(CodeRoot(c), Arg(c, 1, "pattern"), Arg(c, 2, "glob")); return r.Length == 0 ? "(no matches)" : r; }),
+            },
+            new()
+            {
+                TypeId = "code.replace", Icon = "🔁", Title = "Replace Across Files", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Replaces an exact string with another across every matching file (optionally filtered by a glob). Returns the number of files changed. Powerful - keep the find text specific.",
+                Inputs = new[] { Ex(), Tx("find"), Tx("replace"), Tx("glob") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "replace_across", "replace_across"),
+                    RootParam(),
+                    P("find", "Find (exact)", ParamType.Multiline, "", "old string"),
+                    P("replace", "Replace with", ParamType.Multiline, "", "new string"),
+                    P("glob", "Only files (glob, optional)", ParamType.Text, "", "**/*.cs"),
+                },
+                Exec = c => CodeRun(c, 1, 0, () =>
+                {
+                    int n = CodeTools.ReplaceAcross(CodeRoot(c), Arg(c, 1, "find"), Arg(c, 2, "replace"), Arg(c, 3, "glob"));
+                    return $"changed {n} file{(n == 1 ? "" : "s")}";
+                }),
+            },
+            new()
+            {
+                TypeId = "code.stat", Icon = "📊", Title = "File Info", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Reports whether a path is a file or folder, plus size, line count and last-modified time. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "file_info", "file_info"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "src/main.py"),
+                },
+                SummaryParam = "path",
+                Exec = c => CodeRun(c, 1, 0, () => CodeTools.Stat(CodeRoot(c), Arg(c, 1, "path"))),
+            },
+            new()
+            {
+                TypeId = "code.exists", Icon = "❔", Title = "Path Exists", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Checks whether a file or folder exists in the codebase. Branches yes/no and returns true/false. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("yes"), Ex("no"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "path_exists", "path_exists"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "README.md"),
+                },
+                SummaryParam = "path",
+                Exec = c =>
+                {
+                    try { bool ex = CodeTools.Exists(CodeRoot(c), Arg(c, 1, "path")); c.SetOut(2, ex ? "true" : "false"); c.Pulse(ex ? 0 : 1); }
+                    catch (Exception e) { c.SetOut(2, "error: " + e.Message); c.Log("code: " + e.Message, LogLevel.Error); c.Pulse(1); }
+                },
+            },
+            new()
+            {
+                TypeId = "code.diff", Icon = "🔀", Title = "Diff Files", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Shows the line differences between two files in the codebase (- removed, + added). Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("a"), Tx("b") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "diff_files", "diff_files"),
+                    RootParam(),
+                    P("a", "File A", ParamType.Text, "", "src/old.py"),
+                    P("b", "File B", ParamType.Text, "", "src/new.py"),
+                },
+                Exec = c => CodeRun(c, 1, 0, () => CodeTools.Diff(CodeRoot(c), Arg(c, 1, "a"), Arg(c, 2, "b"))),
+            },
+            new()
+            {
+                TypeId = "code.shell", Icon = "⌨️", Title = "Run Command", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Runs a shell command with its working directory set to the codebase folder (build, test, lint, git, etc.) and returns the combined output. The working directory is confined to the codebase.",
+                Inputs = new[] { Ex(), Tx("command") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "run_command", "run_command"),
+                    RootParam(),
+                    P("command", "Command", ParamType.Text, "", "npm test"),
+                    P("timeout", "Timeout (s)", ParamType.Int, "30", "30"),
+                },
+                SummaryParam = "command",
+                Exec = c => CodeRun(c, 1, 0, () => { var r = CodeTools.Run(CodeRoot(c), Arg(c, 1, "command"), c.ParamInt("timeout", 30)); return r.Length == 0 ? "(no output)" : r; }),
+            },
+            new()
+            {
+                TypeId = "code.outline", Icon = "🧭", Title = "Code Outline", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Lists the top-level definitions (classes, functions, methods) in a source file as line: signature, so an AI can navigate large files. Paths are relative to the codebase folder.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "code_outline", "code_outline"),
+                    RootParam(),
+                    P("path", "Path", ParamType.Text, "", "src/main.py"),
+                },
+                SummaryParam = "path",
+                Exec = c => CodeRun(c, 1, 0, () => { var r = CodeTools.Outline(CodeRoot(c), Arg(c, 1, "path")); return r.Length == 0 ? "(no definitions found)" : r; }),
+            },
+            new()
+            {
+                TypeId = "code.stats", Icon = "📈", Title = "Project Stats", Subtitle = "code", Category = NodeCategory.Code,
+                Description = "Summarises the codebase: file count, total lines, size, and the most common file types. A quick overview before diving in.",
+                Inputs = new[] { Ex() },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "project_stats", "project_stats"),
+                    RootParam(),
+                },
+                Exec = c => CodeRun(c, 1, 0, () => CodeTools.Stats(CodeRoot(c))),
+            },
+
+            // ===================== MEDIA + ARCHIVE (manage media files; zip / unzip) =====================
+            new()
+            {
+                TypeId = "media.info", Icon = "🖼️", Title = "Image Info", Subtitle = "media", Category = NodeCategory.Storage,
+                Description = "Reads an image's width, height and format straight from its header (PNG, JPEG, GIF, BMP, WebP) - no decoding, no dependencies. Relative paths live under ~/ircuitry/files. Branches to 'not image' if unrecognised.",
+                Inputs = new[] { Ex(), Tx("path") },
+                Outputs = new[] { Ex("then"), Ex("notimage"), Tx("info"), Nm("width"), Nm("height"), Tx("format"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "image_info", "image_info"),
+                    P("path", "Path", ParamType.Text, "", "pic.png or /abs/pic.jpg"),
+                },
+                SummaryParam = "path",
+                Exec = c =>
+                {
+                    try
+                    {
+                        string full = ResolveFile(Arg(c, 1, "path"));
+                        if (full.Length == 0 || !File.Exists(full)) { c.SetOut(2, ""); c.Pulse(1); return; }
+                        long bytes = new FileInfo(full).Length;
+                        var info = CodeTools.ImageInfo(full);
+                        if (info == null) { c.SetOut(2, $"not a recognised image · {bytes / 1024} KB"); c.Pulse(1); return; }
+                        var (w, h, fmt) = info.Value;
+                        c.SetOut(2, $"{w}x{h} {fmt} · {bytes / 1024} KB");
+                        c.SetOut(3, w.ToString()); c.SetOut(4, h.ToString()); c.SetOut(5, fmt);
+                        c.Pulse(0);
+                    }
+                    catch (Exception ex) { c.SetOut(2, "error: " + ex.Message); c.Log("media: " + ex.Message, LogLevel.Error); c.Pulse(1); }
+                },
+            },
+            new()
+            {
+                TypeId = "media.download", Icon = "📥", Title = "Download File", Subtitle = "media", Category = NodeCategory.Storage,
+                Description = "Downloads a URL (image, audio, any file) to a local file under ~/ircuitry/files and outputs the saved path. Branches to 'failed' on error.",
+                Inputs = new[] { Ex(), Tx("url"), Tx("filename") },
+                Outputs = new[] { Ex("then"), Ex("failed"), Tx("path"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "download_file", "download_file"),
+                    P("url", "URL", ParamType.Text, "", "https://…/pic.png"),
+                    P("filename", "Save as", ParamType.Text, "download.bin", "media/pic.png"),
+                },
+                SummaryParam = "url",
+                Exec = c =>
+                {
+                    try
+                    {
+                        string url = Arg(c, 1, "url"), fn = Arg(c, 2, "filename");
+                        if (fn.Length == 0) fn = "download.bin";
+                        string full = ResolveFile(fn);
+                        if (url.Length == 0 || full.Length == 0) { c.SetOut(2, ""); c.Log("download: bad url or path escapes the files sandbox", LogLevel.Error); c.Pulse(1); return; }
+                        var (ok, gotInfo) = Ircuitry.Net.Upload.Download(url, full);
+                        if (!ok) { c.SetOut(2, ""); c.Log("download failed: " + gotInfo, LogLevel.Error); c.Pulse(1); return; }
+                        c.SetOut(2, full); c.Pulse(0);
+                    }
+                    catch (Exception ex) { c.SetOut(2, ""); c.Log("download error: " + ex.Message, LogLevel.Error); c.Pulse(1); }
+                },
+            },
+            new()
+            {
+                TypeId = "media.organize", Icon = "🗂️", Title = "Organize Media", Subtitle = "media", Category = NodeCategory.Storage,
+                Description = "Moves, copies, renames or deletes a media file under ~/ircuitry/files - handy for sorting downloads into folders.",
+                Inputs = new[] { Ex(), Tx("path"), Tx("to") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "organize_media", "organize_media"),
+                    P("op", "Action", ParamType.Choice, "move", "", new[] { "move", "copy", "rename", "delete" }),
+                    P("path", "Path", ParamType.Text, "", "downloads/a.png"),
+                    P("to", "To (move/copy/rename)", ParamType.Text, "", "images/a.png"),
+                },
+                SummaryParam = "op",
+                Exec = c => CodeRun(c, 1, 0, () =>
+                {
+                    string op = c.Param("op"), a = ResolveFile(Arg(c, 1, "path"));
+                    if (a.Length == 0) throw new Exception("path escapes the files sandbox");
+                    if (op == "delete")
+                    {
+                        if (Directory.Exists(a)) Directory.Delete(a, true);
+                        else if (File.Exists(a)) File.Delete(a);
+                        else throw new Exception("no such file");
+                        return "deleted " + Arg(c, 1, "path");
+                    }
+                    string b = ResolveFile(Arg(c, 2, "to"));
+                    if (b.Length == 0) throw new Exception("destination escapes the files sandbox");
+                    string? d = Path.GetDirectoryName(b); if (!string.IsNullOrEmpty(d)) Directory.CreateDirectory(d);
+                    if (op == "copy") File.Copy(a, b, true); else File.Move(a, b, true);
+                    return $"{op} {Arg(c, 1, "path")} -> {Arg(c, 2, "to")}";
+                }),
+            },
+            new()
+            {
+                TypeId = "media.transform", Icon = "✨", Title = "Transform Image", Subtitle = "media", Category = NodeCategory.Storage,
+                Description = "Resizes, converts or rotates an image using ImageMagick or ffmpeg if installed. Outputs the new file's path; branches to 'failed' (with a clear message) when no image tool is available. Relative paths live under ~/ircuitry/files.",
+                Inputs = new[] { Ex(), Tx("path"), Tx("out") },
+                Outputs = new[] { Ex("then"), Ex("failed"), Tx("path"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "transform_image", "transform_image"),
+                    P("op", "Operation", ParamType.Choice, "resize", "", new[] { "resize", "convert", "rotate" }),
+                    P("path", "Source", ParamType.Text, "", "pic.png"),
+                    P("out", "Output", ParamType.Text, "out.png", "small.jpg"),
+                    P("arg", "Size / degrees", ParamType.Text, "512x512", "512x512 · 90"),
+                },
+                SummaryParam = "op",
+                Exec = c =>
+                {
+                    try
+                    {
+                        string src = ResolveFile(Arg(c, 1, "path")), outp = ResolveFile(Arg(c, 2, "out"));
+                        if (src.Length == 0 || outp.Length == 0) { c.SetOut(2, ""); c.Log("transform: path escapes the files sandbox", LogLevel.Error); c.Pulse(1); return; }
+                        var (ok, msg) = CodeTools.TransformImage(src, outp, c.Param("op"), c.Resolve(c.Param("arg")));
+                        if (!ok) { c.SetOut(2, ""); c.Log("transform: " + msg, LogLevel.Error); c.Pulse(1); return; }
+                        c.SetOut(2, msg); c.Pulse(0);
+                    }
+                    catch (Exception ex) { c.SetOut(2, ""); c.Log("transform error: " + ex.Message, LogLevel.Error); c.Pulse(1); }
+                },
+            },
+            new()
+            {
+                TypeId = "archive.zip", Icon = "📦", Title = "Zip", Subtitle = "archive", Category = NodeCategory.Storage,
+                Description = "Compresses a folder (or a single file) into a .zip archive. Relative paths live under ~/ircuitry/files; absolute paths are honoured. As an AI tool, pass a source path and a zip path.",
+                Inputs = new[] { Ex(), Tx("source"), Tx("zip") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "zip", "zip"),
+                    P("source", "Source folder / file", ParamType.Text, "", "myfolder"),
+                    P("zip", "Zip path", ParamType.Text, "archive.zip", "archive.zip"),
+                },
+                SummaryParam = "source",
+                Exec = c => CodeRun(c, 1, 0, () =>
+                {
+                    string s = ResolveFile(Arg(c, 1, "source")), z = ResolveFile(Arg(c, 2, "zip"));
+                    if (s.Length == 0 || z.Length == 0) throw new Exception("path escapes the files sandbox");
+                    long n = CodeTools.ZipAbsolute(s, z);
+                    return $"zipped to {Arg(c, 2, "zip")} ({n / 1024} KB)";
+                }),
+            },
+            new()
+            {
+                TypeId = "archive.unzip", Icon = "📂", Title = "Unzip", Subtitle = "archive", Category = NodeCategory.Storage,
+                Description = "Extracts a .zip archive into a folder (created if needed), safely rejecting any entry that would escape the folder (zip-slip). Relative paths live under ~/ircuitry/files.",
+                Inputs = new[] { Ex(), Tx("zip"), Tx("dest") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "unzip", "unzip"),
+                    P("zip", "Zip path", ParamType.Text, "", "archive.zip"),
+                    P("dest", "Extract to", ParamType.Text, "unzipped", "unzipped"),
+                },
+                SummaryParam = "zip",
+                Exec = c => CodeRun(c, 1, 0, () =>
+                {
+                    string z = ResolveFile(Arg(c, 1, "zip")), d = ResolveFile(Arg(c, 2, "dest"));
+                    if (z.Length == 0 || d.Length == 0) throw new Exception("path escapes the files sandbox");
+                    int n = CodeTools.UnzipAbsolute(z, d);
+                    return $"extracted {n} files to {Arg(c, 2, "dest")}";
+                }),
+            },
+            // ===================== TEXT / NUMBER / TIME TOOLKIT (building blocks for community recipes) =====================
+            new()
+            {
+                TypeId = "data.encode", Icon = "🧮", Title = "Encode / Decode", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Encodes or decodes text: Base64, Base32, hex, URL, HTML entities, binary, Morse, or ROT13.",
+                Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("op", "Scheme", ParamType.Choice, "base64", "", new[] { "base64", "base32", "hex", "url", "html", "binary", "morse", "rot13", "zwsp" }),
+                    P("mode", "Mode", ParamType.Choice, "encode", "", new[] { "encode", "decode" }),
+                },
+                SummaryParam = "op",
+                Exec = c => c.SetOut(0, TextTools.Encode(c.Param("op"), c.Param("mode"), c.In(0))),
+            },
+            new()
+            {
+                TypeId = "data.hash", Icon = "🔐", Title = "Hash", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Hashes text with MD5, SHA-1, SHA-256, SHA-512, or a CRC32 checksum.",
+                Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
+                Params = new[] { P("op", "Algorithm", ParamType.Choice, "sha256", "", new[] { "md5", "sha1", "sha256", "sha512", "crc32" }) },
+                SummaryParam = "op",
+                Exec = c => c.SetOut(0, TextTools.Hash(c.Param("op"), c.In(0))),
+            },
+            new()
+            {
+                TypeId = "data.case", Icon = "🔤", Title = "Change Case", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Recases text: UPPER, lower, Title, Sentence, camelCase, snake_case, kebab-case, mOcKiNg, l33t, clap👏case, and more.",
+                Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
+                Params = new[] { P("op", "Style", ParamType.Choice, "upper", "", new[] { "upper", "lower", "title", "sentence", "capitalize", "camel", "pascal", "snake", "kebab", "constant", "mock", "leet", "clap", "invert" }) },
+                SummaryParam = "op",
+                Exec = c => c.SetOut(0, TextTools.Case(c.Param("op"), c.In(0))),
+            },
+            new()
+            {
+                TypeId = "data.shape", Icon = "✂️", Title = "Shape Text", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Reshapes text: reverse, trim, squeeze spaces, length, repeat, truncate, pad, slugify, acronym, disemvowel, number lines, word-wrap.",
+                Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("op", "Op", ParamType.Choice, "trim", "", new[] { "reverse", "trim", "squeeze", "length", "repeat", "truncate", "padleft", "padright", "slug", "acronym", "disemvowel", "numbering", "wrap", "zalgo", "banner" }),
+                    P("n", "Amount (repeat/width/length)", ParamType.Int, "1", "1"),
+                    P("fill", "Pad char", ParamType.Text, " ", " "),
+                },
+                SummaryParam = "op",
+                Exec = c => c.SetOut(0, TextTools.Shape(c.Param("op"), c.In(0), c.ParamInt("n", 1), c.Param("fill"))),
+            },
+            new()
+            {
+                TypeId = "data.regex", Icon = "🔍", Title = "Regex", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Runs a regular expression over text: test match, extract the first match / capture group, extract all matches, count, or replace.",
+                Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("op", "Op", ParamType.Choice, "first", "", new[] { "match", "first", "all", "count", "replace" }),
+                    P("pattern", "Pattern", ParamType.Text, "", "\\d+"),
+                    P("replace", "Replace with", ParamType.Text, "", "$0", visibleWhen: n => n.GetParam("op") == "replace"),
+                    P("flags", "Flags (ims)", ParamType.Text, "", "i"),
+                },
+                SummaryParam = "pattern",
+                Exec = c => c.SetOut(0, TextTools.Regex_(c.Param("op"), c.Param("pattern"), c.Param("replace"), c.Param("flags"), c.In(0))),
+            },
+            new()
+            {
+                TypeId = "data.mathx", Icon = "➗", Title = "Math", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Evaluates an arithmetic expression: + - * / % ^, parentheses, and functions (sqrt, abs, round, floor, ceil, sin, cos, log, …). Supports pi and e.",
+                Inputs = new[] { Tx("expr") }, Outputs = new[] { Tx("result") },
+                Params = new[] { P("expr", "Expression", ParamType.Text, "", "2 * (3 + 4)") },
+                SummaryParam = "expr",
+                Exec = c => { string e = c.In(0); if (e.Length == 0) e = c.Resolve(c.Param("expr")); c.SetOut(0, TextTools.Math_(e)); },
+            },
+            new()
+            {
+                TypeId = "data.convert", Icon = "📐", Title = "Unit Convert", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Converts a value between units: temperature (c/f/k), length (mm..mi), mass (mg..lb), speed (m/s, km/h, mph, kn), data (B..TiB).",
+                Inputs = new[] { Nm("value") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("family", "Kind", ParamType.Choice, "temperature", "", new[] { "temperature", "length", "mass", "speed", "data" }),
+                    P("value", "Value", ParamType.Text, "", "100"),
+                    P("from", "From", ParamType.Text, "c", "c · km · kg · mph"),
+                    P("to", "To", ParamType.Text, "f", "f · mi · lb · km/h"),
+                },
+                SummaryParam = "family",
+                Exec = c => { string v = c.In(0); if (v.Length == 0) v = c.Resolve(c.Param("value")); double d = double.TryParse(v.Trim(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var x) ? x : 0; c.SetOut(0, TextTools.Convert_(c.Param("family"), d, c.Param("from"), c.Param("to"))); },
+            },
+            new()
+            {
+                TypeId = "num.theory", Icon = "🔢", Title = "Number Theory", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Whole-number math: factorial, nth Fibonacci, GCD, LCM, is-prime, next prime, ordinal (1st/2nd), absolute value, sign.",
+                Inputs = new[] { Nm("a"), Nm("b") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("op", "Op", ParamType.Choice, "factorial", "", new[] { "factorial", "fibonacci", "gcd", "lcm", "isprime", "nextprime", "ordinal", "abs", "sign", "round", "floor", "ceil" }),
+                    P("a", "A", ParamType.Text, "", "5"),
+                    P("b", "B", ParamType.Text, "", "10", visibleWhen: n => n.GetParam("op") is "gcd" or "lcm"),
+                },
+                SummaryParam = "op",
+                Exec = c => { string a = c.In(0); if (a.Length == 0) a = c.Resolve(c.Param("a")); string b = c.In(1); if (b.Length == 0) b = c.Resolve(c.Param("b")); c.SetOut(0, TextTools.NumTheory(c.Param("op"), a, b)); },
+            },
+            new()
+            {
+                TypeId = "num.format", Icon = "💯", Title = "Number Format", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Formats a number: convert between bases (bin/oct/dec/hex/any), Roman numerals (and back), number-to-words, or thousands separators.",
+                Inputs = new[] { Tx("value") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("op", "Op", ParamType.Choice, "base", "", new[] { "base", "roman", "unroman", "words", "commas" }),
+                    P("value", "Value", ParamType.Text, "", "255 · 0xff · MMXXIV"),
+                    P("radix", "Base (for 'base')", ParamType.Int, "16", "2..36", visibleWhen: n => n.GetParam("op") == "base"),
+                },
+                SummaryParam = "op",
+                Exec = c => { string v = c.In(0); if (v.Length == 0) v = c.Resolve(c.Param("value")); c.SetOut(0, TextTools.NumFormat(c.Param("op"), v, c.ParamInt("radix", 10))); },
+            },
+            new()
+            {
+                TypeId = "data.datetime", Icon = "🕰️", Title = "Date / Time", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Works with dates/times: current time (any timezone), format a date, day of week, unix timestamp conversion, countdown until a date, or age in years.",
+                Inputs = new[] { Tx("input") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("op", "Op", ParamType.Choice, "now", "", new[] { "now", "format", "weekday", "unix", "until", "age" }),
+                    P("input", "Date / value", ParamType.Text, "", "2026-12-25", visibleWhen: n => n.GetParam("op") != "now"),
+                    P("format", "Format", ParamType.Text, "", "yyyy-MM-dd HH:mm", visibleWhen: n => n.GetParam("op") is "now" or "format"),
+                    P("zone", "Timezone (for now)", ParamType.Text, "", "UTC · Europe/London", visibleWhen: n => n.GetParam("op") == "now"),
+                },
+                SummaryParam = "op",
+                Exec = c => { string i = c.In(0); if (i.Length == 0) i = c.Resolve(c.Param("input")); c.SetOut(0, TextTools.DateTime_(c.Param("op"), i, c.Param("format"), c.Param("zone"))); },
+            },
+            new()
+            {
+                TypeId = "gen.random", Icon = "🎲", Title = "Random Generator", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Generates random things: a coin flip, dice (NdM+K), a UUID, a password, a cute username, a fake name, a hex colour, an integer in a range, or lorem ipsum.",
+                Inputs = new[] { Tx("spec") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("op", "Generate", ParamType.Choice, "uuid", "", new[] { "coin", "dice", "uuid", "password", "username", "fakename", "color", "int", "lorem", "gradient" }),
+                    P("spec", "Spec", ParamType.Text, "", "2d6+3 · 16 · 1-100 · 24"),
+                },
+                SummaryParam = "op",
+                Exec = c => { string s = c.In(0); if (s.Length == 0) s = c.Resolve(c.Param("spec")); c.SetOut(0, TextTools.Gen(c.Param("op"), s, c.Rng)); },
+            },
+            new()
+            {
+                TypeId = "data.pick", Icon = "👉", Title = "Pick from List", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Picks from a list: a random item, the first / last / Nth, or counts them. Choose how the list is separated.",
+                Inputs = new[] { Tx("list") }, Outputs = new[] { Tx("result") },
+                Params = new[]
+                {
+                    P("op", "Pick", ParamType.Choice, "random", "", new[] { "random", "first", "last", "nth", "count" }),
+                    P("sep", "Separator", ParamType.Choice, "newline", "", new[] { "newline", "comma", "space", "pipe" }),
+                    P("n", "N (for nth)", ParamType.Int, "1", "1", visibleWhen: n => n.GetParam("op") == "nth"),
+                },
+                SummaryParam = "op",
+                Exec = c => c.SetOut(0, TextTools.Pick(c.Param("op"), c.In(0), c.Param("sep"), c.ParamInt("n", 1), c.Rng())),
+            },
+            new()
+            {
+                TypeId = "data.stats", Icon = "📊", Title = "Number Stats", Subtitle = "data", Category = NodeCategory.Data,
+                Description = "Computes a statistic over a list of numbers found in the text: sum, mean, median, min, max, count, range, or standard deviation.",
+                Inputs = new[] { Tx("numbers") }, Outputs = new[] { Tx("result") },
+                Params = new[] { P("op", "Stat", ParamType.Choice, "sum", "", new[] { "sum", "mean", "median", "min", "max", "count", "range", "stdev" }) },
+                SummaryParam = "op",
+                Exec = c => c.SetOut(0, TextTools.Stat(c.Param("op"), c.In(0))),
+            },
+            new()
+            {
+                TypeId = "irc.color", Icon = "🌈", Title = "IRC Color", Subtitle = "ircv3", Category = NodeCategory.Ircv3,
+                Description = "Adds or removes IRC formatting: rainbow-colour text, strip all colours/formatting, or wrap in bold / italic / underline.",
+                Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
+                Params = new[] { P("op", "Op", ParamType.Choice, "rainbow", "", new[] { "rainbow", "strip", "bold", "italic", "underline" }) },
+                SummaryParam = "op",
+                Exec = c => c.SetOut(0, TextTools.IrcColor(c.Param("op"), c.In(0))),
             },
             new()
             {
@@ -1931,7 +2813,7 @@ public static class NodeCatalog
     /// <summary>Catalog grouped by category, in palette display order.</summary>
     public static IEnumerable<IGrouping<NodeCategory, NodeDef>> ByCategory()
     {
-        var order = new[] { NodeCategory.Event, NodeCategory.Filter, NodeCategory.Logic, NodeCategory.Data, NodeCategory.Ai, NodeCategory.Storage, NodeCategory.Action };
+        var order = new[] { NodeCategory.Event, NodeCategory.Filter, NodeCategory.Logic, NodeCategory.Data, NodeCategory.Ai, NodeCategory.Code, NodeCategory.Storage, NodeCategory.Action };
         return All.GroupBy(d => d.Category).OrderBy(g => Array.IndexOf(order, g.Key));
     }
 }

@@ -62,6 +62,20 @@ public static class Program
                 Environment.Exit(0);
                 return;
             }
+            int ci = Array.IndexOf(args, "--emit-community");
+            if (ci >= 0)
+            {
+                string dir = ci + 1 < args.Length && !args[ci + 1].StartsWith("--") ? args[ci + 1] : ".";
+                Directory.CreateDirectory(dir);
+                foreach (var (file, manifest) in App.CommunityNodes.All())
+                {
+                    string p = Path.Combine(dir, file);
+                    File.WriteAllText(p, manifest);
+                    Console.WriteLine("wrote " + p);
+                }
+                Environment.Exit(0);
+                return;
+            }
         }
         if (Array.IndexOf(args, "--schema") >= 0)
         {

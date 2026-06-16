@@ -29,6 +29,7 @@ workspace.obbie
 # ---- dev screenshots: keep only the README hero ----
 /shots/*
 !/shots/cute.png
+!/shots/screenshot.png
 
 # ---- scratch research ----
 /docs/research-raw.json

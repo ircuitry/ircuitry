@@ -103,7 +103,7 @@ public sealed partial class MainScreen
         _ctxItems.Add(new CtxItem { Sep = true });
         _ctxItems.Add(new CtxItem { Icon = "📸", Label = "Screenshot this window", Shortcut = "", Enabled = true, Do = RequestScreenshot });
         _ctxItems.Add(new CtxItem { Sep = true });
-        _ctxItems.Add(new CtxItem { Icon = "✕", Label = "Close", Shortcut = "", Enabled = true, Do = () => Sdl.CloseRequested = true });
+        _ctxItems.Add(new CtxItem { Icon = "×", Label = "Close", Shortcut = "", Enabled = true, Do = () => Sdl.CloseRequested = true });
         _ctxOpen = true; _ctxJustOpened = true;
     }
 

@@ -53,6 +53,9 @@ public sealed class GraphEditor
     public bool CanPaste => _clipNodes is { Count: > 0 };
 
     private enum Mode { Idle, Panning, DragNodes, DragWire, Box }
+
+    /// <summary>True while the user is actively panning the canvas or dragging nodes (for a "grab" cursor).</summary>
+    public bool IsGrabbing => _mode is Mode.Panning or Mode.DragNodes;
     private Mode _mode;
 
     // drag-nodes

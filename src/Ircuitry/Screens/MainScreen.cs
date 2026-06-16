@@ -37,6 +37,7 @@ public sealed partial class MainScreen : IScreen
     private float _consoleH;
     private float _consoleScroll;
     private bool _consoleResizing;
+    private bool _consoleResizeHot;     // mouse over the console resize handle this frame (for the resize cursor)
     private float _consoleResizeStartH, _consoleResizeStartY;
     private float _inspScroll;        // inspector panel scroll (the connection panel can run long)
     private string _inspKey = "";     // what the inspector is showing, to reset scroll on change
@@ -871,7 +872,26 @@ public sealed partial class MainScreen : IScreen
         DrawToast(r, clock);
         DrawNotifPopover(r);
 
+        SetContextCursor(r);   // pick the right custom pointer for whatever is under the mouse
+
         _ui.EndFrame(); // blur stale focus (e.g. after switching node/bot) so canvas shortcuts keep working
+    }
+
+    /// <summary>
+    /// Choose the custom cursor for the current context: vertical-resize over the console handle, a grabby hand
+    /// while panning or dragging nodes, a crosshair when Shift is held over the editor (box-select), a plain hand
+    /// hovering the editor canvas, and the normal pointer everywhere else (panels, titlebar, modals).
+    /// </summary>
+    private void SetContextCursor(Renderer r)
+    {
+        var c = r.Cursors;
+        MouseCursor pick;
+        if (Modal) pick = c.Pointer;
+        else if (_editor.IsGrabbing) pick = c.Grab;                       // keep grabbing even if the pointer strays off-canvas
+        else if (_consoleResizing || _consoleResizeHot) pick = c.ResizeV;
+        else if (_l.Canvas.Contains(In.Mouse)) pick = In.Shift ? c.Crosshair : c.Hand;
+        else pick = c.Pointer;
+        try { Mouse.SetCursor(pick); } catch { }
     }
 
     private void DrawSaveNodeModal(Renderer r)
@@ -1162,6 +1182,7 @@ public sealed partial class MainScreen : IScreen
         NodeCategory.Data => "Text & Values",
         NodeCategory.Ai => "AI",
         NodeCategory.Storage => "Files & Database",
+        NodeCategory.Code => "Code",
         NodeCategory.Action => "Actions",
         NodeCategory.Ircv3 => "IRCv3",
         _ => c.ToString(),
@@ -1175,6 +1196,7 @@ public sealed partial class MainScreen : IScreen
         NodeCategory.Data => "🔢",
         NodeCategory.Ai => "🤖",
         NodeCategory.Storage => "💾",
+        NodeCategory.Code => "💻",
         NodeCategory.Action => "💬",
         NodeCategory.Ircv3 => "📡",
         _ => "🧩",
@@ -2095,7 +2117,7 @@ public sealed partial class MainScreen : IScreen
             y += 6;
         }
 
-        if (!_tut.Active && _ui.Button("insp.del", new RectF(x, y, w, 32), "✕  DELETE NODE", Theme.Alert))
+        if (!_tut.Active && _ui.Button("insp.del", new RectF(x, y, w, 32), "×  DELETE NODE", Theme.Alert))
         { Bot.Graph.Remove(n); _editor.Selection.Clear(); _app.MarkDirty(); }
         return y + 40;
     }
@@ -2170,11 +2192,11 @@ public sealed partial class MainScreen : IScreen
                 string v = _ui.TextField($"{idBase}.v{i}", new RectF(rx, y, btnX - x - 6, 28), rows[i].ElementAtOrDefault(0) ?? "", "value");
                 rows[i] = new[] { v };
             }
-            if (_ui.Button($"{idBase}.x{i}", new RectF(btnX, y, 26, 28), "✕", Theme.Idle)) remove = i;
+            if (_ui.Button($"{idBase}.x{i}", new RectF(btnX, y, 26, 28), "×", Theme.Idle)) remove = i;
             y += 34;
         }
         if (remove >= 0 && remove < rows.Count) rows.RemoveAt(remove);
-        if (_ui.Button($"{idBase}.add", new RectF(x, y, w, 26), "＋  " + addLabel, Theme.Cyan)) rows.Add(pair ? new[] { "", "" } : new[] { "" });
+        if (_ui.Button($"{idBase}.add", new RectF(x, y, w, 26), "+  " + addLabel, Theme.Cyan)) rows.Add(pair ? new[] { "", "" } : new[] { "" });
         y += 36;
         return Ircuitry.Core.ParamList.Encode(rows, pair);
     }
@@ -2212,7 +2234,7 @@ public sealed partial class MainScreen : IScreen
             cx += cw + 6;
         }
         if (cx + 30 > x + w + 0.5f) { cx = x; cy += chipH + 6; }
-        if (_ui.Button("c.sv.add", new RectF(cx, cy, 30, chipH), "＋", Theme.Lime))
+        if (_ui.Button("c.sv.add", new RectF(cx, cy, 30, chipH), "+", Theme.Lime))
         { Bot.Servers.Add(new IrcSettings { Nick = Ircuitry.Core.BakeryNames.Random() }); Bot.SelectedServer = Bot.Servers.Count - 1; _app.MarkDirty(); }
         y = cy + chipH + 12;
 
@@ -2370,7 +2392,7 @@ public sealed partial class MainScreen : IScreen
         _secretPickName = _ui.TextField("sp.name", new RectF(x, y, w, 28), _secretPickName, "name e.g. openai"); y += 34;
         _secretPickNewVal = _ui.TextField("sp.val", new RectF(x, y, w, 28), _secretPickNewVal, "value (key/password)", password: true); y += 36;
         bool canAdd = _secretPickName.Trim().Length > 0;
-        if (_ui.Button("sp.add", new RectF(x, y, w, 30), "＋  Add & use this key", canAdd ? Theme.Lime : Theme.Idle, primary: canAdd) && canAdd)
+        if (_ui.Button("sp.add", new RectF(x, y, w, 30), "+  Add & use this key", canAdd ? Theme.Lime : Theme.Idle, primary: canAdd) && canAdd)
         {
             var nm = _secretPickName.Trim();
             Ircuitry.Core.Secrets.Set(nm, _secretPickNewVal);
@@ -2443,7 +2465,7 @@ public sealed partial class MainScreen : IScreen
                 r.Text(r.Fonts.Get(FontKind.Mono, 10), $"{p.Host}:{p.Port}{(p.UseTls ? " · TLS" : "")}{(p.Channels.Length > 0 ? " · " + p.Channels : "")}", new Vector2(row.X + 12, row.Y + 25), Theme.TextDim);
                 if (_ui.Button("sv.use." + p.Name, new RectF(row.Right - 70 - 34, row.Y + 9, 70, 28), "Use", Theme.Lime) && listRect.Contains(In.Mouse))
                 { ApplyServer(p); _serversOpen = false; }
-                if (_ui.Button("sv.del." + p.Name, new RectF(row.Right - 30, row.Y + 9, 28, 28), "✕", Theme.Idle) && listRect.Contains(In.Mouse))
+                if (_ui.Button("sv.del." + p.Name, new RectF(row.Right - 30, row.Y + 9, 28, 28), "×", Theme.Idle) && listRect.Contains(In.Mouse))
                 { Ircuitry.Core.Servers.Delete(p.Name); }
             }
             ly += 50;
@@ -3077,7 +3099,7 @@ public sealed partial class MainScreen : IScreen
         r.RoundFill(panel.Offset(0, 4), Theme.WithAlpha(Color.Black, 0.18f), 10);
         r.RoundFill(panel, Theme.Panel, 10);
         r.RoundOutline(panel, Theme.WithAlpha(Theme.Cyan, 0.85f), 10);
-        r.Text(r.Fonts.Get(FontKind.SansBold, 13), "✚  Add node", new Vector2(panel.X + 14, panel.Y + 10), Theme.Text);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 13), "+  Add node", new Vector2(panel.X + 14, panel.Y + 10), Theme.Text);
         r.End();
 
         float x = panel.X + 12, w = panel.W - 24, y = panel.Y + 32;

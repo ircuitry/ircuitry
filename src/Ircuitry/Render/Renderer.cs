@@ -38,12 +38,16 @@ public sealed class Renderer
     /// <summary>The app brand icon (ircuitry), loaded from assets - null if missing.</summary>
     public Texture2D? Brand { get; }
 
+    /// <summary>The custom context cursors (loaded from assets/cursors/png).</summary>
+    public Cursors Cursors { get; }
+
     public Renderer(GraphicsDevice gd, Fonts fonts)
     {
         Gd = gd;
         Sb = new SpriteBatch(gd);
         Tex = new Textures(gd);
         Fonts = fonts;
+        Cursors = new Cursors(gd);
         try
         {
             var path = System.IO.Path.Combine(AppContext.BaseDirectory, "assets", "icons", "icon-256.png");

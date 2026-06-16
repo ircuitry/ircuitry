@@ -159,8 +159,59 @@ public static class SelfTest
         fails += CompositeMiniSerializeTest();
         fails += CompositeExposeTest();
         fails += ParamListAddTest();
+        fails += ToolkitTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
+        return fails;
+    }
+
+    /// <summary>Exercises the text/number/time toolkit nodes end to end (data.encode/hash/case/shape/regex/
+    /// mathx/convert, num.theory/format, gen.random, data.pick/stats, irc.color) so community recipes built
+    /// from them stay correct.</summary>
+    private static int ToolkitTest()
+    {
+        int fails = 0;
+
+        // helper: command -> [src(const) -> op] -> reply ; returns the replied text
+        string RunOp(string opType, Action<Node> cfg, string input = null!, Action<Node> srcCfg = null!)
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "t");
+            var op = N(g, opType, 200, 0); cfg(op);
+            var rep = N(g, "action.reply", 400, 0);
+            g.Connect(cmd.Id, 0, rep.Id, 0);
+            if (input != null)
+            {
+                var src = N(g, "data.format", 100, 0); src.SetParam("template", input); srcCfg?.Invoke(src);
+                g.Connect(src.Id, 0, op.Id, 0);
+            }
+            g.Connect(op.Id, 0, rep.Id, 1);
+            var s = new FakeSink();
+            GraphExecutor.Fire(g, s, cmd, Vars("!t", "alice", "#x"));
+            return s.Sent.Count > 0 ? s.Sent[0].text : "(none)";
+        }
+
+        fails += Expect("tk-case-upper", RunOp("data.case", n => n.SetParam("op", "upper"), "Hello World") == "HELLO WORLD", "");
+        fails += Expect("tk-case-snake", RunOp("data.case", n => n.SetParam("op", "snake"), "Hello World") == "hello_world", "");
+        fails += Expect("tk-encode-b64", RunOp("data.encode", n => { n.SetParam("op", "base64"); n.SetParam("mode", "encode"); }, "hi") == "aGk=", "");
+        fails += Expect("tk-encode-b64dec", RunOp("data.encode", n => { n.SetParam("op", "base64"); n.SetParam("mode", "decode"); }, "aGk=") == "hi", "");
+        fails += Expect("tk-encode-rot13", RunOp("data.encode", n => { n.SetParam("op", "rot13"); n.SetParam("mode", "encode"); }, "abc") == "nop", "");
+        fails += Expect("tk-hash-md5", RunOp("data.hash", n => n.SetParam("op", "md5"), "abc") == "900150983cd24fb0d6963f7d28e17f72", "");
+        fails += Expect("tk-shape-reverse", RunOp("data.shape", n => n.SetParam("op", "reverse"), "abc") == "cba", "");
+        fails += Expect("tk-shape-slug", RunOp("data.shape", n => n.SetParam("op", "slug"), "Hello, World!") == "hello-world", "");
+        fails += Expect("tk-regex-first", RunOp("data.regex", n => { n.SetParam("op", "first"); n.SetParam("pattern", "\\d+"); }, "abc123def") == "123", "");
+        fails += Expect("tk-mathx", RunOp("data.mathx", n => n.SetParam("expr", "2*(3+4)")) == "14", "");
+        fails += Expect("tk-convert-temp", RunOp("data.convert", n => { n.SetParam("family", "temperature"); n.SetParam("value", "100"); n.SetParam("from", "c"); n.SetParam("to", "f"); }) == "212", "");
+        fails += Expect("tk-num-factorial", RunOp("num.theory", n => { n.SetParam("op", "factorial"); n.SetParam("a", "5"); }) == "120", "");
+        fails += Expect("tk-num-gcd", RunOp("num.theory", n => { n.SetParam("op", "gcd"); n.SetParam("a", "12"); n.SetParam("b", "18"); }) == "6", "");
+        fails += Expect("tk-num-ordinal", RunOp("num.theory", n => { n.SetParam("op", "ordinal"); n.SetParam("a", "21"); }) == "21st", "");
+        fails += Expect("tk-numfmt-roman", RunOp("num.format", n => { n.SetParam("op", "roman"); n.SetParam("value", "2024"); }) == "MMXXIV", "");
+        fails += Expect("tk-numfmt-base", RunOp("num.format", n => { n.SetParam("op", "base"); n.SetParam("value", "255"); n.SetParam("radix", "16"); }) == "ff", "");
+        fails += Expect("tk-stats-sum", RunOp("data.stats", n => n.SetParam("op", "sum"), "1 2 3 4") == "10", "");
+        fails += Expect("tk-pick-nth", RunOp("data.pick", n => { n.SetParam("op", "nth"); n.SetParam("sep", "comma"); n.SetParam("n", "2"); }, "a,b,c") == "b", "");
+        fails += Expect("tk-uuid-shape", RunOp("gen.random", n => n.SetParam("op", "uuid")).Length == 36, "");
+        fails += Expect("tk-irc-strip", RunOp("irc.color", n => n.SetParam("op", "strip"), ((char)3) + "04red" + ((char)15)) == "red", "");
+
         return fails;
     }
 

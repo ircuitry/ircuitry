@@ -14,7 +14,7 @@ namespace Ircuitry.App;
 public static class NodeValidator
 {
     private static readonly HashSet<string> Categories = new(StringComparer.OrdinalIgnoreCase)
-        { "Event", "Filter", "Logic", "Action", "Data", "Ai", "Storage", "Ircv3" };
+        { "Event", "Filter", "Logic", "Action", "Data", "Ai", "Storage", "Code", "Ircv3" };
     private static readonly HashSet<string> Kinds = new()
         { "Exec", "Text", "User", "Channel", "Number", "Bool", "Tool" };
 
@@ -33,7 +33,7 @@ public static class NodeValidator
         if (tid.Length == 0) errors.Add("missing non-empty 'typeId'");
         if (Str("title").Length == 0) errors.Add("missing 'title'");
         string cat = r.TryGetProperty("category", out var ce) && ce.ValueKind == JsonValueKind.String ? ce.GetString() ?? "Action" : "Action";
-        if (!Categories.Contains(cat)) errors.Add($"category '{cat}' not in Event/Filter/Logic/Action/Data/Ai/Storage/Ircv3");
+        if (!Categories.Contains(cat)) errors.Add($"category '{cat}' not in Event/Filter/Logic/Action/Data/Ai/Storage/Code/Ircv3");
 
         void CheckPins(string key)
         {

@@ -39,6 +39,7 @@ public static class Theme
     public static readonly Color Berry = new(198, 142, 214);      // orchid (AI)
     public static readonly Color Sky = new(116, 174, 224);        // cornflower (storage)
     public static readonly Color Teal = new(78, 196, 178);        // seafoam (IRCv3)
+    public static readonly Color Blueberry = new(124, 138, 210);  // indigo (code)
 
     // ---- status ----
     public static readonly Color Ok = new(126, 196, 92);          // leaf
@@ -62,6 +63,7 @@ public static class Theme
         NodeCategory.Data => Magenta,
         NodeCategory.Ai => Berry,
         NodeCategory.Storage => Sky,
+        NodeCategory.Code => Blueberry,
         NodeCategory.Ircv3 => Teal,
         _ => Idle,
     };
@@ -89,5 +91,6 @@ public enum NodeCategory
     Data,    // values, transforms
     Ai,      // AI generation, tools, memory
     Storage, // files, database, calendar
+    Code,    // codebase programming tools (read/write/edit/search/run)
     Ircv3,   // IRCv3 protocol extensions (caps, tags, drafts)
 }

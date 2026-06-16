@@ -113,7 +113,7 @@ public sealed partial class MainScreen
         var closeR = new RectF(win.Right - 40, win.Y + 12, 26, 24);
         bool hot = closeR.Contains(In.Mouse);
         r.RoundFill(closeR, hot ? Theme.Alert : Theme.PanelLo, 7f);
-        r.Text(r.Fonts.Get(FontKind.SansBold, 14), "✕", new Vector2(closeR.X + 8, closeR.Y + 3), hot ? Theme.TextInk : Theme.TextDim);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 14), "×", new Vector2(closeR.X + 8, closeR.Y + 3), hot ? Theme.TextInk : Theme.TextDim);
         r.End();
         if (In.LeftPressed && hot && !_ircWinJustOpened) _ircWinOpen = false;
     }

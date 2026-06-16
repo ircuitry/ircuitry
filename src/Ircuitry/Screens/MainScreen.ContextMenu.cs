@@ -59,7 +59,7 @@ public sealed partial class MainScreen
         }
         else
         {
-            Item("➕", "Add node here…", "2×click", true, () => OpenQuickAdd(_ctxAnchor));
+            Item("+", "Add node here…", "2×click", true, () => OpenQuickAdd(_ctxAnchor));
             Item("📥", "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
             Item("🔲", "Select all", "Ctrl+A", hasNodes, () => _editor.SelectAll());
             Sep();

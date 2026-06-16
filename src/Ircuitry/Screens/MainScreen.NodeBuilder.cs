@@ -12,45 +12,41 @@ using Ircuitry.Render;
 
 namespace Ircuitry.Screens;
 
-// "Bake a node": one modal, two kinds. RECIPE = a node built from other nodes (ingredients), wired in a
-// little embedded editor. FROM SCRATCH = a code node (form + code). Both can be created fresh or re-opened
-// to edit, then baked into the Node Library, exported, or submitted as a PR.
+// "Bake a node": build a new node as a RECIPE of existing nodes (ingredients), wired in a little embedded
+// editor. There is no "write code" mode - if you want code, drop a Code node into the recipe like any other.
+// A baked node can be created fresh or re-opened to edit, then saved into the Node Library, exported, or
+// submitted as a PR to the community nodes repo.
 public partial class MainScreen
 {
     private bool _nbOpen, _nbJustOpened;
-    private string _nbMode = "code";       // "code" | "composite"
     private string _nbEditId = "";         // typeId being edited (overwrite that file); "" = new node
-    private string _nbTitle = "", _nbIcon = "🧩", _nbCategory = "Action", _nbDesc = "", _nbLang = "python", _nbCode = "";
-    private readonly List<(string name, string kind)> _nbIn = new();
-    private readonly List<(string name, string kind)> _nbOut = new();
+    private string _nbTitle = "", _nbIcon = "🧩", _nbCategory = "Action", _nbDesc = "";
     private string _nbStatus = "", _nbAdd = "";
-    private bool _nbSeeded, _nbMax;
+    private bool _nbMax;
 
-    private NodeGraph? _nbGraph;            // the composite's inner graph
+    private NodeGraph? _nbGraph;            // the recipe's inner graph
     private GraphEditor? _nbEditor;         // mini editor over _nbGraph
-    private readonly Dictionary<string, string> _nbExposed = new();   // composite param name -> default (exposed inner settings)
+    private readonly Dictionary<string, string> _nbExposed = new();   // exposed inner setting -> default
 
-    private static readonly string[] NbKinds = { "Text", "Number", "Bool", "User", "Channel", "Tool", "Exec" };
-    private static readonly string[] NbCategories = { "Action", "Data", "Logic", "Ai", "Filter", "Storage" };
-    private static readonly string[] NbLangs = { "python", "js" };
+    private static readonly string[] NbCategories = { "Action", "Data", "Logic", "Ai", "Filter", "Storage", "Code" };
 
     public void DebugOpenNodeBuilder() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenNodeBuilder(); }
     public void DebugOpenMaxBuilder()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH); OpenNodeBuilder(); _nbMode = "composite"; EnsureCompositeEditor(); _nbMax = true;
+        _l = Layout.Compute(_vw, _vh, _consoleH); OpenNodeBuilder(); _nbMax = true;
         var n = _nbEditor!.Spawn(NodeCatalog.Get("action.reply"), new Vector2(0, 230));
         n.SetParam("message", "hello {nick}");
         _nbEditor.Selection.Clear(); _nbEditor.Selection.Add(n.Id);
     }
-    public void DebugOpenComposite() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenNodeBuilder(); _nbMode = "composite"; _nbTitle = "Shout"; EnsureCompositeEditor(); }
+    public void DebugOpenComposite() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenNodeBuilder(); _nbTitle = "Shout"; }
 
     public void OpenNodeBuilder()
     {
-        if (!_nbSeeded) { ApplyNodeTemplate("simple"); _nbSeeded = true; }
+        EnsureCompositeEditor();
         _nbEditId = ""; _nbExposed.Clear(); _nbOpen = true; _nbJustOpened = true; _ui.Focus = "nb.title";
     }
 
-    /// <summary>Re-open an installed custom node to edit it (code in the form, composite in the mini editor).</summary>
+    /// <summary>Re-open an installed custom node to edit its recipe in the mini editor.</summary>
     public void OpenNodeBuilderForEdit(string typeId)
     {
         _l = Layout.Compute(_vw, _vh, _consoleH);
@@ -61,46 +57,28 @@ public partial class MainScreen
             using var doc = JsonDocument.Parse(System.IO.File.ReadAllText(path));
             var rt = doc.RootElement;
             string S(string k, string d = "") => rt.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? d : d;
+
+            if (!rt.TryGetProperty("subgraph", out var sg) || sg.ValueKind != JsonValueKind.Object)
+            {
+                PushToast("that's an older code node - edit its .ircnode file directly, or rebuild it as a recipe");
+                return;
+            }
+
             _nbTitle = S("title", typeId); _nbIcon = S("icon", "🧩"); _nbCategory = S("category", "Logic"); _nbDesc = S("description");
             _nbEditId = typeId; _nbStatus = "";
-
-            if (rt.TryGetProperty("subgraph", out var sg) && sg.ValueKind == JsonValueKind.Object)
-            {
-                _nbMode = "composite";
-                _nbGraph = GraphSerializer.Load(sg.GetRawText()).graph;
-                _nbEditor = new GraphEditor(_nbGraph) { ShowMinimap = false };
-                _nbExposed.Clear();
-                if (rt.TryGetProperty("params", out var ps) && ps.ValueKind == JsonValueKind.Array)
-                    foreach (var p in ps.EnumerateArray())
-                    {
-                        string k = p.TryGetProperty("key", out var kk) && kk.ValueKind == JsonValueKind.String ? kk.GetString() ?? "" : "";
-                        string dv = p.TryGetProperty("default", out var d2) && d2.ValueKind == JsonValueKind.String ? d2.GetString() ?? "" : "";
-                        if (k.Length > 0) _nbExposed[k] = dv;
-                    }
-            }
-            else
-            {
-                _nbMode = "code";
-                _nbLang = S("language", "python"); _nbCode = S("code");
-                _nbIn.Clear(); _nbOut.Clear();
-                LoadPins(rt, "inputs", _nbIn); LoadPins(rt, "outputs", _nbOut);
-                _nbSeeded = true;
-            }
+            _nbGraph = GraphSerializer.Load(sg.GetRawText()).graph;
+            _nbEditor = new GraphEditor(_nbGraph) { ShowMinimap = false };
+            _nbExposed.Clear();
+            if (rt.TryGetProperty("params", out var ps) && ps.ValueKind == JsonValueKind.Array)
+                foreach (var p in ps.EnumerateArray())
+                {
+                    string k = p.TryGetProperty("key", out var kk) && kk.ValueKind == JsonValueKind.String ? kk.GetString() ?? "" : "";
+                    string dv = p.TryGetProperty("default", out var d2) && d2.ValueKind == JsonValueKind.String ? d2.GetString() ?? "" : "";
+                    if (k.Length > 0) _nbExposed[k] = dv;
+                }
             _nbOpen = true; _nbJustOpened = true; _ui.Focus = "nb.title";
         }
         catch (Exception ex) { PushToast("couldn't open node: " + ex.Message); }
-    }
-
-    private static void LoadPins(JsonElement rt, string key, List<(string, string)> into)
-    {
-        if (!rt.TryGetProperty(key, out var arr) || arr.ValueKind != JsonValueKind.Array) return;
-        foreach (var p in arr.EnumerateArray())
-        {
-            string nm = p.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() ?? "" : "";
-            string kd = p.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String ? k.GetString() ?? "Text" : "Text";
-            if (kd == "Exec" && nm.Length == 0) continue;   // the implicit exec pins are added back automatically
-            into.Add((nm, kd));
-        }
     }
 
     private void EnsureCompositeEditor()
@@ -125,80 +103,24 @@ public partial class MainScreen
 
     private RectF _nbEditorRect;
 
-    private void ApplyNodeTemplate(string kind)
-    {
-        _nbMode = "code"; _nbIn.Clear(); _nbOut.Clear();
-        if (kind == "aitool")
-        {
-            _nbTitle = "Web Search"; _nbIcon = "🔎"; _nbCategory = "Ai"; _nbLang = "python";
-            _nbDesc = "AI tool: searches the web and returns the top 3 results.";
-            _nbIn.Add(("query", "Text"));
-            _nbOut.Add(("tool", "Tool")); _nbOut.Add(("results", "Text"));
-            _nbCode =
-                "import os, json, urllib.parse, urllib.request\n" +
-                "q = (os.environ.get('QUERY') or '').strip()\n" +
-                "url = 'https://api.duckduckgo.com/?' + urllib.parse.urlencode({'q': q, 'format':'json','no_html':1,'skip_disambig':1})\n" +
-                "try:\n" +
-                "    data = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent':'ircuitry'}), timeout=10))\n" +
-                "except Exception as e:\n" +
-                "    print('error: ' + str(e)); raise SystemExit\n" +
-                "out = [t['Text'] for t in data.get('RelatedTopics', []) if t.get('Text')][:3]\n" +
-                "print('\\n'.join(out) if out else 'no results')\n";
-        }
-        else
-        {
-            _nbTitle = ""; _nbIcon = "🧩"; _nbCategory = "Action"; _nbLang = "python"; _nbDesc = "";
-            _nbIn.Add(("text", "Text"));
-            _nbOut.Add(("result", "Text"));
-            _nbCode = "import os\ntext = os.environ.get('TEXT') or os.environ.get('INPUT') or ''\nprint('you said: ' + text)\n";
-        }
-        _nbStatus = "";
-    }
-
     private string NbTypeId()
     {
         if (_nbEditId.Length > 0) return _nbEditId;   // editing -> stable id, overwrite the same file
         string src = _nbTitle.Trim().Length > 0 ? _nbTitle : "custom node";
         var slug = new string(src.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
         while (slug.Contains("--")) slug = slug.Replace("--", "-");
-        string prefix = _nbMode == "composite" ? "subflow." : "custom.";
-        return slug.Length > 0 ? prefix + slug : prefix + "node";
+        return slug.Length > 0 ? "custom." + slug : "custom.node";
     }
 
     private string NbBuildManifest()
-    {
-        if (_nbMode == "composite")
-            return _nbEditor?.SerializeAsComposite(NbTypeId(),
-                _nbTitle.Trim().Length > 0 ? _nbTitle.Trim() : "Custom Node",
-                _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "🧩", _nbCategory, _nbDesc.Trim(), _nbExposed) ?? "";
-
-        var node = new Dictionary<string, object?>
-        {
-            ["typeId"] = NbTypeId(),
-            ["title"] = _nbTitle.Trim().Length > 0 ? _nbTitle.Trim() : "Custom Node",
-            ["subtitle"] = "custom",
-            ["icon"] = _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "🧩",
-            ["category"] = _nbCategory,
-            ["description"] = _nbDesc.Trim(),
-            ["author"] = "",
-            ["tags"] = Array.Empty<string>(),
-            ["inputs"] = _nbIn.Where(p => p.name.Trim().Length > 0 || p.kind == "Exec")
-                              .Select(p => new Dictionary<string, object?> { ["name"] = p.name.Trim(), ["kind"] = p.kind }).ToArray(),
-            ["outputs"] = _nbOut.Where(p => p.name.Trim().Length > 0 || p.kind == "Exec")
-                               .Select(p => new Dictionary<string, object?> { ["name"] = p.name.Trim(), ["kind"] = p.kind }).ToArray(),
-            ["params"] = Array.Empty<object>(),
-            ["language"] = _nbLang,
-            ["timeout"] = 12,
-            ["code"] = _nbCode,
-        };
-        return JsonSerializer.Serialize(node, new JsonSerializerOptions { WriteIndented = true });
-    }
+        => _nbEditor?.SerializeAsComposite(NbTypeId(),
+            _nbTitle.Trim().Length > 0 ? _nbTitle.Trim() : "Custom Node",
+            _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "🧩", _nbCategory, _nbDesc.Trim(), _nbExposed) ?? "";
 
     private string NbValidate(string manifest)
     {
         if (_nbTitle.Trim().Length == 0) return "Give your node a title.";
-        if (_nbMode == "composite" && manifest.Length == 0) return "Add a Subflow Start (⤵ Start) to your composite.";
-        if (_nbMode == "code" && _nbCode.Trim().Length == 0) return "Write some code (or pick a starter).";
+        if (manifest.Length == 0) return "Add a Subflow Start (the Start node) so your recipe can run.";
         try
         {
             var def = CustomNode.Load(manifest);
@@ -212,25 +134,27 @@ public partial class MainScreen
 
     private void DrawNodeBuilder(Renderer r, Clock clock)
     {
+        EnsureCompositeEditor();
         r.Begin();
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
         float pw = _nbMax ? _vw - 24 : Math.Min(880, _vw - 60);
-        float ph = _nbMax ? _vh - 24 : Math.Min(700, _vh - 60);
-        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        // when maximized, sit BELOW the custom title bar so this modal's own maximize/restore button never
+        // overlaps (and steals clicks from) the window's close button up in the title bar.
+        float topMargin = _nbMax ? Layout.TitlebarH + 8 : 0;
+        float ph = _nbMax ? _vh - topMargin - 12 : Math.Min(700, _vh - 60);
+        float top = _nbMax ? topMargin : (_vh - ph) / 2f;
+        var panel = new RectF((_vw - pw) / 2f, top, pw, ph);
         Hud.Panel(r, panel, _nbEditId.Length > 0 ? "Edit node" : "Bake a node", Theme.Violet);
-        if (_ui.Button("nb.max", new RectF(panel.Right - 40, panel.Y + 7, 28, 24), _nbMax ? "⤡" : "⤢", Theme.Idle)) _nbMax = !_nbMax;
+        if (_ui.Button("nb.max", new RectF(panel.Right - 40, panel.Y + 7, 28, 24), _nbMax ? "-" : "+", Theme.Idle)) _nbMax = !_nbMax;
 
         var lbl = r.Fonts.Get(FontKind.SansBold, 10);
         void Label(string t, float lx, float ly2) => r.Text(lbl, t, new Vector2(lx, ly2), Theme.TextDim);
         float pad = 22, cx = panel.X + pad, cw = panel.W - 2 * pad;
         float y = panel.Y + Hud.HeaderH + 12;
 
-        // ---- kind toggle ----  Recipe = combine nodes (ingredients); From scratch = write code
-        bool code = _nbMode == "code";
-        if (_ui.Button("nb.mode.code", new RectF(cx, y, 182, 28), "🍳 From scratch (code)", code ? Theme.Violet : Theme.Idle, primary: code)) _nbMode = "code";
-        if (_ui.Button("nb.mode.comp", new RectF(cx + 190, y, 160, 28), "🥣 Recipe (nodes)", code ? Theme.Idle : Theme.Violet, primary: !code))
-        { _nbMode = "composite"; EnsureCompositeEditor(); }
-        y += 28 + 12;
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), "Build your node from other nodes - wire ingredients between Start and Output.",
+            new Vector2(cx, y), Theme.TextDim);
+        y += 22;
 
         // ---- shared identity row + description ----
         float catW = 132, iconW = 52, gap = 10, titleW = cw - catW - iconW - 2 * gap;
@@ -243,15 +167,14 @@ public partial class MainScreen
         _nbDesc = _ui.TextField("nb.desc", new RectF(cx, y, cw, 26), _nbDesc, "what this node does (one sentence)");
         y += 26 + 12;
 
-        if (code) DrawNbCodeBody(r, panel, cx, cw, y, Label);
-        else DrawNbCompositeBody(r, panel, cx, cw, y, clock, Label);
+        DrawNbCompositeBody(r, panel, cx, cw, y, clock, Label);
 
         // ---- footer ----
         string manifest = NbBuildManifest();
         string err = NbValidate(manifest);
         bool ok = err.Length == 0;
         var sans = r.Fonts.Get(FontKind.Sans, 12);
-        r.Text(sans, _nbStatus.Length > 0 ? _nbStatus : (ok ? "✓ ready to bake  ·  " + NbTypeId() : "⚠ " + err),
+        r.Text(sans, _nbStatus.Length > 0 ? _nbStatus : (ok ? "ready to bake  ·  " + NbTypeId() : "⚠ " + err),
             new Vector2(cx, panel.Bottom - 44), ok ? Theme.Lime : Theme.Amber);
 
         float bw = 150, bh = 34, bx = panel.Right - pad - bw, by = panel.Bottom - bh - 8;
@@ -266,49 +189,14 @@ public partial class MainScreen
         r.End();
     }
 
-    private void DrawNbCodeBody(Renderer r, RectF panel, float cx, float cw, float colTop, Action<string, float, float> Label)
-    {
-        float leftW = cw * 0.46f, rightX = cx + leftW + 18, rightW = cx + cw - rightX;
-        float ly = colTop;
-        Label("INPUTS  (an AI tool's args)", cx, ly); ly += 16;
-        for (int i = 0; i < _nbIn.Count; i++)
-        {
-            _nbIn[i] = (_ui.TextField($"nb.in{i}", new RectF(cx, ly, leftW - 126, 26), _nbIn[i].name, "name"),
-                        _ui.Choice($"nb.ink{i}", new RectF(cx + leftW - 122, ly, 90, 26), NbKinds, _nbIn[i].kind));
-            if (_ui.Button($"nb.inx{i}", new RectF(cx + leftW - 26, ly, 26, 26), "✕", Theme.Idle)) { _nbIn.RemoveAt(i); break; }
-            ly += 30;
-        }
-        if (_nbIn.Count < 6 && _ui.Button("nb.inadd", new RectF(cx, ly, 110, 26), "＋ input", Theme.Idle)) _nbIn.Add(("", "Text"));
-        ly += 38;
-        Label("OUTPUTS  (Tool = AI handle · 1st data pin = result)", cx, ly); ly += 16;
-        for (int i = 0; i < _nbOut.Count; i++)
-        {
-            _nbOut[i] = (_ui.TextField($"nb.out{i}", new RectF(cx, ly, leftW - 126, 26), _nbOut[i].name, "name"),
-                         _ui.Choice($"nb.outk{i}", new RectF(cx + leftW - 122, ly, 90, 26), NbKinds, _nbOut[i].kind));
-            if (_ui.Button($"nb.outx{i}", new RectF(cx + leftW - 26, ly, 26, 26), "✕", Theme.Idle)) { _nbOut.RemoveAt(i); break; }
-            ly += 30;
-        }
-        if (_nbOut.Count < 6 && _ui.Button("nb.outadd", new RectF(cx, ly, 110, 26), "＋ output", Theme.Idle)) _nbOut.Add(("", "Text"));
-        ly += 40;
-        Label("START FROM A STARTER", cx, ly); ly += 16;
-        if (_ui.Button("nb.tpl.simple", new RectF(cx, ly, 120, 26), "Simple", Theme.Idle)) ApplyNodeTemplate("simple");
-        if (_ui.Button("nb.tpl.aitool", new RectF(cx + 128, ly, 150, 26), "🔎 AI web tool", Theme.Idle)) ApplyNodeTemplate("aitool");
-
-        Label("LANGUAGE", rightX, colTop);
-        _nbLang = _ui.Choice("nb.lang", new RectF(rightX, colTop + 15, 120, 26), NbLangs, _nbLang);
-        Label("CODE  (inputs arrive as UPPERCASE vars; print the result)", rightX, colTop + 50);
-        float codeY = colTop + 66;
-        _nbCode = _ui.TextArea("nb.code", new RectF(rightX, codeY, rightW, (panel.Bottom - 56) - codeY), _nbCode, "print('hello')");
-    }
-
     private void DrawNbCompositeBody(Renderer r, RectF panel, float cx, float cw, float top, Clock clock, Action<string, float, float> Label)
     {
         EnsureCompositeEditor();
         float inspW = Math.Min(320, cw * 0.38f), gap = 12, edW = cw - inspW - gap;
 
         // toolbar over the editor column: quick-adds + a search to drop any node in
-        if (_ui.Button("nb.c.in", new RectF(cx, top, 92, 26), "＋ Input", Theme.Idle)) AddCompositeNode("flow.arg");
-        if (_ui.Button("nb.c.out", new RectF(cx + 100, top, 96, 26), "＋ Output", Theme.Idle)) AddCompositeNode("flow.return");
+        if (_ui.Button("nb.c.in", new RectF(cx, top, 92, 26), "+ Input", Theme.Idle)) AddCompositeNode("flow.arg");
+        if (_ui.Button("nb.c.out", new RectF(cx + 100, top, 96, 26), "+ Output", Theme.Idle)) AddCompositeNode("flow.return");
         _nbAdd = _ui.TextField("nb.add", new RectF(cx + 204, top, edW - 204, 26), _nbAdd, "search a node to add…");
         float bodyTop = top + 26 + 8;
 
