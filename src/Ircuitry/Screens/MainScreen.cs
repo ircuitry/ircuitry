@@ -2221,10 +2221,8 @@ public sealed partial class MainScreen : IScreen
         var nm = _ui.TextField("c.name", new RectF(x, y, w, 30), Bot.Name, "bot name");
         if (nm != Bot.Name) { Bot.Name = string.IsNullOrWhiteSpace(nm) ? Bot.Name : nm; _app.MarkDirty(); }
         y += 38;
-        // reusable servers + a live map of bots ↔ servers
-        float half = (w - 8) / 2f;
-        if (_ui.Button("c.servers", new RectF(x, y, half, 28), "📡 Servers", Theme.Sky)) { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; }
-        if (_ui.Button("c.network", new RectF(x + half + 8, y, half, 28), "🗺 Network", Theme.Berry)) { _networkOpen = true; _networkJustOpened = true; }
+        // reusable saved servers (the bots/servers/channels map lives globally in the title bar now)
+        if (_ui.Button("c.servers", new RectF(x, y, w, 28), "📡 Servers", Theme.Sky)) { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; }
         y += 40;
 
         // ---- server selector: a bot can hold several servers; pick which one to edit ----

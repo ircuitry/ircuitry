@@ -61,7 +61,9 @@ public sealed partial class MainScreen
             r.Text(nf, n, new Vector2(c.X - nf.MeasureString(n).X / 2f, c.Y - nf.MeasureString(n).Y / 2f), Theme.TextInk);
         }
 
-        var histR = Btn(38, 14);
+        var netR = Btn(38, 14);   // app-global network map (every bot + server + channel)
+        if (IconBtn(r, netR, "🗺", 16)) { _networkOpen = true; _networkJustOpened = true; }
+        var histR = Btn(38);
         if (IconBtn(r, histR, "📜", 16)) OpenHistory();
         var testR = Btn(38);
         _testBtnRect = testR;   // the tutorial highlights this
