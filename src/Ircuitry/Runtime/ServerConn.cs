@@ -213,6 +213,10 @@ public sealed class ServerConn : IRuntimeSink
                 {
                     var dv = BaseVars();
                     dv["nick"] = nick; dv["user"] = m.User ?? ""; dv["host"] = m.Host ?? ""; dv["replyto"] = nick;
+                    // expose IRCv3 tags so a flow can allow-list by AUTHENTICATED account (nicks can be faked)
+                    dv["account"] = m.Tag("account");
+                    dv["isbot"] = (m.Tags.ContainsKey("bot") || m.Tags.ContainsKey("draft/bot")) ? "true" : "false";
+                    foreach (var kv in m.Tags) dv["tag." + kv.Key] = kv.Value;
                     dv["dcc.type"] = off.Type; dv["dcc.file"] = off.File; dv["dcc.size"] = off.Size.ToString();
                     dv["dcc.ip"] = off.Ip; dv["dcc.port"] = off.Port.ToString(); dv["dcc.token"] = off.Token;
                     dv["dcc.position"] = off.Position.ToString();

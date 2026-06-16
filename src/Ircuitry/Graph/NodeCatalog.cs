@@ -439,16 +439,18 @@ public static class NodeCatalog
             {
                 TypeId = "filter.fromAccount", Icon = "🪪", Title = "From Account", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
-                Description = "Branches on the sender's logged-in account (IRCv3 account-tag). Blank = anyone logged in.",
+                Description = "Branches on the sender's authenticated account (IRCv3 account-tag) - a safe allow-list, since accounts can't be faked the way nicks can. Blank = anyone logged in; one account, or a comma-separated allow-list.",
                 Inputs = new[] { Ex() },
                 Outputs = new[] { Ex("match"), Ex("else") },
-                Params = new[] { P("account", "Account", ParamType.Text, "", "blank = any logged-in user") },
+                Params = new[] { P("account", "Account(s)", ParamType.Text, "", "blank = any logged-in · or alice · or alice, bob, carol") },
                 SummaryParam = "account",
                 Exec = c =>
                 {
                     var acct = c.Var("account");
-                    var want = c.Param("account");
-                    bool hit = want.Length == 0 ? acct.Length > 0 : acct.Equals(want, StringComparison.OrdinalIgnoreCase);
+                    var want = c.Resolve(c.Param("account")).Trim();
+                    bool hit = want.Length == 0
+                        ? acct.Length > 0
+                        : acct.Length > 0 && want.Split(',').Select(s => s.Trim()).Any(a => a.Length > 0 && a.Equals(acct, StringComparison.OrdinalIgnoreCase));
                     c.Pulse(hit ? 0 : 1);
                 },
             },
@@ -2135,8 +2137,8 @@ public static class NodeCatalog
             {
                 TypeId = "event.dcc", Icon = "📡", Title = "On DCC Offer", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "dcc",
-                Description = "Fires when a user offers a DCC transfer over IRC - a direct file SEND, or a CHAT/RESUME/ACCEPT negotiation. Decide what to do with Accept DCC File or Decline DCC. Exposes {dcc.file} {dcc.size} {dcc.ip} {dcc.port} {dcc.token} {dcc.type} and {nick}.",
-                Outputs = new[] { Ex("then"), Tx("filename"), Nm("size"), Us("nick"), Tx("type") },
+                Description = "Fires when a user offers a DCC transfer over IRC - a direct file SEND, or a CHAT/RESUME/ACCEPT negotiation. Decide what to do with Accept DCC File or Decline DCC. The 'account' pin is the sender's authenticated login (use it to allow-list - nicks can be faked, accounts can't). Also exposes {dcc.file} {dcc.size} {dcc.ip} {dcc.port} {dcc.token} {dcc.type} {account}.",
+                Outputs = new[] { Ex("then"), Tx("filename"), Nm("size"), Us("nick"), Tx("type"), Tx("account") },
                 Params = new[] { P("only", "Only", ParamType.Choice, "send", "", new[] { "any", "send", "chat", "resume", "accept" }) },
                 SummaryParam = "only",
                 Exec = c =>
@@ -2148,6 +2150,7 @@ public static class NodeCatalog
                     c.SetOut(2, c.Var("dcc.size"));
                     c.SetOut(3, c.Var("nick"));
                     c.SetOut(4, ty);
+                    c.SetOut(5, c.Var("account"));
                     c.Pulse(0);
                 },
             },
