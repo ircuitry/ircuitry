@@ -181,6 +181,14 @@ public static class SelfTest
         fails += Expect("dcc-parse-bad", !Ircuitry.Net.Dcc.TryParse("VERSION", out _), "");
         fails += Expect("dcc-sanitize", Ircuitry.Net.Dcc.SanitizeName("../../etc/passwd") == "passwd", "");
 
+        // the CTCP markers must be a real SOH (U+0001) - guards the "\x01DCC" greedy-hex trap (-> U+01DC, 'GC')
+        fails += Expect("dcc-prefix-marker", Ircuitry.Net.Dcc.Prefix == (char)1 + "DCC " && Ircuitry.Net.Dcc.Marker == (char)1, "");
+        var ctcp = Ircuitry.Net.Dcc.SendLine("a b.txt", Ircuitry.Net.Dcc.IpToInt("1.2.3.4"), 99, 5, "tk");
+        fails += Expect("dcc-sendline-roundtrip",
+            ctcp[0] == (char)1 && ctcp[^1] == (char)1 && ctcp.StartsWith(Ircuitry.Net.Dcc.Prefix)
+            && Ircuitry.Net.Dcc.TryParse(Ircuitry.Net.Dcc.Strip(ctcp), out var ro)
+            && ro.File == "a b.txt" && ro.Ip == "1.2.3.4" && ro.Port == 99 && ro.Size == 5 && ro.Token == "tk", ctcp);
+
         try
         {
             string src = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-dcc-src-" + System.Guid.NewGuid().ToString("N"));

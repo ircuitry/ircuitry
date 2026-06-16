@@ -75,6 +75,19 @@ public static class Dcc
     /// <summary>Quote a filename for the CTCP if it contains spaces.</summary>
     public static string QuoteName(string f) => f.Contains(' ') ? "\"" + f + "\"" : f;
 
+    // CTCP delimiter (SOH, U+0001). Written with \u (exactly 4 hex digits) NOT \x (greedy 1-4) - "\x01DCC"
+    // would parse as U+01DC ('ǜ') + "C", silently corrupting the marker.
+    public const char Marker = '\u0001';
+    /// <summary>The literal a CTCP DCC line starts with (<c>SOH + "DCC "</c>), for detecting incoming offers.</summary>
+    public const string Prefix = "\u0001DCC ";
+
+    /// <summary>Build a complete CTCP DCC SEND line (incl. the SOH markers): <c>\x01DCC SEND name ip port size [token]\x01</c>.</summary>
+    public static string SendLine(string name, ulong ipInt, int port, long size, string token = "")
+        => $"{Marker}DCC SEND {QuoteName(name)} {ipInt} {port} {size}{(token.Length > 0 ? " " + token : "")}{Marker}";
+
+    /// <summary>Strip the surrounding SOH markers from a CTCP payload.</summary>
+    public static string Strip(string ctcp) => ctcp.Trim(Marker);
+
     /// <summary>Send a file over an open DCC socket, draining the receiver's acks. Returns bytes sent.</summary>
     public static long StreamOut(Stream net, string filePath)
     {

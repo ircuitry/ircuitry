@@ -207,9 +207,9 @@ public sealed class ServerConn : IRuntimeSink
             string text = m.Trailing;
 
             // CTCP DCC (file transfer / chat negotiation) - not a chat message; route it to On DCC nodes
-            if (text.Length > 5 && text[0] == '\x01' && text.StartsWith("\x01DCC ", StringComparison.OrdinalIgnoreCase))
+            if (text.StartsWith(Ircuitry.Net.Dcc.Prefix, StringComparison.OrdinalIgnoreCase))
             {
-                if (Ircuitry.Net.Dcc.TryParse(text.Trim('\x01'), out var off))
+                if (Ircuitry.Net.Dcc.TryParse(Ircuitry.Net.Dcc.Strip(text), out var off))
                 {
                     var dv = BaseVars();
                     dv["nick"] = nick; dv["user"] = m.User ?? ""; dv["host"] = m.Host ?? ""; dv["replyto"] = nick;
@@ -616,7 +616,7 @@ public sealed class ServerConn : IRuntimeSink
                     listener.Start();
                     int p = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
                     ulong ipInt = Ircuitry.Net.Dcc.IpToInt(Ircuitry.Net.Dcc.LocalIp());
-                    _client.SendRaw($"PRIVMSG {fromNick} :\x01DCC SEND {Ircuitry.Net.Dcc.QuoteName(label)} {ipInt} {p} {size} {token}\x01");
+                    _client.SendRaw($"PRIVMSG {fromNick} :{Ircuitry.Net.Dcc.SendLine(label, ipInt, p, size, token)}");
                     Log($"DCC: waiting for {fromNick} to connect for {label}…", LogLevel.System);
                     var at = listener.AcceptTcpClientAsync();
                     bool ok = at.Wait(90000);
@@ -654,7 +654,7 @@ public sealed class ServerConn : IRuntimeSink
                 int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
                 string ip = advertiseIp.Trim().Length > 0 ? advertiseIp.Trim() : Ircuitry.Net.Dcc.LocalIp();
                 ulong ipInt = Ircuitry.Net.Dcc.IpToInt(ip);
-                _client.SendRaw($"PRIVMSG {toNick} :\x01DCC SEND {Ircuitry.Net.Dcc.QuoteName(name)} {ipInt} {port} {size}\x01");
+                _client.SendRaw($"PRIVMSG {toNick} :{Ircuitry.Net.Dcc.SendLine(name, ipInt, port, size)}");
                 Log($"DCC: offering {name} ({size} bytes) to {toNick}…", LogLevel.System);
                 var at = listener.AcceptTcpClientAsync();
                 bool ok = at.Wait(120000);
