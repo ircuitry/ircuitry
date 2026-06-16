@@ -219,7 +219,7 @@ public sealed class BotRuntime
     {
         lock (_recentLock)
         {
-            _recent.AddLast(new RecentMsg(nick, channel, text, msgid));
+            _recent.AddLast(new RecentMsg(nick, channel, text, msgid, DateTime.Now));
             while (_recent.Count > 200) _recent.RemoveFirst();
         }
     }

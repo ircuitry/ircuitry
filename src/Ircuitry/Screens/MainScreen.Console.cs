@@ -30,7 +30,7 @@ public sealed partial class MainScreen
     {
         // drawn inside the panel-chrome batch (no Begin/End here)
         var f = r.Fonts.Get(FontKind.Mono, 12);
-        r.TextRight(f, $"MSG {Bot.Runtime.MessagesSeen}   ACT {Bot.Runtime.ActionsFired}", p.Right - 132, p.Y + 12, Theme.TextFaint);
+        r.TextRight(f, $"MSG {Bot.Runtime.MessagesSeen}   ACT {Bot.Runtime.ActionsFired}", p.Right - 168, p.Y + 12, Theme.TextFaint);
     }
 
     private void DrawConsole(Renderer r)

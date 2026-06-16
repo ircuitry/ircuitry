@@ -354,7 +354,8 @@ public sealed class ServerConn : IRuntimeSink
         var graph = _owner.RunGraph;
         if (graph == null) return;
         vars = new Dictionary<string, string>(vars);   // isolate this run's scope from any concurrent run
-        var rec = new RunRecord { Time = DateTime.Now, Trigger = node.DisplayTitle, Icon = node.Def.Icon, Summary = Summarize(node.Def.TriggerEvent, vars) };
+        var rec = new RunRecord { Time = DateTime.Now, Trigger = node.DisplayTitle, Icon = node.Def.Icon, Summary = Summarize(node.Def.TriggerEvent, vars),
+            Msgid = vars.TryGetValue("msgid", out var _mid) ? _mid : "" };
         int before = _owner.TotalActions;
         var stream = new WorkflowStream(this, vars, node.DisplayTitle);
         GraphExecutor.Fire(graph, this, node, vars, rec, stream.OnNode);

@@ -21,6 +21,7 @@ public sealed class RunRecord
     public string Trigger = "";
     public string Icon = "";
     public string Summary = "";              // short context (e.g. "nick: message")
+    public string Msgid = "";                // the triggering message's id, when there was one (for linking)
     public readonly List<NodeTrace> Nodes = new();
     public int Actions;                      // IRC sends produced by this run
     public bool Fired;                       // the trigger actually pulsed its flow
