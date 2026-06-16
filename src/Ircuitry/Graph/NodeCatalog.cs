@@ -291,6 +291,31 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+            new()
+            {
+                TypeId = "event.numeric", Icon = "🔢", Title = "On Numeric", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "numeric",
+                Description = "Fires when the server sends a numeric reply you pick from the list (e.g. RPL_WELCOME, ERR_NICKNAMEINUSE, RPL_INVITING). Exposes {numeric} {numname} {message} {channel} and {arg1}, {arg2}, …",
+                Outputs = new[] { Ex("then"), Tx("numeric"), Tx("text"), Ch("channel") },
+                Params = new[] { P("which", "Numeric", ParamType.Choice, "(any numeric)", "", Ircuitry.Irc.IrcNumerics.Choices()) },
+                SummaryParam = "which",
+                Exec = c =>
+                {
+                    string sel = c.Param("which");
+                    bool match = sel.StartsWith("(any");
+                    if (!match)
+                    {
+                        int sp = sel.IndexOf(' ');
+                        string codeStr = sp > 0 ? sel[..sp] : sel;
+                        match = int.TryParse(codeStr, out int selN) && int.TryParse(c.Var("numeric"), out int gotN) && selN == gotN;
+                    }
+                    if (!match) return;
+                    c.SetOut(1, c.Var("numeric"));
+                    c.SetOut(2, c.Var("message"));
+                    c.SetOut(3, c.Var("channel"));
+                    c.Pulse(0);
+                },
+            },
 
             // ============================ FILTERS ===========================
             new()
@@ -693,6 +718,36 @@ public static class NodeCatalog
                                                  : (System.Collections.Generic.IReadOnlyList<Ircuitry.Core.RecentMsg>)System.Array.Empty<Ircuitry.Core.RecentMsg>();
                     c.SetOut(1, HistoryJson(msgs));
                     c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "irc.me", Icon = "🪪", Title = "My Info", Subtitle = "ircv3",
+                Category = NodeCategory.Ircv3,
+                Description = "Reads the bot's own live, tracked state: its nick, the network it's connected to, the channels it's in (comma-separated), or its enabled IRCv3 caps. Wire 'value' anywhere.",
+                Outputs = new[] { Tx("value") },
+                Params = new[] { P("field", "What", ParamType.Choice, "nick", "", new[] { "nick", "network", "channels", "caps" }) },
+                SummaryParam = "field",
+                Exec = c => c.SetOut(0, c.IrcInfo(c.Param("field"), "")),
+            },
+            new()
+            {
+                TypeId = "irc.channel", Icon = "📋", Title = "Channel Info", Subtitle = "ircv3",
+                Category = NodeCategory.Ircv3,
+                Description = "Reads live, tracked state about a channel the bot is in: its topic, member list (comma-separated, with @/+ prefixes), member count, or whether the bot is in it. Wire 'value' anywhere.",
+                Inputs = new[] { Ch("channel") },
+                Outputs = new[] { Tx("value") },
+                Params = new[]
+                {
+                    P("channel", "Channel", ParamType.Text, "", "#channel (blank = where this ran)"),
+                    P("field", "What", ParamType.Choice, "topic", "", new[] { "topic", "members", "count", "joined" }),
+                },
+                SummaryParam = "field",
+                Exec = c =>
+                {
+                    string ch = c.InOr(0, c.Resolve(c.Param("channel")));
+                    if (ch.Length == 0) ch = c.Var("channel");
+                    c.SetOut(0, c.IrcInfo(c.Param("field"), ch));
                 },
             },
             new()

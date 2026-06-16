@@ -134,6 +134,7 @@ public static class SelfTest
         fails += HistoryBatchTest();
         fails += HistoryAbandonTest();
         fails += ChatHistoryNodeTest();
+        fails += IrcStateTest();
         fails += SwitchPruneTest();
         fails += IoTest();
         fails += WorkspaceTest();
@@ -514,6 +515,35 @@ public static class SelfTest
         bool ok = wired && pruned == 1 && g.Connections.Count == before - 1
             && !g.Connections.Any(c => c.FromNode == sw.Id && c.FromPin == 3);
         return Expect("switch-prune-dead-wire", ok, $"wired={wired} pruned={pruned} left={g.Connections.Count}");
+    }
+
+    /// <summary>The live IRC session model tracks network, channels, members (with prefixes + nick changes +
+    /// parts), topic and human-language narration from raw lines - what the read-only IRC view and state nodes use.</summary>
+    private static int IrcStateTest()
+    {
+        var s = new IrcSessionState();
+        void Obs(string line) => s.Observe(IrcParser.Parse(line), "ircuitry");
+        Obs(":serv 005 ircuitry NETWORK=Cool\\x20Net CHANTYPES=# :are supported");
+        Obs(":ircuitry!u@h JOIN #cake");
+        Obs(":serv 353 ircuitry = #cake :@ircuitry +bob carol");
+        Obs(":serv 366 ircuitry #cake :End of /NAMES");
+        Obs(":serv 332 ircuitry #cake :Cake talk");
+        Obs(":dave!d@h JOIN #cake");
+        Obs(":bob!b@h PART #cake");
+        Obs(":carol!c@h NICK caroline");
+
+        var members = s.Members("#cake");
+        bool ok =
+            s.Network == "Cool Net"                                     // \x20 decoded
+            && s.InChannel("#cake")
+            && s.Topic("#cake") == "Cake talk"
+            && s.MemberCount("#cake") == 3                              // ircuitry, caroline, dave (bob parted)
+            && members.Any(m => m.nick == "ircuitry" && m.prefix.Contains('@'))
+            && members.Any(m => m.nick == "caroline")
+            && !members.Any(m => m.nick == "bob")
+            && s.RecentNotes(60).Any(n => n.Text.Contains("Cool Net"))
+            && s.RecentNotes(60).Any(n => n.Text == "I'm joining #cake");
+        return Expect("irc-session-state", ok, $"net='{s.Network}' count={s.MemberCount("#cake")} topic='{s.Topic("#cake")}'");
     }
 
     /// <summary>The Request History node calls into the history path and emits the messages as JSON on its

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Ircuitry.Irc;
 
@@ -17,6 +18,11 @@ public static class IrcNumerics
 
     /// <summary>True for ERR_* numerics (the 4xx/5xx error range and a few SASL errors).</summary>
     public static bool IsError(int n) => Table.TryGetValue(n, out var v) && v.name.StartsWith("ERR_");
+
+    private static string[]? _choices;
+    /// <summary>Human-readable dropdown list "(any numeric)" + "001 RPL_WELCOME" ... for the On Numeric node.</summary>
+    public static string[] Choices() => _choices ??=
+        new[] { "(any numeric)" }.Concat(Table.OrderBy(k => k.Key).Select(k => $"{k.Key:000} {k.Value.name}")).ToArray();
 
     private static readonly Dictionary<int, (string name, string desc)> Table = new()
     {

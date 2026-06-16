@@ -33,6 +33,10 @@ public sealed class ServerConn : IRuntimeSink
     // CHATHISTORY: collects batched history and delivers it to waiting nodes; its messages never trigger.
     private readonly HistoryBatches _history = new();
 
+    // live IRC session model (channels, members, topics, network, narration) for the read-only view + state nodes
+    private readonly IrcSessionState _session = new();
+    public IrcSessionState Session => _session;
+
     public string Label { get; private set; }
     public bool Running => _running;
     public IrcState State => _client.State;
@@ -76,6 +80,7 @@ public sealed class ServerConn : IRuntimeSink
         _cfg.SaslUser = Secrets.Expand(_cfg.SaslUser);
         _cfg.SaslPass = Secrets.Expand(_cfg.SaslPass);
         MessagesSeen = 0; _actionsFired = 0;
+        _session.Reset();
         _running = true;
         StartRunWorkers();
         _owner.LogFrom(Label, LogLevel.System, $"▶ connecting - {_owner.CountTriggers()} trigger(s) armed");
@@ -190,6 +195,9 @@ public sealed class ServerConn : IRuntimeSink
             return;
         }
 
+        // keep the live session model (channels, members, topics, network, narration) current for EVERY line
+        _session.Observe(m, CurrentNick);
+
         if (m.Is("PRIVMSG"))
         {
             MessagesSeen++;
@@ -239,6 +247,19 @@ public sealed class ServerConn : IRuntimeSink
             vars["target"] = channel;
             vars["replyto"] = channel;
             FireFamily("join", vars);
+        }
+        else if (m.IsNumeric(out int num))
+        {
+            // a server numeric (001, 005, 353, 433, INVITE-related, ...) - lets On Numeric nodes react
+            var vars = BaseVars();
+            vars["numeric"] = num.ToString();
+            vars["numname"] = Ircuitry.Irc.IrcNumerics.Name(num) ?? "";
+            vars["nick"] = m.Nick ?? "";
+            vars["channel"] = m.Params.Count > 1 && (m.P(1).StartsWith('#') || m.P(1).StartsWith('&')) ? m.P(1) : "";
+            vars["message"] = m.Trailing;
+            vars["args"] = string.Join(' ', m.Params);
+            for (int i = 0; i < m.Params.Count; i++) vars["arg" + (i + 1)] = m.P(i);
+            FireFamily("numeric", vars);
         }
     }
 
@@ -562,6 +583,22 @@ public sealed class ServerConn : IRuntimeSink
     public void Part(string channel, string reason) => _client.Part(channel, reason);
     public void Raw(string line) => _client.SendRaw(line);
     public IReadOnlyList<RecentMsg> RecentMessages(int count) => _owner.RecentMessages(count);
+
+    public string IrcInfo(string what, string channel)
+    {
+        switch (what)
+        {
+            case "nick": return CurrentNick;
+            case "network": return _session.Network;
+            case "caps": return string.Join(",", EnabledCaps);
+            case "channels": return string.Join(",", _session.Channels());
+            case "topic": return _session.Topic(channel);
+            case "members": return string.Join(",", _session.Members(channel).Select(m => m.prefix + m.nick));
+            case "count": return _session.MemberCount(channel).ToString();
+            case "joined": return _session.InChannel(channel) ? "true" : "false";
+            default: return "";
+        }
+    }
 
     public IReadOnlyList<RecentMsg> RequestHistory(string target, string sub, int count, int timeoutMs)
     {

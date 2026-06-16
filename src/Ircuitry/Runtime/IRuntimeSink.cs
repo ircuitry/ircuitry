@@ -45,6 +45,10 @@ public interface IRuntimeSink
     System.Collections.Generic.IReadOnlyList<RecentMsg> RequestHistory(string target, string sub, int count, int timeoutMs)
         => System.Array.Empty<RecentMsg>();
 
+    /// <summary>Read a piece of tracked IRC session state by name (nick, network, caps, channels, topic,
+    /// members, count, joined). <paramref name="channel"/> applies to the channel-specific ones. "" if unknown.</summary>
+    string IrcInfo(string what, string channel) => "";
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);

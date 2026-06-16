@@ -68,6 +68,9 @@ public interface INodeContext
     /// <summary>Ask the server for a target's message history (IRCv3 CHATHISTORY), including messages from before
     /// the bot joined. Blocks until the batch arrives or the timeout; the batch fires no triggers.</summary>
     System.Collections.Generic.IReadOnlyList<RecentMsg> History(string target, string sub, int count, int timeoutMs);
+
+    /// <summary>Read tracked IRC session state: nick, network, caps, channels, topic, members, count, joined.</summary>
+    string IrcInfo(string what, string channel);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

@@ -63,11 +63,12 @@ public sealed partial class MainScreen
         if (maxScroll > 1) ConsoleScrollbar(r, content, maxScroll);
     }
 
-    // notebook-paper hairlines behind the (translucent) message cards
+    // notebook-paper hairlines behind the (translucent) message cards. Anchored to the BOTTOM so they stay
+    // put when the console is drag-resized from its top edge (the console is docked at the bottom).
     private void ConsolePaperLines(Renderer r, RectF c)
     {
         var dot = Theme.WithAlpha(Theme.Hairline, 0.45f);
-        for (float gy = c.Y + 22; gy < c.Bottom - 4; gy += 26)
+        for (float gy = c.Bottom - 10; gy > c.Y + 4; gy -= 26)
             r.HLine(c.X + 8, c.Right - 8, MathF.Round(gy), dot, 1f);
     }
 
