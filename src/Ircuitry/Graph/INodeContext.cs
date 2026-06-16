@@ -58,6 +58,12 @@ public interface INodeContext
     // IRC effects
     void Reply(string text);                   // to the triggering channel/user
     void React(string emoji);                  // react to the triggering message (+draft/react)
+
+    /// <summary>React to a specific message by its msgid (defaults to the triggering message when blank).</summary>
+    void ReactTo(string target, string msgid, string emoji);
+
+    /// <summary>The most-recent messages the bot has seen (newest last) so an AI can look one up and act on it.</summary>
+    System.Collections.Generic.IReadOnlyList<RecentMsg> RecentMessages(int count);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

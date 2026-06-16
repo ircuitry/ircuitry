@@ -30,6 +30,12 @@ public sealed class BotRuntime
     private readonly object _historyLock = new();
     public long HistoryRevision { get; private set; }
 
+    // a small ring of the most-recent messages the bot has seen across all its servers, so a SuperAI tool
+    // can hand the model "what just happened" and let it react to a specific one by msgid. Server history
+    // (CHATHISTORY) arrives asynchronously; this is the synchronous, in-memory view a single tool call can use.
+    private readonly LinkedList<RecentMsg> _recent = new();
+    private readonly object _recentLock = new();
+
     public ConsoleLog Logs => _log;
 
     /// <summary>The owning bot's name, kept in sync by <see cref="Ircuitry.App.Bot"/> for achievement crediting.</summary>
@@ -203,6 +209,30 @@ public sealed class BotRuntime
             _history.AddLast(rec);
             while (_history.Count > 1000) _history.RemoveFirst();
             HistoryRevision++;
+        }
+    }
+
+    /// <summary>Record a message the bot just saw (from any server) into the recent-message ring.</summary>
+    internal void RecordMessage(string nick, string channel, string text, string msgid)
+    {
+        lock (_recentLock)
+        {
+            _recent.AddLast(new RecentMsg(nick, channel, text, msgid));
+            while (_recent.Count > 200) _recent.RemoveFirst();
+        }
+    }
+
+    /// <summary>The most-recent messages the bot has seen, oldest first, capped at <paramref name="count"/>
+    /// (or all of them when count &lt;= 0). Feeds SuperAI's recent_messages tool.</summary>
+    public IReadOnlyList<RecentMsg> RecentMessages(int count)
+    {
+        lock (_recentLock)
+        {
+            int take = count <= 0 ? _recent.Count : Math.Min(count, _recent.Count);
+            var arr = new RecentMsg[take];
+            var node = _recent.Last;
+            for (int i = take - 1; i >= 0 && node != null; i--, node = node.Previous) arr[i] = node.Value;
+            return arr;
         }
     }
 

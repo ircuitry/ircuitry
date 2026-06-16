@@ -343,6 +343,13 @@ public static class GraphExecutor
             string t = Var("replyto"); if (t.Length == 0) t = Var("channel");
             if (t.Length > 0 && emoji.Length > 0) Out().React(t, Var("msgid"), emoji);
         }
+        public void ReactTo(string target, string msgid, string emoji)
+        {
+            if (target.Length == 0) { target = Var("replyto"); if (target.Length == 0) target = Var("channel"); }
+            if (msgid.Length == 0) msgid = Var("msgid");
+            if (target.Length > 0 && msgid.Length > 0 && emoji.Length > 0) Out().React(target, msgid, emoji);
+        }
+        public IReadOnlyList<RecentMsg> RecentMessages(int count) => _run.Sink.RecentMessages(count);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

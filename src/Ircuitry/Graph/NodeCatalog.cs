@@ -121,6 +121,83 @@ public static class NodeCatalog
         return new string(raw.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_').ToArray());
     }
 
+    // SuperAI's built-in IRC tool set: the model gets these whether or not anything is wired in, so a plain
+    // "react to whoever asked about cake" goal works out of the box (find the message, then react by its id).
+    private static List<Ai.ToolDef> SuperAiTools() => new()
+    {
+        new("recent_messages", "List the most recent messages the bot has seen. Each line is [id=...] #channel <nick> text - use the id to react to one.",
+            new() { ("count", "how many to return (default 15)") }),
+        new("reply", "Reply in the channel or PM the bot was triggered from.",
+            new() { ("text", "what to say") }),
+        new("react", "Add an emoji reaction to a specific message, identified by the id from recent_messages.",
+            new() { ("id", "the message id"), ("emoji", "one emoji, e.g. 🎂") }),
+        new("send_message", "Send a message to any channel or nick.",
+            new() { ("target", "#channel or a nick"), ("text", "what to say") }),
+        new("notice", "Send a NOTICE to a channel or nick.",
+            new() { ("target", "#channel or a nick"), ("text", "the notice text") }),
+        new("set_topic", "Set a channel's topic.",
+            new() { ("channel", "#channel"), ("topic", "the new topic") }),
+        new("join", "Join a channel.",
+            new() { ("channel", "#channel") }),
+    };
+
+    // Runs one SuperAI tool call against the live context and returns the text the model sees back.
+    private static string SuperAiInvoke(INodeContext c, string name, Dictionary<string, string> args)
+    {
+        string A(string k) => args.TryGetValue(k, out var v) ? v ?? "" : "";
+        switch (name)
+        {
+            case "recent_messages":
+            {
+                int n = int.TryParse(A("count"), out var x) && x > 0 ? x : 15;
+                var msgs = c.RecentMessages(n);
+                if (msgs.Count == 0) return "(no recent messages seen yet)";
+                var sb = new System.Text.StringBuilder();
+                foreach (var m in msgs)
+                    sb.Append("[id=").Append(m.Msgid.Length > 0 ? m.Msgid : "none").Append("] ")
+                      .Append(m.Channel).Append(" <").Append(m.Nick).Append("> ").Append(m.Text).Append('\n');
+                return sb.ToString().TrimEnd();
+            }
+            case "reply":
+            {
+                var t = A("text"); if (t.Length > 0) c.Reply(t);
+                return t.Length > 0 ? "replied" : "(nothing to say)";
+            }
+            case "react":
+            {
+                var id = A("id"); var emoji = A("emoji");
+                string chan = "";
+                foreach (var m in c.RecentMessages(200)) if (m.Msgid.Length > 0 && m.Msgid == id) { chan = m.Channel; break; }
+                c.ReactTo(chan, id, emoji);
+                return emoji.Length > 0 ? "reacted " + emoji : "(no emoji given)";
+            }
+            case "send_message":
+            {
+                var tg = A("target"); var t = A("text");
+                if (tg.Length > 0 && t.Length > 0) { c.Send(tg, t); return "sent"; }
+                return "(need both target and text)";
+            }
+            case "notice":
+            {
+                var tg = A("target"); var t = A("text");
+                if (tg.Length > 0 && t.Length > 0) { c.Notice(tg, t); return "sent notice"; }
+                return "(need both target and text)";
+            }
+            case "set_topic":
+            {
+                var ch = A("channel"); var tp = A("topic");
+                if (ch.Length > 0) { c.Raw("TOPIC " + ch + " :" + tp); return "topic set"; }
+                return "(need a channel)";
+            }
+            case "join":
+            {
+                var ch = A("channel"); if (ch.Length > 0) { c.Join(ch); return "joined " + ch; }
+                return "(need a channel)";
+            }
+            default: return "(unknown tool: " + name + ")";
+        }
+    }
+
     private static ParamDef P(string key, string label, ParamType t = ParamType.Text, string def = "", string ph = "", string[]? choices = null, Func<Node, bool>? visibleWhen = null, bool secret = false)
         => new() { Key = key, Label = label, Type = t, Default = def, Placeholder = ph, Choices = choices, VisibleWhen = visibleWhen, Secret = secret };
 
@@ -846,6 +923,48 @@ public static class NodeCatalog
                             }, out err);
 
                     if (err.Length > 0) c.Log("AI error: " + err, LogLevel.Error);
+                    else c.SetOut(1, reply);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "ai.superai", Icon = "🦾", Title = "SuperAI", Subtitle = "ai",
+                Category = NodeCategory.Ai,
+                Description = "An AI that acts on IRC by itself - no tool wiring needed. It comes pre-loaded with tools to read the messages it has recently seen, reply, react to any message by its id, send, notice, set a topic and join. Give it a goal like \"react with 🎂 to whoever mentioned cake\" and it finds the message and does it.",
+                Inputs = new[] { Ex(), Tx("goal") },
+                Outputs = new[] { Ex("then"), Tx("reply") },
+                Params = new[]
+                {
+                    P("baseUrl", "Base URL", ParamType.Text, "https://api.openai.com/v1", "http://localhost:11434/v1 · openrouter · groq …"),
+                    P("model", "Model", ParamType.Text, "gpt-4o-mini", "gpt-4o-mini · llama3 · mistral · …"),
+                    P("apiKey", "API key", ParamType.Text, "", "blank = $OPENAI_API_KEY (or none for local)", secret: true),
+                    P("system", "Personality / rules", ParamType.Multiline, "You are ircuitry, a friendly IRC bot. Use your tools to inspect recent messages and act. Prefer reacting/replying over chatter. Keep any text short.", ""),
+                    P("goal", "Goal", ParamType.Multiline, "{nick} said: {message}\nDecide what to do.", "supports {nick} {message} {args}"),
+                    P("maxTokens", "Max tokens", ParamType.Int, "400", "400"),
+                },
+                SummaryParam = "model",
+                Exec = c =>
+                {
+                    var goal = c.InOr(1, c.Resolve(c.Param("goal")));
+
+                    var miss = new List<string>();
+                    foreach (var k in new[] { "apiKey", "baseUrl", "model", "system", "goal" })
+                        foreach (var nm in Ircuitry.Core.Secrets.Missing(c.Node.GetParam(k)))
+                            if (!miss.Contains(nm)) miss.Add(nm);
+                    if (miss.Count > 0)
+                    {
+                        c.Log("SuperAI error: secret '" + string.Join("', '", miss) + "' not defined - add it under KEYS (names are case-insensitive)", LogLevel.Error);
+                        c.Pulse(0);
+                        return;
+                    }
+
+                    string err;
+                    var reply = Ai.ChatWithTools(c.Param("baseUrl"), c.Param("apiKey"), c.Param("model"),
+                        c.Resolve(c.Param("system")), goal, c.ParamInt("maxTokens", 400), SuperAiTools(),
+                        (name, args) => SuperAiInvoke(c, name, args), out err);
+
+                    if (err.Length > 0) c.Log("SuperAI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);
                     c.Pulse(0);
                 },
@@ -1768,7 +1887,7 @@ public static class NodeCatalog
         {
             d.Category = d.TypeId switch
             {
-                "ai.reply" or "ai.tool" or "tool.reply" or "ai.memory" => NodeCategory.Ai,
+                "ai.reply" or "ai.superai" or "ai.tool" or "tool.reply" or "ai.memory" => NodeCategory.Ai,
                 "file.read" or "file.write" or "db.set" or "db.get" or "db.sql"
                     or "file.ical" or "cal.add" or "cal.search" => NodeCategory.Storage,
                 _ => d.Category,

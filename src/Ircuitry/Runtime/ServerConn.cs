@@ -205,6 +205,7 @@ public sealed class ServerConn : IRuntimeSink
 
             string badges = (account.Length > 0 ? "✓" + account + " " : "") + (isbot ? "🤖 " : "");
             _owner.LogFrom(Label, LogLevel.In, $"{badges}<{nick}> {text}");
+            _owner.RecordMessage(nick, vars["channel"], text, msgid);   // feed the recent-message ring (SuperAI)
 
             if (TryResolveApproval(nick, target, toChannel, text)) return;   // a human answered a pending gate
             FireFamily("message", vars);
@@ -545,6 +546,7 @@ public sealed class ServerConn : IRuntimeSink
     public void Join(string channel) => _client.Join(channel);
     public void Part(string channel, string reason) => _client.Part(channel, reason);
     public void Raw(string line) => _client.SendRaw(line);
+    public IReadOnlyList<RecentMsg> RecentMessages(int count) => _owner.RecentMessages(count);
     public void StartTyping(string target)
     {
         if (string.IsNullOrEmpty(target) || !_client.HasCap("message-tags")) return;

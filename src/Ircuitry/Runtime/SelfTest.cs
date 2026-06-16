@@ -39,6 +39,8 @@ public static class SelfTest
         public void NodeFired(string id) { }
         public System.Collections.Generic.List<string> LastRun = new();
         public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes) { LastRun = new(executedTypes); }
+        public readonly List<RecentMsg> RecentSeed = new();   // what SuperAI's recent_messages tool sees
+        public IReadOnlyList<RecentMsg> RecentMessages(int count) => RecentSeed;
     }
 
     private static Node N(NodeGraph g, string type, float x, float y)
@@ -125,6 +127,7 @@ public static class SelfTest
         fails += AiLoopTest();
         fails += AiToolsTest();
         fails += DynamicAiArgsTest();
+        fails += SuperAiTest();
         fails += IoTest();
         fails += WorkspaceTest();
         fails += TextSafetyTest();
@@ -375,6 +378,59 @@ public static class SelfTest
         bool finalOk = s.Sent.Count == 1 && s.Sent[0].text == "final answer";
         return Expect("ai-tools-call-loop", ranToolWithArg && finalOk && reqs >= 2,
             $"logs=[{string.Join(",", s.Logs)}] {Dump(s)} reqs={reqs}");
+    }
+
+    /// <summary>SuperAI end-to-end: with no wired tools, the model lists recent messages, then reacts to a
+    /// specific one by its msgid - exercising the recent-message buffer + react-by-id path (the user's
+    /// "react to whoever mentioned cake" example).</summary>
+    private static int SuperAiTest()
+    {
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("superai (skipped: " + ex.Message + ")", true, ""); }
+
+        bool stop = false;
+        int reqs = 0;
+        // round 1: model lists recent messages; round 2: reacts to the cake message by its id; round 3: final answer
+        string listJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"recent_messages","arguments":"{\"count\":\"15\"}"}}]}}]}""";
+        string reactJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c2","type":"function","function":{"name":"react","arguments":"{\"id\":\"mid-cake\",\"emoji\":\"🎂\"}"}}]}}]}""";
+        string finalJson = """{"choices":[{"message":{"content":"done"}}]}""";
+        var server = new Thread(() =>
+        {
+            try
+            {
+                while (!stop)
+                {
+                    var ctx = listener.GetContext();
+                    int n = Interlocked.Increment(ref reqs);
+                    var b = Encoding.UTF8.GetBytes(n == 1 ? listJson : n == 2 ? reactJson : finalJson);
+                    ctx.Response.ContentType = "application/json";
+                    ctx.Response.OutputStream.Write(b, 0, b.Length);
+                    ctx.Response.Close();
+                }
+            }
+            catch { }
+        }) { IsBackground = true };
+        server.Start();
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "do");
+        var ai = g.Add(NodeCatalog.Get("ai.superai"), new Vector2(300, 0));
+        ai.SetParam("baseUrl", $"http://localhost:{port}/v1"); ai.SetParam("apiKey", "test"); ai.SetParam("model", "mock");
+        g.Connect(cmd.Id, 0, ai.Id, 0);   // exec
+
+        var s = new FakeSink();
+        s.RecentSeed.Add(new RecentMsg("bob", "#chatter", "anyone seen the news?", "mid-news"));
+        s.RecentSeed.Add(new RecentMsg("amy", "#cake", "I baked a cake today!", "mid-cake"));
+        GraphExecutor.Fire(g, s, cmd, Vars("!do react to the cake person", "u", "#cake"));
+        stop = true; try { listener.Stop(); } catch { }
+
+        // the react landed on the cake message's channel, by its id, with the 🎂 emoji
+        bool reacted = s.Sent.Contains(("#cake", "react:🎂"));
+        return Expect("superai-recent-react", reacted && reqs >= 3,
+            $"{Dump(s)} reqs={reqs}");
     }
 
     /// <summary>Plug-and-play inward MCP: Ask AI + a Workflow Editor node. The (mocked) model calls the

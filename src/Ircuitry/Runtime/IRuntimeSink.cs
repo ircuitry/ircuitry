@@ -34,6 +34,10 @@ public interface IRuntimeSink
     /// of its nodes succeeded in the same run. Dry runs/tests no-op this so only real runs count.</summary>
     void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes);
 
+    /// <summary>The most-recent messages this bot has seen (newest last) so a SuperAI tool can look one up
+    /// and react to it by msgid. Sinks without a buffer (dry runs/tests) return empty.</summary>
+    System.Collections.Generic.IReadOnlyList<RecentMsg> RecentMessages(int count) => System.Array.Empty<RecentMsg>();
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);
