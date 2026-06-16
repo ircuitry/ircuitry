@@ -136,7 +136,12 @@ public sealed class GraphEditor
         if (_clipNodes is { Count: > 0 }) InsertAtCursor(_clipNodes, _clipConns!, worldCursor);
     }
 
-    public void DuplicateSelection() { CopySelection(); InsertNodes(_clipNodes!, _clipConns!, new Vector2(28, 28)); }
+    public void DuplicateSelection()
+    {
+        if (Selection.Count == 0) return;                 // nothing selected -> nothing to duplicate (was an NRE)
+        CopySelection();
+        if (_clipNodes is { Count: > 0 }) InsertNodes(_clipNodes, _clipConns!, new Vector2(28, 28));
+    }
 
     /// <summary>Copy the selection to the clipboard, then remove it.</summary>
     public void CutSelection() { if (Selection.Count == 0) return; CopySelection(); DeleteSelection(); }
@@ -475,9 +480,9 @@ public sealed class GraphEditor
         switch (_mode)
         {
             case Mode.Idle:
-                // pan with middle-drag, or left-drag while holding Space / Shift / Alt / Ctrl
-                bool panMod = input.KeyDown(Keys.Space) || input.Shift || input.Alt || input.Ctrl;
-                bool panBtn = input.MiddleDown || (input.LeftDown && panMod);
+                // middle-drag (or Space + left-drag) always pans; otherwise a plain left-drag on empty space
+                // pans and Shift + left-drag boxes-selects (decided in BeginLeftPress)
+                bool panBtn = input.MiddleDown || (input.LeftDown && input.KeyDown(Keys.Space));
                 if (inCanvas && panBtn) { _mode = Mode.Panning; break; }
                 if (inCanvas && input.LeftPressed) BeginLeftPress(input, mw);
                 break;
@@ -614,10 +619,14 @@ public sealed class GraphEditor
             _dragOrigin.Clear();
             foreach (var id in Selection) { var n = Graph.Find(id); if (n != null) _dragOrigin[id] = n.Pos; }
         }
-        else
+        else if (input.Shift)        // Shift + drag on empty space = box-select (additive)
         {
-            if (!input.Shift) Selection.Clear();
             _mode = Mode.Box; _boxStart = mw;
+        }
+        else                          // plain drag on empty space = pan; a plain click also deselects
+        {
+            Selection.Clear();
+            _mode = Mode.Panning;
         }
     }
 

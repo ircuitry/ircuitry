@@ -694,23 +694,18 @@ public sealed partial class MainScreen : IScreen
         Hud.Panel(r, _l.Inspector, "Inspector", Theme.Amber);
         Hud.Panel(r, _l.Console, "Event Console", Theme.Lime);
         ConsoleHeaderStats(r, _l.Console);
-        DrawToolbar(r, clock);
         StatusBar(r, _l.StatusBar, clock);
-        DrawTitlebar(r, clock);
         r.End();
+        DrawTitlebar(r, clock);   // manages its own batches (gloss + scissored tab gutter)
 
         // ---------- panel contents (scissored) ----------
         DrawPalette(r);
         DrawInspector(r);
         DrawConsole(r);
 
-        // ---------- run button + tab buttons (over chrome) ----------
+        // ---------- canvas save floppy + console button (over chrome) ----------
+        DrawCanvasSave(r);
         r.Begin();
-        RunButton(r, clock);
-        HistoryButton(r);
-        TestButton(r);
-        ApplyButton(r);
-        BellButton(r);
         ConsoleViewButton(r);
         r.End();
 
@@ -2614,32 +2609,11 @@ public sealed partial class MainScreen : IScreen
         r.End();
     }
 
-    private void BellButton(Renderer r)
-    {
-        var bar = _l.TopBar;
-        var tf = r.Fonts.Get(FontKind.SansBold, 16);
-        float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
-        float runX = bar.W - 22 - clockW - 16 - 150;
-        float histX = runX - 12 - 128;
-        float applyX = histX - 12 - 94 - 12 - 110;   // stable slot whether or not APPLY is shown
-        var rect = new RectF(applyX - 12 - 40, bar.Y + 6, 40, 32);
-        if (_ui.Button("top.bell", rect, "🔔", _notifUnread > 0 ? Theme.Amber : Theme.Idle))
-        { _notifOpen = !_notifOpen; _notifJustOpened = true; _notifUnread = 0; _notifScroll = 0; }
-        if (_notifUnread > 0)
-        {
-            var c = new Vector2(rect.Right - 8, rect.Y + 8);
-            r.Disc(c, 8f, Theme.Alert);
-            string n = _notifUnread > 9 ? "9+" : _notifUnread.ToString();
-            var nf = r.Fonts.Get(FontKind.SansBold, 9);
-            r.Text(nf, n, new Vector2(c.X - nf.MeasureString(n).X / 2f, c.Y - nf.MeasureString(n).Y / 2f), Theme.Text);
-        }
-    }
-
     private void DrawNotifPopover(Renderer r)
     {
         if (!_notifOpen) return;
         float pw = 340, ph = MathF.Min(380, 70 + _notifLog.Count * 34f + 12);
-        var panel = new RectF(_vw - pw - 18, _l.TopBar.Bottom + 6, pw, MathF.Max(110, ph));
+        var panel = new RectF(_vw - pw - 18, _l.Titlebar.Bottom + 6, pw, MathF.Max(110, ph));
         r.Begin();
         Hud.Panel(r, panel, "🔔 Notifications", Theme.Amber);
         if (_notifLog.Count == 0)
@@ -2890,53 +2864,6 @@ public sealed partial class MainScreen : IScreen
 
     // ===================================================================
 
-    private void RunButton(Renderer r, Clock clock)
-    {
-        var bar = _l.TopBar;
-        var tf = r.Fonts.Get(FontKind.SansBold, 16);
-        float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
-        var rect = new RectF(bar.W - 22 - clockW - 16 - 150, bar.Y + 6, 150, 32);
-        bool running = Bot.Runtime.Running;
-        if (_ui.Button("top.run", rect, running ? "■ STOP BOT" : "▶ RUN BOT", running ? Theme.Alert : Theme.Cyan, primary: true))
-            ToggleRun();
-    }
-
-    private void TestButton(Renderer r)
-    {
-        var bar = _l.TopBar;
-        var tf = r.Fonts.Get(FontKind.SansBold, 16);
-        float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
-        float runX = bar.W - 22 - clockW - 16 - 150;
-        float histX = runX - 12 - 128;
-        var rect = new RectF(histX - 12 - 94, bar.Y + 6, 94, 32);   // dry-run test, sat next to RUN BOT
-        if (_ui.Button("top.test", rect, "🧪 TEST", Theme.Cyan)) { _testOpen = true; _testJustOpened = true; RunTest(); }
-    }
-
-    private void ApplyButton(Renderer r)
-    {
-        if (!Bot.Runtime.Running) return;   // only meaningful on a live bot
-        var bar = _l.TopBar;
-        var tf = r.Fonts.Get(FontKind.SansBold, 16);
-        float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
-        float runX = bar.W - 22 - clockW - 16 - 150;
-        float histX = runX - 12 - 128;
-        var rect = new RectF(histX - 12 - 94 - 12 - 110, bar.Y + 6, 110, 32);
-        if (_ui.Button("top.apply", rect, "⟲ APPLY", Theme.Ok, primary: true))
-            Bot.Runtime.ApplyGraph(Bot.Graph);
-    }
-
-    private void HistoryButton(Renderer r)
-    {
-        var bar = _l.TopBar;
-        var tf = r.Fonts.Get(FontKind.SansBold, 16);
-        float clockW = tf.MeasureString(DateTime.Now.ToString("HH:mm:ss")).X;
-        float runX = bar.W - 22 - clockW - 16 - 150;
-        int count = Bot.Runtime.HistoryCount;
-        var rect = new RectF(runX - 12 - 128, bar.Y + 6, 128, 32);
-        if (_ui.Button("top.hist", rect, count > 0 ? $"⟲ HISTORY {count}" : "⟲ HISTORY", Theme.Amber))
-            OpenHistory();
-    }
-
     private void StatusBar(Renderer r, RectF bar, Clock clock)
     {
         r.Fill(bar, Theme.PanelLo);
@@ -2948,9 +2875,11 @@ public sealed partial class MainScreen : IScreen
         Hud.SoftDot(r, new Vector2(16, bar.Center.Y), 3.5f, scol);
         r.Text(f, slabel, new Vector2(28, y), scol);
         r.Text(f, $"BOTS {_app.Bots.Count}", new Vector2(210, y), Theme.TextDim);
-        r.Text(f, $"NODES {Bot.Graph.Nodes.Count}", new Vector2(300, y), Theme.TextDim);
-        r.Text(f, $"WIRES {Bot.Graph.Connections.Count}", new Vector2(400, y), Theme.TextDim);
-        r.TextRight(f, "dbl-click=add · drag ports=wire · Ctrl+Z undo · Ctrl+C/V/D copy · M mute · Ctrl+H history · MMB/Space=pan", bar.W - 16, y, Theme.TextFaint);
+        r.Text(f, $"NODES {Bot.Graph.Nodes.Count}", new Vector2(294, y), Theme.TextDim);
+        r.Text(f, $"WIRES {Bot.Graph.Connections.Count}", new Vector2(384, y), Theme.TextDim);
+        r.Text(f, "ircuitry v" + Ircuitry.App.AppInfo.Version, new Vector2(478, y), Theme.TextFaint);
+        r.TextRight(f, "Double-click empty space to add a node · drag a port to wire · drag to pan, Shift-drag to box-select · Ctrl+Z undo · Ctrl+D duplicate",
+            bar.W - 16, y, Theme.TextFaint);
     }
 
     // ===================================================================

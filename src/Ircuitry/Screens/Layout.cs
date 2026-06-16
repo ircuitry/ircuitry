@@ -5,16 +5,14 @@ namespace Ircuitry.Screens;
 /// <summary>Computes the dock layout (top bar, bot tabs, rails, canvas, console) from the viewport.</summary>
 public struct Layout
 {
-    public RectF Titlebar;   // custom client-side title bar (icon + bot tabs + File/More + window controls)
-    public RectF TopBar;     // the toolbar row below the title bar (run/history/test/apply + status)
+    public RectF Titlebar;   // the single custom client-side title bar (icon + bot tabs + actions + window controls)
     public RectF StatusBar;
     public RectF Palette;
     public RectF Inspector;
     public RectF Canvas;
     public RectF Console;
 
-    public const float TitlebarH = 46f;
-    public const float TopH = 44f;        // toolbar height (kept the name so button code stays put)
+    public const float TitlebarH = 48f;
     public const float StatusH = 26f;
     public const float Margin = 10f;
     public const float Gap = 10f;
@@ -28,11 +26,10 @@ public struct Layout
     {
         var l = new Layout();
         l.Titlebar = new RectF(0, 0, vw, TitlebarH);
-        l.TopBar = new RectF(0, TitlebarH, vw, TopH);
         l.StatusBar = new RectF(0, vh - StatusH, vw, StatusH);
 
         float ix = Margin;
-        float iy = TitlebarH + TopH + Gap;
+        float iy = TitlebarH + Gap;
         float iw = vw - Margin * 2;
         float ih = vh - iy - StatusH - Margin;
 

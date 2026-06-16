@@ -338,7 +338,7 @@ public sealed partial class MainScreen
         {
             if (In.LeftDown)
                 _ircWin = new RectF(Math.Clamp(In.Mouse.X - _ircWinDragOff.X, 0, _vw - win.W),
-                    Math.Clamp(In.Mouse.Y - _ircWinDragOff.Y, Layout.TopH, _vh - 44), win.W, win.H);
+                    Math.Clamp(In.Mouse.Y - _ircWinDragOff.Y, Layout.TitlebarH, _vh - 44), win.W, win.H);
             else _ircWinDragging = false;
         }
         else if (_ircWinResizing)

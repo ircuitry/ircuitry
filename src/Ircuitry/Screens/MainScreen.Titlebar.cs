@@ -6,85 +6,200 @@ using Ircuitry.Render;
 
 namespace Ircuitry.Screens;
 
-// The custom client-side title bar (VSCode/Firefox style): the OS frame is gone and we draw our own.
-// Layout: app icon · DS-cartridge bot tabs · (right) File / More / window controls. The OS still does the
-// real dragging/resizing via SDL's hit-test (see Core.Sdl); we just publish which rects stay clickable.
+// The custom client-side title bar: a single glossy DS-style bar holding the app icon, the bot tabs (cute
+// game-cartridge tabs in a scrollable gutter), and an icon-only action cluster on the right
+// (play/stop, test, history, bell, file, more) followed by the window controls. The OS still does the real
+// dragging/resizing via SDL's hit-test; we publish which rects must stay clickable.
 public sealed partial class MainScreen
 {
-    public IntPtr WindowHandle;   // set by the host so the window controls can drive SDL
+    public IntPtr WindowHandle;
+    private float _tabScroll;
+    private RectF _testBtnRect;   // where the Test icon landed this frame (for the tutorial highlight)
+
+    // Title-bar palette: a soft, glossy pastel teal (the brand colour, gentled so it isn't "too powerful").
+    // Paired with a neutral cream brand mark (below) so nothing clashes.
+    private static readonly Color BarTop = Theme.Mix(Theme.CyanBright, Color.White, 0.52f);  // glossy highlight band
+    private static readonly Color BarBot = Theme.Mix(Theme.Cyan, Color.White, 0.10f);        // soft bottom
+    private static readonly Color BarDim = Theme.Mix(Theme.Cyan, Theme.Text, 0.32f);         // shadows / lips
+    private static readonly Color BarPad = Theme.Mix(Theme.PanelHi, Theme.Cyan, 0.12f);      // resting key-pad fill
+    private static readonly Color BarAccent = Theme.Cyan;
 
     private void DrawTitlebar(Renderer r, Clock clock)
     {
         var bar = _l.Titlebar;
-        r.Fill(bar, Theme.PanelHi);
-        r.HLine(0, bar.W, bar.Bottom, Theme.WithAlpha(Theme.Cyan, 0.5f), 1.4f);
-        r.HLine(0, bar.W, bar.Bottom + 1.4f, Theme.WithAlpha(Theme.Cyan, 0.10f), 3f);
+        r.Begin();
+        GlossyBar(r, bar);
 
         var noDrag = new List<float>();
         void NoDrag(RectF q) { noDrag.Add(q.X); noDrag.Add(q.Y); noDrag.Add(q.W); noDrag.Add(q.H); }
 
-        // app icon (left)
-        float x = 12;
-        if (r.Brand != null) { float isz = 26; r.Image(r.Brand, new RectF(x, (bar.H - isz) / 2f, isz, isz)); x += isz + 12; }
+        // cute cream chat-bubble brand mark (neutral, so it never clashes with the bar colour)
+        float x = DrawBrandMark(r, bar) + 10;
 
-        // right cluster: window controls (custom chrome only), then More / File
+        // right cluster, laid out from the right edge inward
         float rx = bar.Right;
         if (Sdl.CustomChrome && WindowHandle != IntPtr.Zero) rx = DrawWindowControls(r, bar, NoDrag);
 
-        RectF Slot(float ww) { var rr = new RectF(rx - ww, bar.Y + 8, ww, bar.H - 16); rx -= ww + 8; NoDrag(rr); return rr; }
-        var moreR = Slot(80);
-        if (_ui.Button("tb.more", moreR, "⋯ More", Theme.Violet)) OpenMoreMenu(new Vector2(moreR.X, moreR.Bottom + 3));
-        var fileR = Slot(86);
-        if (_ui.Button("tb.file", fileR, _app.Dirty ? "📁 File ●" : "📁 File", _app.Dirty ? Theme.Amber : Theme.Cyan))
-            OpenFileMenu(new Vector2(fileR.X, fileR.Bottom + 3));
+        float bh = 32, by = bar.Y + (bar.H - bh) / 2f;
+        RectF Btn(float w, float gapBefore = 0) { rx -= gapBefore; var rr = new RectF(rx - w, by, w, bh); rx -= w; NoDrag(rr); return rr; }
 
-        // bot tabs fill the space between the icon and the right cluster
-        DrawCartridgeTabs(r, bar, x, rx - 12, clock, NoDrag);
+        var moreR = Btn(38, 6);
+        bool moreClick = IconPad(r, moreR, out var morePad);   // "⋯" doesn't render in this font - draw a hamburger
+        for (int i = -1; i <= 1; i++) r.HLine(morePad.Center.X - 7, morePad.Center.X + 7, MathF.Round(morePad.Center.Y + i * 5), Theme.Text, 1.8f);
+        if (moreClick) OpenMoreMenu(new Vector2(moreR.X - 80, moreR.Bottom + 3));
+        var fileR = Btn(38);
+        if (IconBtn(r, fileR, "📁", 16, _app.Dirty ? Theme.Amber : (Color?)null)) OpenFileMenu(new Vector2(fileR.X - 60, fileR.Bottom + 3));
+
+        var bellR = Btn(38, 14);
+        if (IconBtn(r, bellR, "🔔", 16)) { _notifOpen = !_notifOpen; _notifJustOpened = true; _notifUnread = 0; _notifScroll = 0; }
+        if (_notifUnread > 0)
+        {
+            var c = new Vector2(bellR.Right - 10, bellR.Y + 8);
+            r.Disc(c, 7f, Theme.Alert);
+            var nf = r.Fonts.Get(FontKind.SansBold, 9);
+            string n = _notifUnread > 9 ? "9+" : _notifUnread.ToString();
+            r.Text(nf, n, new Vector2(c.X - nf.MeasureString(n).X / 2f, c.Y - nf.MeasureString(n).Y / 2f), Theme.TextInk);
+        }
+
+        var histR = Btn(38, 14);
+        if (IconBtn(r, histR, "📜", 16)) OpenHistory();
+        var testR = Btn(38);
+        _testBtnRect = testR;   // the tutorial highlights this
+        if (IconBtn(r, testR, "🧪", 16)) { _testOpen = true; _testJustOpened = true; RunTest(); }
+        var playR = Btn(50, 4);
+        DrawPlayStop(r, playR);
+        NoDrag(playR);
+        r.End();
+
+        // tabs fill the gutter between the icon and the action cluster (manages its own scissor batches)
+        DrawCartridgeTabs(r, bar, new RectF(x, bar.Y, rx - 12 - x, bar.H), clock, NoDrag);
+
+        // right-click the icon or any empty (draggable) part of the bar -> the window menu, like a real title bar
+        if (!Modal && In.RightPressed && bar.Contains(In.Mouse))
+        {
+            bool overBtn = false;
+            for (int i = 0; i + 3 < noDrag.Count; i += 4)
+                if (In.Mouse.X >= noDrag[i] && In.Mouse.X < noDrag[i] + noDrag[i + 2] &&
+                    In.Mouse.Y >= noDrag[i + 1] && In.Mouse.Y < noDrag[i + 1] + noDrag[i + 3]) { overBtn = true; break; }
+            if (!overBtn) OpenWindowMenu(In.Mouse);
+        }
 
         Sdl.PublishTitlebar((int)bar.Bottom, _vw, _vh, Sdl.IsMaximized(WindowHandle), noDrag.ToArray());
     }
 
-    // The –, ▢/❐, ✕ window buttons, right-aligned. Returns the left edge of the cluster.
+    // A window menu (minimize / maximize-or-restore / close) for right-clicking the title bar - SDL doesn't
+    // surface the OS's native one on a borderless window, so we present our own using the shared popover.
+    private void OpenWindowMenu(Vector2 anchor)
+    {
+        _ctxAnchor = anchor;
+        _ctxItems.Clear();
+        bool maxed = Sdl.IsMaximized(WindowHandle);
+        _ctxItems.Add(new CtxItem { Icon = "—", Label = "Minimize", Enabled = true, Do = () => Sdl.Minimize(WindowHandle) });
+        _ctxItems.Add(new CtxItem { Icon = maxed ? "❐" : "□", Label = maxed ? "Restore" : "Maximize", Enabled = true, Do = () => Sdl.ToggleMaximize(WindowHandle) });
+        _ctxItems.Add(new CtxItem { Sep = true });
+        _ctxItems.Add(new CtxItem { Icon = "✕", Label = "Close", Enabled = true, Do = () => Sdl.CloseRequested = true });
+        _ctxOpen = true; _ctxJustOpened = true;
+    }
+
+    // A cosy chat-bubble brand mark drawn in cream with three teal "typing" dots - reads as a friendly IRC bot
+    // and pops on any bar colour. Returns the right edge so the tabs can start after it.
+    private float DrawBrandMark(Renderer r, RectF bar)
+    {
+        float s = 30, y = (bar.H - s) / 2f - 1;
+        var ic = new RectF(12, y, s, s);
+        r.RoundFill(ic.Offset(0, 1.5f), Theme.WithAlpha(BarDim, 0.45f), 10f);    // drop shadow
+        r.RoundFill(ic, Theme.PanelHi, 10f);                                      // cream bubble
+        r.RoundFill(new RectF(ic.X + 3, ic.Y + 3, ic.W - 6, ic.H * 0.4f), Theme.WithAlpha(Color.White, 0.6f), 7f);  // gloss
+        r.RoundOutline(ic, Theme.WithAlpha(BarDim, 0.5f), 10f);
+        // little speech tail (bottom-left)
+        r.Disc(new Vector2(ic.X + 8, ic.Bottom + 1), 3.2f, Theme.PanelHi);
+        // three teal "typing" dots
+        for (int i = -1; i <= 1; i++) r.Disc(new Vector2(ic.Center.X + i * 6.5f, ic.Center.Y), 2.5f, BarAccent);
+        return ic.Right;
+    }
+
+    // A glossy, slightly-domed coloured bar (think DS plastic): vertical gradient + a bright sheen up top and
+    // a soft shadow lip at the bottom so it reads as raised on the z axis.
+    private void GlossyBar(Renderer r, RectF bar)
+    {
+        const int bands = 16;
+        for (int i = 0; i < bands; i++)
+        {
+            float t = i / (float)bands;
+            r.Fill(new RectF(bar.X, bar.Y + bar.H * t, bar.W, bar.H / bands + 1f), Theme.Mix(BarTop, BarBot, t));
+        }
+        // glossy sheen across the top ~44%
+        r.Fill(new RectF(bar.X, bar.Y, bar.W, bar.H * 0.44f), Theme.WithAlpha(Color.White, 0.22f));
+        r.HLine(bar.X, bar.Right, bar.Y + 1f, Theme.WithAlpha(Color.White, 0.55f), 1.2f);          // top highlight
+        r.HLine(bar.X, bar.Right, bar.Bottom - 1f, Theme.WithAlpha(BarDim, 0.55f), 1.4f);          // bottom lip
+        r.HLine(bar.X, bar.Right, bar.Bottom + 1f, Theme.WithAlpha(BarAccent, 0.30f), 2.5f);       // soft glow below
+    }
+
+    // A glossy DS "key" pad. Returns whether it was clicked; hands back the inner pad rect to draw onto.
+    private bool IconPad(Renderer r, RectF rect, out RectF pad)
+    {
+        bool hot = !Modal && rect.Contains(In.Mouse);
+        pad = rect.Inflate(-3, -1);
+        r.RoundFill(pad.Offset(0, 1), Theme.WithAlpha(BarDim, 0.35f), 9f);                  // tiny drop shadow
+        r.RoundFill(pad, hot ? Theme.PanelHi : BarPad, 9f);
+        r.RoundFill(new RectF(pad.X + 2, pad.Y + 2, pad.W - 4, pad.H * 0.42f), Theme.WithAlpha(Color.White, 0.5f), 6f);  // gloss
+        return hot && In.LeftPressed && !_ircWinJustOpened;
+    }
+
+    // An icon-only title-bar button: a key pad with a (monochrome) glyph. Emoji read as clean line-art here.
+    private bool IconBtn(Renderer r, RectF rect, string glyph, int size, Color? tint = null)
+    {
+        bool c = IconPad(r, rect, out var pad);
+        r.TextCentered(r.Fonts.Get(FontKind.Sans, size), glyph, pad, tint ?? Theme.Text);
+        return c;
+    }
+
+    // The primary run control: a glossy green ▶ (start) / red ■ (stop) pill, with a tiny connection-state dot.
+    private void DrawPlayStop(Renderer r, RectF rect)
+    {
+        bool running = Bot.Runtime.Running;
+        Color col = running ? Theme.Alert : Theme.Ok;
+        bool hot = !Modal && rect.Contains(In.Mouse);
+        r.RoundFill(rect.Offset(0, 1), Theme.WithAlpha(BarDim, 0.4f), 11f);
+        r.RoundFill(rect, hot ? Theme.Mix(col, Color.White, 0.18f) : col, 11f);
+        r.RoundFill(new RectF(rect.X + 3, rect.Y + 3, rect.W - 6, rect.H * 0.42f), Theme.WithAlpha(Color.White, 0.30f), 8f);  // gloss
+        var c = rect.Center;
+        if (running) r.RoundFill(new RectF(c.X - 6, c.Y - 6, 12, 12), Theme.TextInk, 2f);   // stop square
+        else for (int i = 0; i <= 11; i++)                                                  // play triangle (scanlines)
+            { float t = i / 11f, hh = 7f * (1 - t); r.VLine(c.X - 6 + i, c.Y - hh, c.Y + hh, Theme.TextInk, 1.3f); }
+        var (_, scol, _) = StatusInfo();
+        r.Disc(new Vector2(rect.Right - 7, rect.Y + 7), 3.4f, scol);   // relocated connection indicator
+        r.Ring(new Vector2(rect.Right - 7, rect.Y + 7), 3.4f, Theme.WithAlpha(Color.White, 0.7f));
+        if (hot && In.LeftPressed && !_ircWinJustOpened) ToggleRun();
+    }
+
     private float DrawWindowControls(Renderer r, RectF bar, Action<RectF> noDrag)
     {
-        float w = 42, h = bar.H;
-        float cx = bar.Right;
-        var f = r.Fonts.Get(FontKind.SansBold, 13);
+        float w = 44, h = bar.H, cx = bar.Right;
 
-        // close
         var closeR = new RectF(cx - w, 0, w, h);
         bool ch = closeR.Contains(In.Mouse);
         if (ch) r.Fill(closeR, Theme.Alert);
-        DrawGlyphX(r, closeR.Center, 4.5f, ch ? Theme.TextInk : Theme.TextDim);
-        noDrag(closeR);
-        if (In.LeftPressed && ch) Sdl.CloseRequested = true;
-        cx -= w;
+        DrawGlyphX(r, closeR.Center, 4.5f, ch ? Theme.TextInk : Theme.WithAlpha(Theme.Text, 0.8f));
+        noDrag(closeR); if (In.LeftPressed && ch) Sdl.CloseRequested = true; cx -= w;
 
-        // maximize / restore
         var maxR = new RectF(cx - w, 0, w, h);
         bool mh = maxR.Contains(In.Mouse);
-        if (mh) r.Fill(maxR, Theme.WithAlpha(Theme.Edge, 0.35f));
-        bool maxed = Sdl.IsMaximized(WindowHandle);
-        var mc = mh ? Theme.Text : Theme.TextDim;
-        if (maxed)   // restore glyph: two overlapped squares
+        if (mh) r.Fill(maxR, Theme.WithAlpha(Color.White, 0.30f));
+        var mc = Theme.WithAlpha(Theme.Text, mh ? 1f : 0.8f);
+        if (Sdl.IsMaximized(WindowHandle))
         {
             r.RectOutline(new RectF(maxR.Center.X - 3, maxR.Center.Y - 5, 8, 8), mc, 1.4f);
-            r.Fill(new RectF(maxR.Center.X - 6, maxR.Center.Y - 2, 8, 8), mh ? Theme.WithAlpha(Theme.Edge, 0.35f) : Theme.PanelHi);
             r.RectOutline(new RectF(maxR.Center.X - 6, maxR.Center.Y - 2, 8, 8), mc, 1.4f);
         }
         else r.RectOutline(new RectF(maxR.Center.X - 5, maxR.Center.Y - 5, 10, 10), mc, 1.4f);
-        noDrag(maxR);
-        if (In.LeftPressed && mh) Sdl.ToggleMaximize(WindowHandle);
-        cx -= w;
+        noDrag(maxR); if (In.LeftPressed && mh) Sdl.ToggleMaximize(WindowHandle); cx -= w;
 
-        // minimize
         var minR = new RectF(cx - w, 0, w, h);
         bool nh = minR.Contains(In.Mouse);
-        if (nh) r.Fill(minR, Theme.WithAlpha(Theme.Edge, 0.35f));
-        r.HLine(minR.Center.X - 6, minR.Center.X + 6, minR.Center.Y + 4, nh ? Theme.Text : Theme.TextDim, 1.6f);
-        noDrag(minR);
-        if (In.LeftPressed && nh) Sdl.Minimize(WindowHandle);
-        cx -= w;
+        if (nh) r.Fill(minR, Theme.WithAlpha(Color.White, 0.30f));
+        r.HLine(minR.Center.X - 6, minR.Center.X + 6, minR.Center.Y + 4, Theme.WithAlpha(Theme.Text, nh ? 1f : 0.8f), 1.7f);
+        noDrag(minR); if (In.LeftPressed && nh) Sdl.Minimize(WindowHandle); cx -= w;
 
         return cx;
     }
@@ -95,110 +210,150 @@ public sealed partial class MainScreen
         r.Line(new Vector2(c.X - s, c.Y + s), new Vector2(c.X + s, c.Y - s), col, 1.7f);
     }
 
-    // DS game-cartridge tabs: each bot is a chunky rounded cartridge with a colored label strip + status
-    // dot; the active one lifts up, brightens and glows. Double-click renames, the × closes, "+" adds a bot.
-    private void DrawCartridgeTabs(Renderer r, RectF bar, float startX, float endX, Clock clock, Action<RectF> noDrag)
+    // DS game-cartridge tabs in a scrollable gutter. Each is a chunky rounded cartridge with a colour "label"
+    // strip + status dot; the active one is a cream cartridge that pops off the glossy bar. A "▸" button (and
+    // mouse wheel) scrolls when the tabs overflow.
+    private void DrawCartridgeTabs(Renderer r, RectF bar, RectF gutter, Clock clock, Action<RectF> noDrag)
     {
-        var tf = r.Fonts.Get(FontKind.Display, 13);
-        float x = startX;
-        float top = bar.Y + 7, tabH = bar.H - 9;   // sits on the title bar, a few px of breathing room on top
+        var tf = r.Fonts.Get(FontKind.Display, 16);
+        float top = bar.Y + 7, tabH = bar.H - 12, pad = 7f;
 
-        for (int i = 0; i < _app.Bots.Count && x < endX - 40; i++)
+        // measure total width
+        var widths = new float[_app.Bots.Count];
+        float total = 0;
+        for (int i = 0; i < _app.Bots.Count; i++)
         {
-            var bot = _app.Bots[i];
-            bool active = i == _app.Active;
-            bool renaming = _renamingBot == bot;
-            float w = renaming ? 210 : Math.Min(196, tf.MeasureString(bot.Name).X + 58);
-            w = Math.Min(w, endX - x);
-            var col = StatusColor(bot.Runtime);
-
-            float ty = active ? top - 2 : top + 2;       // active lifts up, inactive recedes
-            float th = active ? tabH + 2 : tabH - 2;
-            var tab = new RectF(x, ty, w, th);
-            noDrag(tab);
-
-            if (active)
-            {
-                r.RoundFill(tab.Inflate(1.5f, 1.5f), Theme.WithAlpha(col, 0.18f), 11f);   // soft glow halo
-                r.RoundFill(tab, Theme.PanelHi, 9f);
-                r.RoundOutline(tab, Theme.WithAlpha(col, 0.85f), 9f);
-            }
-            else
-            {
-                r.RoundFill(tab, Theme.PanelLo, 9f);
-                r.RoundOutline(tab, Theme.Hairline, 9f);
-            }
-            // cartridge "label" strip across the top
-            r.RoundFill(new RectF(tab.X + 6, tab.Y + 4, tab.W - 12, 4), Theme.WithAlpha(col, active ? 0.9f : 0.4f), 2f);
-            // status dot
-            if (active) Hud.SoftDot(r, new Vector2(tab.X + 16, tab.Center.Y + 3), 3.4f, col);
-            else r.Disc(new Vector2(tab.X + 16, tab.Center.Y + 3), 3f, Theme.WithAlpha(col, 0.8f));
-
-            if (renaming)
-            {
-                var nm = _ui.TextField("tab.rename", new RectF(tab.X + 26, tab.Center.Y - 9, tab.W - 36, 22), bot.Name, "bot name");
-                if (nm != bot.Name) { bot.Name = string.IsNullOrWhiteSpace(nm) ? bot.Name : nm; _app.MarkDirty(); }
-                if (_ui.Focus != "tab.rename") _renamingBot = null;
-                x += w + 7;
-                continue;
-            }
-
-            r.Text(tf, r.Ellipsize(tf, bot.Name, w - 52), new Vector2(tab.X + 28, tab.Center.Y - tf.MeasureString(bot.Name).Y / 2f + 3), active ? Theme.Text : Theme.TextDim);
-
-            // close × (only with >1 bot)
-            bool canClose = _app.Bots.Count > 1;
-            var xc = new Vector2(tab.Right - 14, tab.Center.Y + 3);
-            var xhit = new RectF(xc.X - 10, tab.Y, 20, tab.H);
-            bool xHover = canClose && xhit.Contains(In.Mouse);
-            if (canClose)
-            {
-                if (xHover) r.Disc(xc, 9f, Theme.WithAlpha(Theme.Alert, 0.22f));
-                DrawGlyphX(r, xc, 3.4f, xHover ? Theme.Alert : active ? Theme.TextDim : Theme.TextFaint);
-            }
-
-            if (!Modal && In.LeftPressed && tab.Contains(In.Mouse))
-            {
-                if (xHover) { _confirmDeleteBot = bot; _confirmJustOpened = true; }
-                else
-                {
-                    bool dbl = _tabClickBot == bot && clock.Time - _tabClickTime < 0.35f;
-                    _tabClickBot = bot; _tabClickTime = clock.Time;
-                    if (!active) { _app.SetActive(i); _editor.Selection.Clear(); }
-                    if (dbl) { _renamingBot = bot; _ui.Focus = "tab.rename"; }
-                }
-                return;
-            }
-            x += w + 7;
+            var b = _app.Bots[i];
+            widths[i] = _renamingBot == b ? 210 : Math.Min(196, tf.MeasureString(b.Name).X + 58);
+            total += widths[i] + pad;
         }
+        total += 36;   // the + button
 
-        // the + add-bot cartridge
-        var addR = new RectF(x, top + 1, 34, tabH - 2);
-        if (addR.Right <= endX) { noDrag(addR); if (_ui.Button("tab.add", addR, "+", Theme.Cyan)) { _templateOpen = true; _templateJustOpened = true; } }
+        bool overflow = total > gutter.W;
+        float scrollBtnW = overflow ? 26 : 0;
+        float viewW = gutter.W - scrollBtnW;
+        float maxScroll = MathF.Max(0, total - viewW);
+
+        if (!Modal && gutter.Contains(In.Mouse) && In.ScrollDelta != 0) _tabScroll -= In.ScrollDelta * 0.6f;
+        _tabScroll = Math.Clamp(_tabScroll, 0, maxScroll);
+
+        r.Begin(BlendMode.Alpha, new RectF(gutter.X, gutter.Y, viewW, gutter.H).ToRectangle());
+        float x = gutter.X - _tabScroll;
+        for (int i = 0; i < _app.Bots.Count; i++)
+        {
+            float w = widths[i];
+            var slot = new RectF(x, top, w, tabH);
+            if (slot.Right >= gutter.X - 2 && slot.X <= gutter.X + viewW + 2)
+                DrawOneTab(r, i, slot, tf, clock, gutter, viewW, noDrag);
+            x += w + pad;
+        }
+        // + add a bot
+        var addR = new RectF(x, top + 1, 32, tabH - 2);
+        if (addR.X <= gutter.X + viewW)
+        {
+            bool ah = !Modal && addR.Contains(In.Mouse);
+            r.RoundFill(addR, ah ? Theme.WithAlpha(Color.White, 0.5f) : Theme.WithAlpha(Color.White, 0.28f), 8f);
+            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 18), "+", addR, Theme.Mix(Theme.Cyan, Theme.Text, 0.4f));
+            var addClip = addR.Intersect(new RectF(gutter.X, gutter.Y, viewW, gutter.H));
+            if (addClip.W > 4) noDrag(addClip);
+            if (ah && In.LeftPressed) { _templateOpen = true; _templateJustOpened = true; }
+        }
+        r.End();
+
+        // "▸" scroll button to page the gutter right (wraps back to start at the end)
+        if (overflow)
+        {
+            r.Begin();
+            var sr = new RectF(gutter.Right - scrollBtnW, top + 2, scrollBtnW - 2, tabH - 4);
+            bool sh = !Modal && sr.Contains(In.Mouse);
+            r.RoundFill(sr, sh ? Theme.WithAlpha(Color.White, 0.5f) : Theme.WithAlpha(Color.White, 0.3f), 7f);
+            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 15), "▸", sr, Theme.Mix(Theme.Cyan, Theme.Text, 0.4f));
+            noDrag(sr);
+            if (sh && In.LeftPressed) _tabScroll = _tabScroll >= maxScroll - 1 ? 0 : Math.Min(maxScroll, _tabScroll + viewW * 0.8f);
+            r.End();
+        }
     }
 
-    // The toolbar row under the title bar: project name (left), live clock + status pill (right). The
-    // Run / History / Test / Apply buttons are drawn over this by their own methods.
-    private void DrawToolbar(Renderer r, Clock clock)
+    private void DrawOneTab(Renderer r, int i, RectF slot, FontStashSharp.DynamicSpriteFont tf, Clock clock, RectF gutter, float viewW, Action<RectF> noDrag)
     {
-        var bar = _l.TopBar;
-        r.Fill(bar, Theme.Panel);
-        r.HLine(0, bar.W, bar.Bottom, Theme.Hairline, 1f);
+        var bot = _app.Bots[i];
+        bool active = i == _app.Active;
+        bool renaming = _renamingBot == bot;
+        var col = StatusColor(bot.Runtime);
 
-        var nameF = r.Fonts.Get(FontKind.Display, 17);
-        r.Text(nameF, _app.ProjectName + (_app.Dirty ? " *" : ""), new Vector2(20, bar.Y + (bar.H - nameF.MeasureString("X").Y) / 2f - 1), Theme.Mix(Theme.Cyan, Theme.Text, 0.35f));
-        r.Text(r.Fonts.Get(FontKind.Sans, 11), "v" + Ircuitry.App.AppInfo.Version, new Vector2(20, bar.Y + bar.H - 16), Theme.TextFaint);
+        var tab = active ? new RectF(slot.X, slot.Y - 2, slot.W, slot.H + 2) : new RectF(slot.X, slot.Y + 2, slot.W, slot.H - 2);
+        var clip = tab.Intersect(new RectF(gutter.X, gutter.Y, viewW, gutter.H));
+        if (clip.W > 4) noDrag(clip);
 
-        var tf = r.Fonts.Get(FontKind.SansBold, 16);
-        var time = DateTime.Now.ToString("HH:mm:ss");
-        r.TextRight(tf, time, bar.W - 22, bar.Y + bar.H / 2f - 9, Theme.TextDim);
+        r.RoundFill(tab.Offset(0, 1), Theme.WithAlpha(BarDim, 0.35f), 9f);   // drop shadow so it reads on the bar
+        if (active)
+        {
+            r.RoundFill(tab.Inflate(1.5f, 1.5f), Theme.WithAlpha(col, 0.30f), 11f);
+            r.RoundFill(tab, Theme.PanelHi, 9f);
+            r.RoundOutline(tab, Theme.WithAlpha(col, 0.9f), 9f);
+        }
+        else
+        {
+            r.RoundFill(tab, Theme.PanelLo, 9f);                    // solid (not see-through), dimmer than active
+            r.RoundOutline(tab, Theme.Edge, 9f);
+        }
+        r.RoundFill(new RectF(tab.X + 6, tab.Y + 4, tab.W - 12, 4), Theme.WithAlpha(col, active ? 0.95f : 0.7f), 2f);
+        if (active) Hud.SoftDot(r, new Vector2(tab.X + 16, tab.Center.Y + 3), 3.4f, col);
+        else r.Disc(new Vector2(tab.X + 16, tab.Center.Y + 3), 3f, col);
 
-        // place the status pill just left of the whole action-button cluster (run/history/test/apply/bell)
-        var (label, col, pulse) = StatusInfo();
-        float clockW = tf.MeasureString(time).X;
-        float runX = bar.W - 22 - clockW - 16 - 150;
-        float histX = runX - 12 - 128;
-        float bellX = histX - 12 - 94 - 12 - 110 - 12 - 40;
-        var pillRect = new RectF(bellX - 12 - 150, bar.Y + (bar.H - 28) / 2f, 150, 28);
-        Hud.Pill(r, pillRect, label, col, clock, pulse);
+        if (renaming)
+        {
+            var nm = _ui.TextField("tab.rename", new RectF(tab.X + 26, tab.Center.Y - 9, tab.W - 36, 22), bot.Name, "bot name");
+            if (nm != bot.Name) { bot.Name = string.IsNullOrWhiteSpace(nm) ? bot.Name : nm; _app.MarkDirty(); }
+            if (_ui.Focus != "tab.rename") _renamingBot = null;
+            return;
+        }
+
+        Color txt = active ? Theme.Text : Theme.TextDim;
+        r.Text(tf, r.Ellipsize(tf, bot.Name, slot.W - 52), new Vector2(tab.X + 28, tab.Center.Y - tf.MeasureString(bot.Name).Y / 2f + 3), txt);
+
+        bool canClose = _app.Bots.Count > 1;
+        var xc = new Vector2(tab.Right - 14, tab.Center.Y + 3);
+        var xhit = new RectF(xc.X - 10, tab.Y, 20, tab.H);
+        bool xHover = canClose && xhit.Contains(In.Mouse);
+        if (canClose)
+        {
+            if (xHover) r.Disc(xc, 9f, Theme.WithAlpha(Theme.Alert, 0.25f));
+            DrawGlyphX(r, xc, 3.4f, xHover ? Theme.Alert : active ? Theme.TextDim : Theme.TextFaint);
+        }
+
+        if (!Modal && In.LeftPressed && tab.Contains(In.Mouse) && gutter.Contains(In.Mouse))
+        {
+            if (xHover) { _confirmDeleteBot = bot; _confirmJustOpened = true; }
+            else
+            {
+                bool dbl = _tabClickBot == bot && clock.Time - _tabClickTime < 0.35f;
+                _tabClickBot = bot; _tabClickTime = clock.Time;
+                if (!active) { _app.SetActive(i); _editor.Selection.Clear(); }
+                if (dbl) { _renamingBot = bot; _ui.Focus = "tab.rename"; }
+            }
+        }
+    }
+
+    // The floppy "save" button that hangs in the canvas's top-right corner whenever there are unsaved changes.
+    // Clicking it saves the workspace and, if the bot is live, applies the edits to it.
+    private void DrawCanvasSave(Renderer r)
+    {
+        if (!_app.Dirty) return;
+        var c = _l.Canvas;
+        var rect = new RectF(c.Right - 52, c.Y + 14, 38, 38);
+        bool hot = !Modal && rect.Contains(In.Mouse);
+        r.Begin();
+        r.RoundFill(rect.Offset(0, 2), Theme.WithAlpha(Color.Black, 0.12f), 10f);
+        r.RoundFill(rect, hot ? Theme.AmberBright : Theme.Amber, 10f);
+        r.RoundOutline(rect, Theme.AmberDim, 10f);
+        r.TextCentered(r.Fonts.Get(FontKind.Sans, 18), "💾", rect, Theme.TextInk);
+        r.End();
+        if (hot && In.LeftPressed)
+        {
+            _app.Save();
+            if (Bot.Runtime.Running) Bot.Runtime.ApplyGraph(Bot.Graph);
+            Notify("💾 Saved" + (Bot.Runtime.Running ? " & applied" : ""));
+        }
     }
 }
