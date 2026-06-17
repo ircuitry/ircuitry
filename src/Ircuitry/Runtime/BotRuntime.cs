@@ -211,6 +211,9 @@ public sealed class BotRuntime
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _pbQueue = new();
     private double _pbLast = -1;
 
+    /// <summary>Raised the instant a node executes (node id). Lets a control server stream live glow to clients.</summary>
+    public event Action<string>? OnFired;
+
     public void NodeFired(string nodeId)
     {
         _fireCounts.AddOrUpdate(nodeId, 1, (_, n) => n + 1);
@@ -220,6 +223,7 @@ public sealed class BotRuntime
             while (_pbQueue.Count > 20000 && _pbQueue.TryDequeue(out _)) { }   // OOM backstop on a runaway bot; jump-to-now is the real escape
         }
         else _activity[nodeId] = DateTime.Now;
+        try { OnFired?.Invoke(nodeId); } catch { }
     }
 
     /// <summary>Nodes waiting to be revealed (the playback backlog). 0 when caught up / slow-mo off.</summary>
