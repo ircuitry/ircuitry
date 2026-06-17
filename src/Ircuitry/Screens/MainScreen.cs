@@ -199,7 +199,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || BakeAnimActive
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -615,6 +615,7 @@ public sealed partial class MainScreen : IScreen
         _l = Layout.Compute(_vw, _vh, _consoleH);
         ClipboardPoll(clock);
         AchievementsTick(clock);
+        RemotePump();   // keep any remote-server session live (drains its callbacks/events)
         foreach (var b in _app.Bots) b.Runtime.PlaybackStep(clock.Time);   // reveal queued node glows (slow-mo); instant + drains when off
 
         if (DebugAutoHistory && Bot.Runtime.HistoryCount > 0 && (!_historyOpen || _historyRuns.Count != Bot.Runtime.HistoryCount)) OpenHistory();
@@ -629,7 +630,7 @@ public sealed partial class MainScreen : IScreen
             {
                 if (_appearanceOpen) CloseAppearance();
                 else if (_themeInstallOpen) CancelThemeInstall();
-                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
             }
         }
         else if (_renamingBot != null)
@@ -902,6 +903,11 @@ public sealed partial class MainScreen : IScreen
         {
             _ui.Enabled = true;
             DrawThemeInstallModal(r);
+        }
+        else if (_remoteOpen)
+        {
+            _ui.Enabled = true;
+            DrawRemoteModal(r);
         }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
@@ -1220,6 +1226,7 @@ public sealed partial class MainScreen : IScreen
         Item("key", "Secret keys…", "", true, () => { _secretsOpen = true; _secretsJustOpened = true; });
         Item("trophy", "Achievements", "", true, () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
         Item("puzzle-piece", "Community nodes…", "", true, OpenNodeManager);
+        Item("cloud", "Connect to server…", "", true, OpenRemote);
         Item("palette", "Appearance…", "", true, OpenAppearance);
         Sep();
         Item("ruler", "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
