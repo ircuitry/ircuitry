@@ -30,6 +30,11 @@ public static class Program
             Environment.Exit(Ircuitry.App.Server.ControlServer.Run(args));
             return;
         }
+        if (Array.IndexOf(args, "--connect") >= 0)
+        {
+            Environment.Exit(Ircuitry.App.Server.ClientDiag.Run(args));
+            return;
+        }
         if (Array.IndexOf(args, "--register-scheme") >= 0)
         {
             DeepLink.Register();
