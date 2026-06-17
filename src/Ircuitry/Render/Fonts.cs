@@ -25,6 +25,7 @@ public sealed class Fonts : IDisposable
     private readonly byte[] _icons, _emoji;
     // kept so we can rebuild a face after a swap
     private readonly byte[] _ubuntuR, _ubuntuB, _monoR, _fredoka;
+    private string _uiKey = "default", _displayKey = "default";   // current faces, so a no-op swap never rebuilds
 
     public Fonts(string fontDir)
     {
@@ -82,21 +83,35 @@ public sealed class Fonts : IDisposable
         }
     }
 
-    /// <summary>Re-point the UI (sans) face. Safe to call at runtime; old atlases are disposed.</summary>
+    private static string NormKey(string? c)
+    {
+        var s = (c ?? "default").Trim();
+        var l = s.ToLowerInvariant();
+        return l.Length == 0 || l == "default" ? "default" : l == "rounded" ? "rounded" : l == "mono" ? "mono" : s;
+    }
+
+    /// <summary>Re-point the UI (sans) face. A no-op when the face is unchanged, so re-applying a theme that
+    /// doesn't touch fonts never rebuilds the atlas (which would flash un-rasterised glyphs for a frame).</summary>
     public void SetUiFont(string? choice)
     {
+        var key = NormKey(choice);
+        if (key == _uiKey) return;
         var (reg, bold) = Resolve(choice, (_ubuntuR, _ubuntuB));
         var oldR = _sans; var oldB = _sansBold;
         _sans = Build(reg); _sansBold = Build(bold);
+        _uiKey = key;
         try { oldR.Dispose(); oldB.Dispose(); } catch { }
     }
 
-    /// <summary>Re-point the display face (wordmark / titles / node names).</summary>
+    /// <summary>Re-point the display face (wordmark / titles / node names). No-op when unchanged.</summary>
     public void SetDisplayFont(string? choice)
     {
+        var key = NormKey(choice);
+        if (key == _displayKey) return;
         var (reg, _) = Resolve(choice, (_fredoka, _fredoka));
         var old = _display;
         _display = Build(reg);
+        _displayKey = key;
         try { old.Dispose(); } catch { }
     }
 

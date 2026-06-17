@@ -129,6 +129,10 @@ public sealed class IrcuitryGame : Game
         // Colours are read live by Theme, so they need no hook. Then restore the user's saved theme.
         Ircuitry.Core.Themes.Changed += ApplyAppearance;
         Ircuitry.Core.Themes.LoadActive();
+        // --theme <file>: apply a theme up front (for demos/screenshots); not persisted
+        for (int i = 0; i < _args.Length - 1; i++)
+            if (_args[i] == "--theme")
+                try { Ircuitry.Core.Themes.Apply(Ircuitry.Core.ThemeData.FromJson(File.ReadAllText(_args[i + 1])), persist: false); } catch { }
 
         // interactive runs: start maximized, and make the window's X prompt (exit / minimise) instead of quitting
         if (_shotPath == null && ms != null)

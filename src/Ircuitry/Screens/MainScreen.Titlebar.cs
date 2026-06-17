@@ -18,11 +18,20 @@ public sealed partial class MainScreen
 
     // Title-bar palette: a soft, glossy pastel teal (the brand colour, gentled so it isn't "too powerful").
     // Paired with a neutral cream brand mark (below) so nothing clashes.
-    private static readonly Color BarTop = Theme.Mix(Theme.CyanBright, Color.White, 0.52f);  // glossy highlight band
-    private static readonly Color BarBot = Theme.Mix(Theme.Cyan, Color.White, 0.10f);        // soft bottom
-    private static Color BarDim => Theme.Mix(Theme.Cyan, Theme.Text, 0.32f);         // shadows / lips (live re-themes)
+    // these MUST be live (properties) so the bar re-themes with the active theme - as a static readonly they
+    // froze at the default cozy cyan and the title bar never changed colour (and its glyphs went invisible).
+    private static Color BarTop => Theme.Mix(Theme.CyanBright, Color.White, 0.52f);  // glossy highlight band
+    private static Color BarBot => Theme.Mix(Theme.Cyan, Color.White, 0.10f);        // soft bottom
+    private static Color BarDim => Theme.Mix(Theme.Cyan, Theme.Text, 0.32f);         // shadows / lips
     private static Color BarPad => Theme.Mix(Theme.PanelHi, Theme.Cyan, 0.12f);      // resting key-pad fill
     private static Color BarAccent => Theme.Cyan;
+
+    private static float Lum(Color c) => (0.299f * c.R + 0.587f * c.G + 0.114f * c.B) / 255f;
+    // the colour glyphs actually sit on: the sheened top of the gloss bar
+    private static Color BarFace => Theme.Mix(BarTop, Color.White, 0.22f);
+    // a glyph/ink colour guaranteed to contrast with the bar under ANY theme (derived from the bar, not from
+    // the theme's text colours, which flip light/dark and don't track the bar's own lightness).
+    private static Color BarInk => Lum(BarFace) > 0.5f ? Theme.Mix(BarFace, Color.Black, 0.72f) : Theme.Mix(BarFace, Color.White, 0.9f);
 
     private void DrawTitlebar(Renderer r, Clock clock)
     {
@@ -45,7 +54,7 @@ public sealed partial class MainScreen
 
         var moreR = Btn(38, 6);
         bool moreClick = IconPad(r, moreR, out var morePad);   // a dots glyph doesn't render in this font - draw a hamburger
-        for (int i = -1; i <= 1; i++) r.HLine(morePad.Center.X - 7, morePad.Center.X + 7, MathF.Round(morePad.Center.Y + i * 5), Theme.Text, 1.8f);
+        for (int i = -1; i <= 1; i++) r.HLine(morePad.Center.X - 7, morePad.Center.X + 7, MathF.Round(morePad.Center.Y + i * 5), BarInk, 1.8f);
         if (moreClick) OpenMoreMenu(new Vector2(moreR.X - 80, moreR.Bottom + 3));
         var fileR = Btn(38);
         if (IconBtn(r, fileR, Ircuitry.Core.Icons.Glyph("folder"), 16, _app.Dirty ? Theme.Amber : (Color?)null)) OpenFileMenu(new Vector2(fileR.X - 60, fileR.Bottom + 3));
@@ -159,7 +168,7 @@ public sealed partial class MainScreen
     private bool IconBtn(Renderer r, RectF rect, string glyph, int size, Color? tint = null)
     {
         bool c = IconPad(r, rect, out var pad);
-        r.TextCentered(r.Fonts.Get(FontKind.Sans, size), glyph, pad, tint ?? Theme.Text);
+        r.TextCentered(r.Fonts.Get(FontKind.Sans, size), glyph, pad, tint ?? BarInk);
         return c;
     }
 
@@ -171,7 +180,7 @@ public sealed partial class MainScreen
         bool hot = !Modal && rect.Contains(In.Mouse);
         Color baseCol = running ? Theme.Mix(Theme.Alert, Color.White, 0.10f) : Theme.Mix(Theme.Ok, Color.White, 0.28f);
         Color fill = hot ? Theme.Mix(baseCol, Color.White, 0.12f) : baseCol;
-        Color glyph = running ? Theme.Mix(Theme.Alert, Theme.Text, 0.30f) : Theme.Mix(Theme.Ok, Theme.Text, 0.42f);
+        Color glyph = Theme.Mix(baseCol, Color.Black, 0.62f);   // always a dark icon, readable on the green/red pill in any theme
         r.RoundFill(new RectF(rect.X, rect.Y + 2f, rect.W, rect.H), Theme.WithAlpha(Color.Black, 0.07f), 10f);  // soft shadow
         r.RoundFill(rect, fill, 10f);                                                                            // matte fill (no gloss)
         r.RoundOutline(rect, Theme.WithAlpha(glyph, hot ? 0.9f : 0.6f), 10f);
@@ -189,13 +198,13 @@ public sealed partial class MainScreen
         var closeR = new RectF(cx - w, 0, w, h);
         bool ch = closeR.Contains(In.Mouse);
         if (ch) r.Fill(closeR, Theme.Alert);
-        DrawGlyphX(r, closeR.Center, 4.5f, ch ? Theme.TextInk : Theme.WithAlpha(Theme.Text, 0.8f));
+        DrawGlyphX(r, closeR.Center, 4.5f, ch ? Theme.TextInk : Theme.WithAlpha(BarInk, 0.85f));
         noDrag(closeR); if (In.LeftPressed && ch) Sdl.CloseRequested = true; cx -= w;
 
         var maxR = new RectF(cx - w, 0, w, h);
         bool mh = maxR.Contains(In.Mouse);
         if (mh) r.Fill(maxR, Theme.WithAlpha(Color.White, 0.30f));
-        var mc = Theme.WithAlpha(Theme.Text, mh ? 1f : 0.8f);
+        var mc = Theme.WithAlpha(BarInk, mh ? 1f : 0.85f);
         if (Sdl.IsMaximized(WindowHandle))
         {
             r.RectOutline(new RectF(maxR.Center.X - 3, maxR.Center.Y - 5, 8, 8), mc, 1.4f);
@@ -207,7 +216,7 @@ public sealed partial class MainScreen
         var minR = new RectF(cx - w, 0, w, h);
         bool nh = minR.Contains(In.Mouse);
         if (nh) r.Fill(minR, Theme.WithAlpha(Color.White, 0.30f));
-        r.HLine(minR.Center.X - 6, minR.Center.X + 6, minR.Center.Y + 4, Theme.WithAlpha(Theme.Text, nh ? 1f : 0.8f), 1.7f);
+        r.HLine(minR.Center.X - 6, minR.Center.X + 6, minR.Center.Y + 4, Theme.WithAlpha(BarInk, nh ? 1f : 0.85f), 1.7f);
         noDrag(minR); if (In.LeftPressed && nh) Sdl.Minimize(WindowHandle); cx -= w;
 
         return cx;
@@ -262,7 +271,7 @@ public sealed partial class MainScreen
         {
             bool ah = !Modal && addR.Contains(In.Mouse);
             r.RoundFill(addR, ah ? Theme.WithAlpha(Color.White, 0.5f) : Theme.WithAlpha(Color.White, 0.28f), 8f);
-            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 18), "+", addR, Theme.Mix(Theme.Cyan, Theme.Text, 0.4f));
+            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 18), "+", addR, BarInk);
             var addClip = addR.Intersect(new RectF(gutter.X, gutter.Y, viewW, gutter.H));
             if (addClip.W > 4) noDrag(addClip);
             if (ah && In.LeftPressed) { _templateOpen = true; _templateJustOpened = true; }
@@ -276,7 +285,7 @@ public sealed partial class MainScreen
             var sr = new RectF(gutter.Right - scrollBtnW, top + 2, scrollBtnW - 2, tabH - 4);
             bool sh = !Modal && sr.Contains(In.Mouse);
             r.RoundFill(sr, sh ? Theme.WithAlpha(Color.White, 0.5f) : Theme.WithAlpha(Color.White, 0.3f), 7f);
-            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 15), Ircuitry.Core.Icons.Glyph("caret-right"), sr, Theme.Mix(Theme.Cyan, Theme.Text, 0.4f));
+            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 15), Ircuitry.Core.Icons.Glyph("caret-right"), sr, BarInk);
             noDrag(sr);
             if (sh && In.LeftPressed) _tabScroll = _tabScroll >= maxScroll - 1 ? 0 : Math.Min(maxScroll, _tabScroll + viewW * 0.8f);
             r.End();
