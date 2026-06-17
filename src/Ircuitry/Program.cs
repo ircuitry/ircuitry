@@ -25,6 +25,11 @@ public static class Program
             Environment.Exit(Ircuitry.App.Mcp.McpServer.RunStdio(args));
             return;
         }
+        if (Array.IndexOf(args, "--add-token") >= 0)
+        {
+            Environment.Exit(Ircuitry.App.Server.ControlServer.AddToken(args));
+            return;
+        }
         if (Array.IndexOf(args, "--server") >= 0)
         {
             Environment.Exit(Ircuitry.App.Server.ControlServer.Run(args));

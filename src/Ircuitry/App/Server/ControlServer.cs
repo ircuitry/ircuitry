@@ -29,7 +29,7 @@ public static class ControlServer
     private static readonly object Gate = new();          // serialises all workspace mutations
     private static AppModel _app = null!;
     private static List<McpTool> _tools = null!;
-    private static readonly Dictionary<string, string> _tokens = new();   // token -> user name
+    private static readonly Dictionary<string, (string User, string Role)> _tokens = new();   // token -> account
     private static bool _web;
 
     public static int Run(string[] args)
@@ -65,7 +65,8 @@ public static class ControlServer
         Console.WriteLine($"ircuitry control server on http://{(host == "+" ? bind : host)}:{port}/  -  workspace {AppModel.WorkspaceDir}");
         Console.WriteLine($"  bots: {_app.Bots.Count}    connect a desktop with: Server > Connect ({bind}:{port})");
         if (_web) Console.WriteLine($"  cockpit (PWA): http://{(host == "+" ? bind : host)}:{port}/");
-        Console.WriteLine($"  admin token: {_tokens.Keys.First()}");
+        Console.WriteLine($"  admin token: {AdminToken()}");
+        Console.WriteLine($"  ({_tokens.Count} token(s); add more with: ircuitry --add-token NAME --role editor|viewer)");
 
         using var stop = new ManualResetEventSlim(false);
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Set(); try { listener.Stop(); } catch { } };
@@ -170,6 +171,8 @@ public static class ControlServer
         public readonly SemaphoreSlim SendLock = new(1, 1);
         public volatile bool Closed;
         public string User = "";
+        public string Role = "viewer";
+        public bool CanEdit => Role is "admin" or "editor";
         public readonly HashSet<string> Topics = new();
         public readonly Dictionary<App.Bot, long> LogRev = new();
         public readonly Dictionary<App.Bot, long> HistRev = new();
@@ -190,11 +193,11 @@ public static class ControlServer
             {
                 var root = doc.RootElement;
                 string token = Str(root, "token");
-                if (!_tokens.TryGetValue(token, out var user))
+                if (!_tokens.TryGetValue(token, out var acct))
                 { await Send(c, new { evt = "hello", ok = false, error = "invalid token" }); return; }
-                c.User = user;
+                c.User = acct.User; c.Role = acct.Role;
             }
-            await Send(c, new { evt = "hello", ok = true, server = new { name = "ircuitry", version = AppInfo.Version }, user = c.User });
+            await Send(c, new { evt = "hello", ok = true, server = new { name = "ircuitry", version = AppInfo.Version }, user = c.User, role = c.Role });
 
             var pump = Task.Run(() => Pump(c));
             string? raw;
@@ -231,14 +234,16 @@ public static class ControlServer
                     if (c.Topics.Contains("nodes")) HookFires(c);
                     await Reply(c, id, new { topics = c.Topics.ToArray() });
                     break;
-                case "start": await Reply(c, id, StartStop(root, true)); break;
-                case "stop": await Reply(c, id, StartStop(root, false)); break;
+                case "start": case "stop":
+                    if (!c.CanEdit) { await ReplyErr(c, id, "this token is read-only (viewer)"); break; }
+                    await Reply(c, id, StartStop(root, op == "start")); break;
                 case "call":
                 {
                     string tool = Str(root, "tool");
                     var args = root.TryGetProperty("args", out var a) ? a : default;
                     var t = _tools.FirstOrDefault(x => x.Name == tool);
                     if (t == null) { await ReplyErr(c, id, "unknown tool: " + tool); break; }
+                    if (t.Mutates && !c.CanEdit) { await ReplyErr(c, id, "this token is read-only (viewer) and cannot edit"); break; }
                     object result;
                     lock (Gate) { result = t.Run(args, _app); if (t.Mutates) _app.Save(announce: false); }
                     await Reply(c, id, new { tool, result });
@@ -399,28 +404,65 @@ public static class ControlServer
     // ---------------- tokens ----------------
     private static string TokenFile => Path.Combine(AppModel.WorkspaceDir, "server-tokens.json");
 
-    private static void LoadOrMintTokens()
+    private static void LoadTokens()
+    {
+        _tokens.Clear();
+        try
+        {
+            if (!File.Exists(TokenFile)) return;
+            using var doc = JsonDocument.Parse(File.ReadAllText(TokenFile));
+            if (!doc.RootElement.TryGetProperty("tokens", out var t) || t.ValueKind != JsonValueKind.Object) return;
+            foreach (var p in t.EnumerateObject())
+            {
+                if (p.Value.ValueKind == JsonValueKind.String) _tokens[p.Name] = (p.Value.GetString() ?? "user", "admin");   // legacy: token -> name
+                else if (p.Value.ValueKind == JsonValueKind.Object)
+                    _tokens[p.Name] = (p.Value.TryGetProperty("user", out var u) ? u.GetString() ?? "user" : "user",
+                                       p.Value.TryGetProperty("role", out var r) ? r.GetString() ?? "viewer" : "viewer");
+            }
+        }
+        catch { /* ignore a corrupt file; mint fresh */ }
+    }
+
+    private static void SaveTokens()
     {
         try
         {
-            if (File.Exists(TokenFile))
-            {
-                using var doc = JsonDocument.Parse(File.ReadAllText(TokenFile));
-                if (doc.RootElement.TryGetProperty("tokens", out var t) && t.ValueKind == JsonValueKind.Object)
-                    foreach (var p in t.EnumerateObject()) _tokens[p.Name] = p.Value.GetString() ?? "user";
-            }
+            Directory.CreateDirectory(AppModel.WorkspaceDir);
+            var obj = new Dictionary<string, object?>();
+            foreach (var kv in _tokens) obj[kv.Key] = new { user = kv.Value.User, role = kv.Value.Role };
+            File.WriteAllText(TokenFile, JsonSerializer.Serialize(new { tokens = obj }, new JsonSerializerOptions { WriteIndented = true }));
         }
-        catch { /* fall through to mint */ }
-        if (_tokens.Count == 0)
+        catch { }
+    }
+
+    private static void LoadOrMintTokens()
+    {
+        LoadTokens();
+        if (!_tokens.Values.Any(v => v.Role == "admin"))   // always guarantee an admin can get in
         {
-            string admin = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
-            _tokens[admin] = "admin";
-            try
-            {
-                Directory.CreateDirectory(AppModel.WorkspaceDir);
-                File.WriteAllText(TokenFile, JsonSerializer.Serialize(new { tokens = _tokens }, new JsonSerializerOptions { WriteIndented = true }));
-            }
-            catch { }
+            _tokens[NewToken()] = ("admin", "admin");
+            SaveTokens();
         }
+    }
+
+    private static string AdminToken() => _tokens.FirstOrDefault(kv => kv.Value.Role == "admin").Key ?? _tokens.Keys.FirstOrDefault() ?? "(none)";
+
+    private static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+
+    /// <summary>CLI: <c>ircuitry --add-token NAME [--role admin|editor|viewer] [--data DIR]</c> mints a token.</summary>
+    public static int AddToken(string[] args)
+    {
+        string? data = Arg(args, "--data");
+        if (!string.IsNullOrWhiteSpace(data)) Environment.SetEnvironmentVariable("IRCUITRY_HOME", data);
+        string user = Arg(args, "--add-token") ?? "user";
+        string role = (Arg(args, "--role") ?? "editor").ToLowerInvariant();
+        if (role is not ("admin" or "editor" or "viewer")) role = "editor";
+        LoadTokens();
+        string tok = NewToken();
+        _tokens[tok] = (user, role);
+        SaveTokens();
+        Console.WriteLine($"added {role} token for '{user}':");
+        Console.WriteLine(tok);
+        return 0;
     }
 }
