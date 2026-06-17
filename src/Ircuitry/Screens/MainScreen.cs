@@ -1759,9 +1759,9 @@ public sealed partial class MainScreen : IScreen
     // runs every frame: re-check periodically, auto-ask once, and hand a finished download to the game thread
     private void UpdateTick(Clock clock)
     {
-        // re-check GitHub every 6 hours so a long-running instance still notices new releases
+        // re-check GitHub every hour so a long-running instance still notices new releases
         if (_upCheckAt < 0) _upCheckAt = clock.Time;
-        else if (clock.Time - _upCheckAt > 6 * 3600f && _upState != UpState.Downloading && _upState != UpState.Applying)
+        else if (clock.Time - _upCheckAt > 3600f && _upState != UpState.Downloading && _upState != UpState.Applying)
         { _upCheckAt = clock.Time; StartUpdateCheck(); }
 
         if (_upState == UpState.Available && !_upPrompted && !Modal && !_tut.Active)
