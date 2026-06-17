@@ -81,9 +81,17 @@ public partial class MainScreen
         else if (_aprTab == 1) DrawAprCustomize(r, body);
         else DrawAprImportExport(r, body);
 
-        // ---- footer: status + close ----
+        // ---- footer: status + reset + close ----
         if (_aprMsg.Length > 0)
-            r.Text(r.Fonts.Get(FontKind.Sans, 12), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 12), _aprMsg, w0 - 130), new Vector2(x0, panel.Bottom - 38), Theme.TextDim);
+            r.Text(r.Fonts.Get(FontKind.Sans, 12), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 12), _aprMsg, w0 - 320), new Vector2(x0, panel.Bottom - 38), Theme.TextDim);
+        bool isDefault = Theme.Active.Name == "Cozy (default)";
+        if (_ui.Button("apr.reset", new RectF(panel.Right - 22 - 104 - 8 - 170, panel.Bottom - 46, 170, 32), Icons.Glyph("arrow-counter-clockwise") + " Reset to default", Theme.Amber, enabled: !isDefault))
+        {
+            Themes.Apply(ThemeData.Default());
+            _aprSelKey = "cyan"; _aprHex = ThemeData.Hex(Theme.Active.C(_aprSelKey)); _aprSaveName = "My Theme";
+            Ircuitry.Core.Sdl.SetOpacity(WindowHandle, Theme.Active.Opacity);
+            _aprMsg = "Reset to the cozy default";
+        }
         if (_ui.Button("apr.close", new RectF(panel.Right - 22 - 104, panel.Bottom - 46, 104, 32), "DONE", Theme.Berry, primary: true))
             CloseAppearance();
 
@@ -93,20 +101,29 @@ public partial class MainScreen
         _aprJustOpened = false;
     }
 
-    // ---- tab 0: pick a theme ----
+    private float _aprThemesScroll;
+
+    // ---- tab 0: pick a theme (scrollable, so every installed theme stays reachable to apply or delete) ----
     private void DrawAprThemes(Renderer r, RectF area)
     {
-        float x = area.X, y = area.Y, w = area.W;
+        float x = area.X, w = area.W;
         var rows = new List<(string name, string author, string cat, ThemeData t, string? path)>
         { ("Cozy (default)", "ircuitry", "Cozy", ThemeData.Default(), null) };
         foreach (var (p, t) in _aprInstalled) rows.Add((t.Name, t.Author, t.Category, t, p));
 
-        float rh = 52, listH = area.H - 50;
-        int max = Math.Max(1, (int)(listH / rh));
-        for (int i = 0; i < rows.Count && i < max; i++)
+        // the scrolling list lives in its own clipped batch; the header/tabs already flushed, the browse strip is fixed below
+        var list = new RectF(x, area.Y, w, area.H - 44);
+        float rh = 52, totalH = rows.Count * rh;
+        _aprThemesScroll = ClampScroll("aprThemes", Wheel("aprThemes", _aprThemesScroll, list), totalH, list.H);
+
+        r.End();
+        r.Begin(BlendMode.Alpha, list.ToRectangle());
+        for (int i = 0; i < rows.Count; i++)
         {
+            float ry = list.Y + i * rh - _aprThemesScroll;
+            if (ry + rh < list.Y || ry > list.Bottom) continue;   // cull off-screen rows (and their buttons)
             var (name, author, cat, t, path) = rows[i];
-            var rr = new RectF(x, y + i * rh, w, rh - 8);
+            var rr = new RectF(x, ry, w, rh - 8);
             bool active = name == Theme.Active.Name;
             r.RoundFill(rr, active ? Theme.Mix(Theme.PanelHi, Theme.Ok, 0.16f) : Theme.PanelHi, 11f);
             r.RoundOutline(rr, active ? Theme.Ok : Theme.Hairline, 11f);
@@ -124,16 +141,19 @@ public partial class MainScreen
             {
                 var del = new RectF(bx - 34, rr.Center.Y - 14, 34, 28); bx -= 42;
                 if (_ui.Button("apr.del." + i, del, Icons.Glyph("trash"), Theme.Alert))
-                { Themes.Uninstall(path); RefreshInstalledThemes(); _aprMsg = "Removed " + name; }
+                { Themes.Uninstall(path); RefreshInstalledThemes(); _aprMsg = "Deleted " + name; }
             }
             var apply = new RectF(bx - 88, rr.Center.Y - 14, 88, 28);
             if (_ui.Button("apr.apply." + i, apply, active ? "ACTIVE" : "APPLY", active ? Theme.Idle : Theme.Ok, primary: !active, enabled: !active))
             { Themes.Apply(t.Clone()); _aprSaveName = name == "Cozy (default)" ? "My Theme" : name; _aprMsg = "Applied " + name; }
         }
+        r.End();
+        r.Begin();   // reopen the main (unclipped) batch the caller's footer draws into
 
-        // get-more strip
-        var more = new RectF(x, area.Bottom - 38, w, 32);
-        r.Text(r.Fonts.Get(FontKind.Sans, 12), rows.Count + " installed  -  edit one in Customize, or browse the gallery for more.", new Vector2(x, more.Y + 8), Theme.TextDim);
+        // fixed browse strip below the list
+        var more = new RectF(x, area.Bottom - 36, w, 32);
+        int installed = rows.Count - 1;
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), installed + " installed  -  " + Icons.Glyph("trash") + " removes one; scroll for more.", new Vector2(x, more.Y + 8), Theme.TextDim);
         if (_ui.Button("apr.more", new RectF(more.Right - 168, more.Y, 168, 32), Icons.Glyph("globe") + "  Browse community", Theme.Cyan))
             Ircuitry.App.DeepLink.OpenUrl("https://ircuitry.github.io/themes.html");
     }
