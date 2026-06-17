@@ -164,8 +164,29 @@ public static class SelfTest
         fails += BotMergeTest();
         fails += DccTest();
         fails += CapabilityCorsTest();
+        fails += ThemeRoundTripTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
+        return fails;
+    }
+
+    /// <summary>Themes: the .irctheme schema the app, the community repo's index builder, and the website all
+    /// share. Round-trip the default, parse a partial theme (missing colours fall back), and reject junk hex.</summary>
+    private static int ThemeRoundTripTest()
+    {
+        int fails = 0;
+        var def = Ircuitry.Core.ThemeData.Default();
+        var back = Ircuitry.Core.ThemeData.FromJson(def.ToJson());
+        fails += Expect("theme-roundtrip", back.C("cyan") == def.C("cyan") && back.C("text") == def.C("text") && back.Colors.Count == def.Colors.Count, "");
+
+        // a partial theme keeps what it sets and inherits the rest from the cozy default
+        string partial = "{\"format\":\"ircuitry.theme.v1\",\"name\":\"Tiny\",\"colors\":{\"cyan\":\"#102030\"},\"knobs\":{\"glow\":1.5,\"glass\":true,\"opacity\":0.9}}";
+        var p = Ircuitry.Core.ThemeData.FromJson(partial);
+        fails += Expect("theme-partial", p.Name == "Tiny" && p.C("cyan") == new Microsoft.Xna.Framework.Color(16, 32, 48)
+            && p.C("text") == def.C("text") && p.Glass && System.Math.Abs(p.Glow - 1.5f) < 0.001f && System.Math.Abs(p.Opacity - 0.9f) < 0.001f, "");
+
+        fails += Expect("theme-hex", Ircuitry.Core.ThemeData.TryHex("#7ED6E4", out var hc) && hc == new Microsoft.Xna.Framework.Color(126, 214, 228)
+            && !Ircuitry.Core.ThemeData.TryHex("nope", out _) && Ircuitry.Core.ThemeData.TryHex("#abc", out _), "");
         return fails;
     }
 
