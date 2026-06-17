@@ -3,55 +3,64 @@ using Microsoft.Xna.Framework;
 namespace Ircuitry.Core;
 
 /// <summary>
-/// Ircuitry's visual identity: a warm, cozy, hand-drawn look - cream paper,
+/// Ircuitry's visual identity: a warm, cozy, hand-drawn look by default - cream paper,
 /// leaf greens, sky blue, honey and coral pastels, soft rounded everything.
-/// (The accent fields keep their old names so the whole app re-themes from here.)
+/// Every colour reads live from <see cref="Active"/>, so swapping or editing a
+/// <see cref="ThemeData"/> re-themes the entire app instantly (see the Appearance editor).
 /// </summary>
 public static class Theme
 {
-    // ---- base surfaces (light & warm) ----
-    public static readonly Color Void = new(244, 236, 216);      // window background - warm cream
-    public static readonly Color Backdrop = new(233, 242, 216);  // canvas - soft grass cream
-    public static readonly Color Panel = new(252, 247, 235);     // panel fill - creamy paper
-    public static readonly Color PanelHi = new(255, 252, 244);   // raised panel / header
-    public static readonly Color PanelLo = new(238, 229, 208);   // sunken fields - soft sand
-    public static readonly Color Hairline = new(224, 212, 184);  // subtle separators
-    public static readonly Color Edge = new(201, 182, 144);      // panel edges - warm tan
+    /// <summary>The palette the whole app draws from right now. Swap via <see cref="Ircuitry.Core.Themes"/>.</summary>
+    public static ThemeData Active = ThemeData.Default();
+
+    // ---- base surfaces ----
+    public static Color Void => Active.C("void");
+    public static Color Backdrop => Active.C("backdrop");
+    public static Color Panel => Active.C("panel");
+    public static Color PanelHi => Active.C("panelHi");
+    public static Color PanelLo => Active.C("panelLo");
+    public static Color Hairline => Active.C("hairline");
+    public static Color Edge => Active.C("edge");
 
     // ---- canvas grid ----
-    public static readonly Color GridMinor = new(220, 231, 198);
-    public static readonly Color GridMajor = new(202, 219, 170);
-    public static readonly Color GridAxis = new(183, 206, 146);
+    public static Color GridMinor => Active.C("gridMinor");
+    public static Color GridMajor => Active.C("gridMajor");
+    public static Color GridAxis => Active.C("gridAxis");
 
-    // ---- accents (cute pastels). Names kept from the old theme; colours are cozy now. ----
-    public static readonly Color Cyan = new(86, 192, 210);        // sky teal (primary)
-    public static readonly Color CyanBright = new(126, 214, 228);
-    public static readonly Color CyanDim = new(96, 158, 170);
-    public static readonly Color CyanDeep = new(206, 236, 240);   // light teal tint for fills
-
-    public static readonly Color Amber = new(242, 174, 70);       // honey
-    public static readonly Color AmberBright = new(250, 200, 120);
-    public static readonly Color AmberDim = new(196, 146, 64);
-
-    public static readonly Color Magenta = new(240, 138, 158);    // coral pink
-    public static readonly Color Violet = new(176, 158, 226);     // lavender
-    public static readonly Color Lime = new(140, 196, 84);        // leaf green
-    public static readonly Color Berry = new(198, 142, 214);      // orchid (AI)
-    public static readonly Color Sky = new(116, 174, 224);        // cornflower (storage)
-    public static readonly Color Teal = new(78, 196, 178);        // seafoam (IRCv3)
-    public static readonly Color Blueberry = new(124, 138, 210);  // indigo (code)
+    // ---- accents ----
+    public static Color Cyan => Active.C("cyan");
+    public static Color CyanBright => Active.C("cyanBright");
+    public static Color CyanDim => Active.C("cyanDim");
+    public static Color CyanDeep => Active.C("cyanDeep");
+    public static Color Amber => Active.C("amber");
+    public static Color AmberBright => Active.C("amberBright");
+    public static Color AmberDim => Active.C("amberDim");
+    public static Color Magenta => Active.C("magenta");
+    public static Color Violet => Active.C("violet");
+    public static Color Lime => Active.C("lime");
+    public static Color Berry => Active.C("berry");
+    public static Color Sky => Active.C("sky");
+    public static Color Teal => Active.C("teal");
+    public static Color Blueberry => Active.C("blueberry");
 
     // ---- status ----
-    public static readonly Color Ok = new(126, 196, 92);          // leaf
-    public static readonly Color Warn = new(242, 182, 72);        // honey
-    public static readonly Color Alert = new(235, 116, 104);      // soft coral
-    public static readonly Color Idle = new(176, 162, 132);       // warm taupe
+    public static Color Ok => Active.C("ok");
+    public static Color Warn => Active.C("warn");
+    public static Color Alert => Active.C("alert");
+    public static Color Idle => Active.C("idle");
 
-    // ---- text (dark warm on cream) ----
-    public static readonly Color Text = new(86, 70, 48);          // cocoa
-    public static readonly Color TextDim = new(140, 122, 92);
-    public static readonly Color TextFaint = new(180, 164, 134);
-    public static readonly Color TextInk = new(251, 247, 236);    // cream text on bright fills
+    // ---- text ----
+    public static Color Text => Active.C("text");
+    public static Color TextDim => Active.C("textDim");
+    public static Color TextFaint => Active.C("textFaint");
+    public static Color TextInk => Active.C("textInk");
+
+    // ---- feel knobs ----
+    public static float Glow => Active.Glow;
+    public static float Twinkle => Active.Twinkle;
+    public static float UiRoundness => Active.Roundness;
+    public static float WindowOpacity => Active.Opacity;
+    public static bool Glass => Active.Glass;
 
     // ---- node category palette ----
     public static Color Category(NodeCategory c) => c switch

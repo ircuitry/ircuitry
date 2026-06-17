@@ -33,6 +33,7 @@ public static class Sdl
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern uint SDL_GetWindowFlags(IntPtr w);
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_SetWindowBordered(IntPtr w, int bordered);
     [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_SetWindowAlwaysOnTop(IntPtr w, int onTop);
+    [DllImport("SDL2", CallingConvention = CallingConvention.Cdecl)] private static extern int SDL_SetWindowOpacity(IntPtr w, float opacity);
 
     private const uint SDL_WINDOW_MINIMIZED = 0x40;
     private const uint SDL_WINDOW_MAXIMIZED = 0x80;
@@ -61,6 +62,11 @@ public static class Sdl
     public static bool AlwaysOnTop { get; private set; }
     public static void ToggleAlwaysOnTop(IntPtr w)
     { try { if (w == IntPtr.Zero) return; AlwaysOnTop = !AlwaysOnTop; SDL_SetWindowAlwaysOnTop(w, AlwaysOnTop ? 1 : 0); } catch { } }
+
+    /// <summary>Set whole-window opacity (1 = opaque). Compositor-level, so it works on our opaque GL framebuffer;
+    /// on compositors with a blur effect a translucent window is frosted automatically. Clamped so it never vanishes.</summary>
+    public static void SetOpacity(IntPtr w, float opacity)
+    { try { if (w != IntPtr.Zero) SDL_SetWindowOpacity(w, Math.Clamp(opacity, 0.4f, 1f)); } catch { } }
 
     public static void Maximize(IntPtr w) { try { if (w != IntPtr.Zero) SDL_MaximizeWindow(w); } catch { } }
     public static void Minimize(IntPtr w) { try { if (w != IntPtr.Zero) SDL_MinimizeWindow(w); } catch { } }
@@ -103,17 +109,26 @@ public static class Sdl
         _tbBottom = bottom; _winW = winW; _winH = winH; _maxed = maximized; _noDrag = noDrag;
     }
 
+    /// <summary>The resize edge under a point in window/UI coords, using the SAME zone the hit-test resizes from,
+    /// so the app can show a matching resize cursor. Returns an SDL_HitTestResult code: 0 none, 2..9 RESIZE_*
+    /// (2 TL, 3 T, 4 TR, 5 R, 6 BR, 7 B, 8 BL, 9 L). Zero unless custom chrome is on and the window isn't maximized.</summary>
+    public static int ResizeEdge(int x, int y)
+    {
+        if (!CustomChrome || _maxed) return 0;
+        int W = _winW, H = _winH; const int B = 6;
+        if (W <= 0 || H <= 0) return 0;
+        bool l = x < B, rt = x >= W - B, t = y < B, b = y >= H - B;
+        if (t && l) return 2; if (t && rt) return 4; if (b && rt) return 6; if (b && l) return 8;
+        if (t) return 3; if (b) return 7; if (l) return 9; if (rt) return 5;
+        return 0;
+    }
+
     private static int HitCallback(IntPtr win, IntPtr area, IntPtr data)
     {
         // SDL_HitTestResult: 0 NORMAL, 1 DRAGGABLE, 2..9 RESIZE_{TL,T,TR,R,BR,B,BL,L}
         int x = Marshal.ReadInt32(area, 0), y = Marshal.ReadInt32(area, 4);
-        int W = _winW, H = _winH; const int B = 6;
-        if (!_maxed && W > 0 && H > 0)
-        {
-            bool l = x < B, rt = x >= W - B, t = y < B, b = y >= H - B;
-            if (t && l) return 2; if (t && rt) return 4; if (b && rt) return 6; if (b && l) return 8;
-            if (t) return 3; if (b) return 7; if (l) return 9; if (rt) return 5;
-        }
+        int rs = ResizeEdge(x, y);
+        if (rs != 0) return rs;
         if (y < _tbBottom)
         {
             var nd = _noDrag;

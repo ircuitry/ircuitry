@@ -20,9 +20,9 @@ public sealed partial class MainScreen
     // Paired with a neutral cream brand mark (below) so nothing clashes.
     private static readonly Color BarTop = Theme.Mix(Theme.CyanBright, Color.White, 0.52f);  // glossy highlight band
     private static readonly Color BarBot = Theme.Mix(Theme.Cyan, Color.White, 0.10f);        // soft bottom
-    private static readonly Color BarDim = Theme.Mix(Theme.Cyan, Theme.Text, 0.32f);         // shadows / lips
-    private static readonly Color BarPad = Theme.Mix(Theme.PanelHi, Theme.Cyan, 0.12f);      // resting key-pad fill
-    private static readonly Color BarAccent = Theme.Cyan;
+    private static Color BarDim => Theme.Mix(Theme.Cyan, Theme.Text, 0.32f);         // shadows / lips (live re-themes)
+    private static Color BarPad => Theme.Mix(Theme.PanelHi, Theme.Cyan, 0.12f);      // resting key-pad fill
+    private static Color BarAccent => Theme.Cyan;
 
     private void DrawTitlebar(Renderer r, Clock clock)
     {

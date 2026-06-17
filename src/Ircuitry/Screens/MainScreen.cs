@@ -198,7 +198,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || BakeAnimActive
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -300,6 +300,11 @@ public sealed partial class MainScreen : IScreen
         if (action == "install-bot")
         {
             StageWorkflowInstall(text);   // confirm first, like nodes - it becomes a new bot tab
+            return;
+        }
+        if (action == "install-theme")
+        {
+            StageThemeInstall(text);      // live-previews the theme so you can try before keeping
             return;
         }
         StageInstall(text, "link");   // default action: install-node
@@ -613,9 +618,17 @@ public sealed partial class MainScreen : IScreen
         if (DebugAutoHistory && Bot.Runtime.HistoryCount > 0 && (!_historyOpen || _historyRuns.Count != Bot.Runtime.HistoryCount)) OpenHistory();
         if (DebugAutoQuick && !Modal) { OpenQuickAdd(_l.Canvas.Center); DebugAutoQuick = false; }
 
+        // F1 opens the online documentation from anywhere (even over a modal)
+        if (input.KeyPressed(Keys.F1)) Ircuitry.App.DeepLink.OpenUrl(DocsUrl);
+
         if (Modal)
         {
-            if (input.KeyPressed(Keys.Escape)) { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            if (input.KeyPressed(Keys.Escape))
+            {
+                if (_appearanceOpen) CloseAppearance();
+                else if (_themeInstallOpen) CancelThemeInstall();
+                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+            }
         }
         else if (_renamingBot != null)
         {
@@ -653,6 +666,8 @@ public sealed partial class MainScreen : IScreen
                 if (input.Ctrl && input.Shift && input.KeyPressed(Keys.V)) InstallFromClipboard();
             }
         }
+
+        if (_followCam && !Modal && !_tut.Active) UpdateFollowCam();
 
         UpdateTick(clock);
     }
@@ -873,6 +888,16 @@ public sealed partial class MainScreen : IScreen
             _ui.Enabled = true;
             DrawBakeryModal(r, clock);
         }
+        else if (_appearanceOpen)
+        {
+            _ui.Enabled = true;
+            DrawAppearanceModal(r);
+        }
+        else if (_themeInstallOpen)
+        {
+            _ui.Enabled = true;
+            DrawThemeInstallModal(r);
+        }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------
         DrawTutorial(r, clock);
@@ -903,7 +928,12 @@ public sealed partial class MainScreen : IScreen
     {
         var c = r.Cursors;
         MouseCursor pick;
-        if (Modal) pick = c.Pointer;
+        // window resize edges win over everything: the OS will resize there (matching Sdl's hit-test), so the
+        // cursor must say so even when the pointer is over a panel at the very edge/corner.
+        int re = Ircuitry.Core.Sdl.ResizeEdge((int)In.Mouse.X, (int)In.Mouse.Y);
+        if (re != 0)
+            pick = re switch { 2 or 6 => MouseCursor.SizeNWSE, 4 or 8 => MouseCursor.SizeNESW, 3 or 7 => MouseCursor.SizeNS, _ => MouseCursor.SizeWE };
+        else if (Modal) pick = c.Pointer;
         else if (_editor.IsGrabbing) pick = c.Grab;                       // keep grabbing even if the pointer strays off-canvas
         else if (_consoleResizing || _consoleResizeHot) pick = c.ResizeV;
         else if (_l.Canvas.Contains(In.Mouse)) pick = In.Shift ? c.Crosshair : c.Hand;
@@ -1185,13 +1215,16 @@ public sealed partial class MainScreen : IScreen
         Item("key", "Secret keys…", "", true, () => { _secretsOpen = true; _secretsJustOpened = true; });
         Item("trophy", "Achievements", "", true, () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
         Item("puzzle-piece", "Community nodes…", "", true, OpenNodeManager);
+        Item("palette", "Appearance…", "", true, OpenAppearance);
         Sep();
         Item("ruler", "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
         Item("magnifying-glass", "Fit to view", "", hasNodes, () => _editor.FocusContent(_l.Canvas));
         Item("target", "Frame selection", "F", hasNodes, () => _editor.FrameSelection(_l.Canvas));
         Item("grid-four", _editor.SnapToGrid ? "Snap to grid: on" : "Snap to grid: off", "", true, () => _editor.SnapToGrid = !_editor.SnapToGrid);
+        Item("video-camera", _followCam ? "Follow the action: on" : "Follow the action: off", "", true, () => _followCam = !_followCam);
         Sep();
         Item("graduation-cap", "Tutorial", "", true, ForceStartTutorial);
+        Item("book-open", "Documentation", "F1", true, () => Ircuitry.App.DeepLink.OpenUrl(DocsUrl));
         _ctxOpen = true; _ctxJustOpened = true;
     }
 
@@ -1451,6 +1484,7 @@ public sealed partial class MainScreen : IScreen
     // ====================== community node manager ======================
     private const string NodeLibraryUrl = "https://ircuitry.github.io/nodes.html";
     private const string WorkflowsUrl = "https://ircuitry.github.io/workflows.html";
+    private const string DocsUrl = "https://ircuitry.github.io/docs.html";
 
     private void OpenNodeManager()
     {
@@ -2634,6 +2668,26 @@ public sealed partial class MainScreen : IScreen
                 Card(new RectF(chanX, chanY[ci], chanW, chanH), Theme.Violet, "", channels[ci].name, "", null);
         r.End();
 
+        // ---- living speech bubbles: the latest line in each channel pops above its node and fades ----
+        var now = DateTime.Now;
+        var latest = new Dictionary<string, RecentMsg>(StringComparer.OrdinalIgnoreCase);
+        foreach (var b in _app.Bots)
+            foreach (var m in b.Runtime.RecentMessages(40))
+            {
+                if (m.At == default || m.Channel.Length == 0 || !m.Channel.StartsWith('#')) continue;
+                if (!latest.TryGetValue(m.Channel, out var cur) || m.At > cur.At) latest[m.Channel] = m;
+            }
+        r.Begin(BlendMode.Alpha, area.ToRectangle());
+        foreach (int ci in chanOrder)
+        {
+            if (!Vis(chanY[ci], chanH) || !latest.TryGetValue(channels[ci].name, out var m)) continue;
+            float age = (float)(now - m.At).TotalSeconds;
+            if (age > 7f) continue;
+            float a = Math.Clamp(1.5f - age / 5f, 0f, 1f);   // hold bright, then fade out
+            DrawSpeechBubble(r, new RectF(chanX, chanY[ci], chanW, chanH), m.Nick, m.Text, a);
+        }
+        r.End();
+
         _networkScroll = ClampScroll("networkScroll", Wheel("networkScroll", _networkScroll, area), graphH + 12, area.H);
 
         r.Begin();
@@ -2641,6 +2695,34 @@ public sealed partial class MainScreen : IScreen
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_networkJustOpened) _networkOpen = false;
         _networkJustOpened = false;
         r.End();
+    }
+
+    /// <summary>A cozy thought-bubble above a channel card showing the latest line, fading by recency.</summary>
+    private void DrawSpeechBubble(Renderer r, RectF card, string nick, string text, float alpha)
+    {
+        var fn = r.Fonts.Get(FontKind.SansBold, 11);
+        var fb = r.Fonts.Get(FontKind.Sans, 11);
+        string label = (nick.Length > 0 ? nick : "*") + "  ";
+        string body = text.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        const float maxW = 244;
+        float nameW = fn.MeasureString(label).X;
+        string shown = r.Ellipsize(fb, body, maxW - nameW - 18);
+        float bw = Math.Min(maxW, nameW + fb.MeasureString(shown).X + 18);
+        float bh = 24;
+        float bx = Math.Clamp(card.Center.X - bw / 2f, card.X - 34, card.Right - bw + 34);
+        var box = new RectF(bx, card.Y - bh - 10, bw, bh);
+
+        // thought-bubble trail (two shrinking dots from the card up to the bubble)
+        r.Disc(new Vector2(card.Center.X, card.Y - 3), 3.4f, Theme.WithAlpha(Theme.PanelHi, alpha));
+        r.Ring(new Vector2(card.Center.X, card.Y - 3), 3.4f, Theme.WithAlpha(Theme.Violet, 0.55f * alpha));
+        r.Disc(new Vector2(card.Center.X - 2, box.Bottom + 2), 2.1f, Theme.WithAlpha(Theme.PanelHi, alpha));
+
+        r.RoundFill(new RectF(box.X, box.Y + 2, box.W, box.H), Theme.WithAlpha(Color.Black, 0.10f * alpha), 9f);
+        r.RoundFill(box, Theme.WithAlpha(Theme.PanelHi, alpha), 9f);
+        r.RoundOutline(box, Theme.WithAlpha(Theme.Violet, 0.7f * alpha), 9f);
+        float tx = box.X + 9, ty = box.Center.Y - 7;
+        r.Text(fn, label, new Vector2(tx, ty), Theme.WithAlpha(Theme.Mix(Theme.Text, Theme.Violet, 0.45f), alpha));
+        r.Text(fb, shown, new Vector2(tx + nameW, ty), Theme.WithAlpha(Theme.Text, alpha));
     }
 
     // ====================== achievements ======================

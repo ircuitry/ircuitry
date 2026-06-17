@@ -7,7 +7,8 @@ namespace Ircuitry.Screens;
 /// <summary>Cozy UI chrome - soft rounded panels with drop shadows, pastel headers, cute dots.</summary>
 public static class Hud
 {
-    public const float PanelRadius = 16f;
+    /// <summary>Panel corner radius, scaled by the active theme's roundness knob (clamped so chrome stays sane).</summary>
+    public static float PanelRadius => 16f * System.Math.Clamp(Theme.UiRoundness, 0.25f, 1.75f);
     public const float HeaderH = 38f;
 
     /// <summary>A framed panel: soft shadow, creamy body, pastel header with a cute dot + title.</summary>

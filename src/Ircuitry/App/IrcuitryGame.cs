@@ -125,6 +125,11 @@ public sealed class IrcuitryGame : Game
             if (!OperatingSystem.IsMacOS()) Ircuitry.Core.Sdl.EnableCustomChrome(Window.Handle);
         }
 
+        // appearance: re-apply the non-colour parts of a theme (fonts; window opacity) whenever it changes.
+        // Colours are read live by Theme, so they need no hook. Then restore the user's saved theme.
+        Ircuitry.Core.Themes.Changed += ApplyAppearance;
+        Ircuitry.Core.Themes.LoadActive();
+
         // interactive runs: start maximized, and make the window's X prompt (exit / minimise) instead of quitting
         if (_shotPath == null && ms != null)
         {
@@ -192,6 +197,8 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showbake") >= 0) ms?.DebugOpenBake();
         if (Array.IndexOf(_args, "--showbakery") >= 0) ms?.DebugOpenBakery();
         if (Array.IndexOf(_args, "--showbakeanim") >= 0) ms?.DebugBakeAnim();
+        if (Array.IndexOf(_args, "--showappearance") >= 0) ms?.DebugOpenAppearance();
+        if (Array.IndexOf(_args, "--showthemeinstall") >= 0) ms?.DebugThemeInstall();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);
         if (Array.IndexOf(_args, "--showlabels") >= 0) ms?.DebugShowLabels();
@@ -259,8 +266,28 @@ public sealed class IrcuitryGame : Game
             string s = RefreshTrayModel();
             // nudge the host to re-fetch only when the menu's content changed (connect/disconnect, bot add/remove)
             if (s != _traySig) { _traySig = s; TrayIcon.MenuChanged(); }
+            var (cr, cg, cb) = TrayStatusColor();      // the living orb tracks bot status (and re-themes too)
+            TrayIcon.SetStatus(cr, cg, cb);            // SetStatus is a no-op unless the colour changed
         }
         while (TrayIcon.Commands.TryDequeue(out var cmd)) HandleTray(cmd);
+    }
+
+    // idle (nothing running) -> calm taupe; running but a server is still offline -> honey; all live -> leaf green.
+    private (int, int, int) TrayStatusColor()
+    {
+        bool anyRunning = false, anyOffline = false;
+        foreach (var b in _app.Bots)
+        {
+            if (!b.Runtime.Running) continue;
+            anyRunning = true;
+            foreach (var sv in b.Servers)
+            {
+                if (sv.Host.Length == 0) continue;
+                if (b.Runtime.FindConn(sv.DisplayName)?.Running != true) anyOffline = true;
+            }
+        }
+        var c = !anyRunning ? Theme.Idle : anyOffline ? Theme.Warn : Theme.Ok;
+        return (c.R, c.G, c.B);
     }
 
     private void HandleTray(TrayCommand cmd)
@@ -479,11 +506,37 @@ public sealed class IrcuitryGame : Game
     private string? _pendingShot;     // window-menu screenshot, captured one frame after the menu closes
     private long _pendingShotFrame;
 
+    /// <summary>Re-apply a theme's non-colour parts (colours are read live by <see cref="Theme"/>): swap the UI/display
+    /// fonts and set whole-window translucency. Driven by <see cref="Ircuitry.Core.Themes.Changed"/>.</summary>
+    private void ApplyAppearance()
+    {
+        try { _fonts.SetUiFont(Theme.Active.UiFont); _fonts.SetDisplayFont(Theme.Active.DisplayFont); } catch { }
+        if (_shotPath == null) Ircuitry.Core.Sdl.SetOpacity(Window.Handle, Theme.WindowOpacity);   // offscreen runs stay crisp
+    }
+
+    /// <summary>A soft glassy treatment painted over the whole window when the theme's frosted glass is on:
+    /// a top-down sheen and a faint inner highlight, so it reads like a glass pane even where the compositor
+    /// can't blur the desktop behind a translucent window.</summary>
+    private void DrawGlassSheen()
+    {
+        _r.Begin();
+        int w = _r.ViewW, h = _r.ViewH;
+        float topH = h * 0.34f;
+        for (int i = 0; i < 6; i++)
+        {
+            float a = 0.05f * (1f - i / 6f);
+            _r.Fill(new RectF(0, topH * i / 6f, w, topH / 6f + 1), Theme.WithAlpha(Color.White, a));
+        }
+        _r.RectOutline(new RectF(1, 1, w - 2, h - 2), Theme.WithAlpha(Color.White, 0.06f), 1.5f);
+        _r.End();
+    }
+
     protected override void Draw(GameTime gameTime)
     {
         UpdateViewport();
         GraphicsDevice.Clear(Theme.Void);
         _screen.Draw(_r, _clock);
+        if (Theme.Glass) DrawGlassSheen();
         _splash?.Draw(_r, _clock);
         base.Draw(gameTime);
 
