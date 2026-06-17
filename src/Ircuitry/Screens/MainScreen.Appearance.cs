@@ -84,10 +84,11 @@ public partial class MainScreen
         // ---- footer: status + reset + close ----
         if (_aprMsg.Length > 0)
             r.Text(r.Fonts.Get(FontKind.Sans, 12), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 12), _aprMsg, w0 - 320), new Vector2(x0, panel.Bottom - 38), Theme.TextDim);
-        bool isDefault = Theme.Active.Name == "Cozy (default)";
-        if (_ui.Button("apr.reset", new RectF(panel.Right - 22 - 104 - 8 - 170, panel.Bottom - 46, 170, 32), Icons.Glyph("arrow-counter-clockwise") + " Reset to default", Theme.Amber, enabled: !isDefault))
+        // always enabled: editing the default in place keeps its name, so a name check would wrongly disable this
+        if (_ui.Button("apr.reset", new RectF(panel.Right - 22 - 104 - 8 - 170, panel.Bottom - 46, 170, 32), Icons.Glyph("arrow-counter-clockwise") + " Reset to default", Theme.Amber))
         {
-            Themes.Apply(ThemeData.Default());
+            Themes.Apply(ThemeData.Default());                       // fresh cozy default, applied + persisted
+            _ui.R.Fonts.SetUiFont("default"); _ui.R.Fonts.SetDisplayFont("default");
             _aprSelKey = "cyan"; _aprHex = ThemeData.Hex(Theme.Active.C(_aprSelKey)); _aprSaveName = "My Theme";
             Ircuitry.Core.Sdl.SetOpacity(WindowHandle, Theme.Active.Opacity);
             _aprMsg = "Reset to the cozy default";

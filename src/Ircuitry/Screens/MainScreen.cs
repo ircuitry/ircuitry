@@ -46,6 +46,7 @@ public sealed partial class MainScreen : IScreen
     private float _clipCheckAt = -1f;     // throttle clipboard polling
     private string? _clipNodeTitle;        // title of an installable .ircnode currently in the clipboard, or null
     private NodeCategory? _openCat;   // palette accordion: at most one category expanded (null = all collapsed)
+    private readonly System.Collections.Generic.HashSet<string> _collapsedSections = new() { "Recent" };   // pinned/recent sections collapsed by title; Recent starts collapsed
 
     // import modal + graph-change tracking
     private bool _importOpen;
@@ -1298,20 +1299,26 @@ public sealed partial class MainScreen : IScreen
         r.Begin(BlendMode.Alpha, listClip.ToRectangle());
         float y = listClip.Y - _paletteScroll;
 
-        // a simple pinned/recent section (no collapse), drawn above the categories when not searching
+        // a pinned/recent section drawn above the categories when not searching; click the header to collapse it
         void Section(string title, string icon, Color col, IEnumerable<NodeDef> defs)
         {
             var items = defs.ToList();
             if (items.Count == 0) return;
+            bool collapsed = _collapsedSections.Contains(title);
             const float hh = 30f;
             var hdr = new RectF(x, y, w, hh);
-            r.RoundFill(hdr, Theme.Mix(Theme.PanelHi, col, 0.16f), 10f);
+            bool hHover = hdr.Contains(In.Mouse) && listClip.Contains(In.Mouse);
+            r.RoundFill(hdr, Theme.Mix(Theme.PanelHi, col, hHover ? 0.28f : 0.16f), 10f);
             r.RoundOutline(hdr, Theme.WithAlpha(col, 0.35f), 10f);
             var icf = r.Fonts.Get(FontKind.Display, 14);
             r.Text(icf, icon, new Vector2(hdr.X + 10, hdr.Center.Y - icf.MeasureString(icon).Y / 2f), col);
             var nf = r.Fonts.Get(FontKind.SansBold, 13);
             r.Text(nf, title, new Vector2(hdr.X + 34, hdr.Center.Y - nf.MeasureString("M").Y / 2f - 1), Theme.Text);
+            var chf = r.Fonts.Get(FontKind.SansBold, 12);
+            r.Text(chf, collapsed ? Ircuitry.Core.Icons.Glyph("caret-right") : Ircuitry.Core.Icons.Glyph("caret-down"), new Vector2(hdr.Right - 18, hdr.Center.Y - chf.MeasureString("M").Y / 2f - 1), Theme.WithAlpha(Theme.Text, 0.55f));
+            if (!Modal && In.LeftPressed && hHover) { if (!_collapsedSections.Remove(title)) _collapsedSections.Add(title); }
             y += hh + 7;
+            if (collapsed) return;
             foreach (var def in items)
             {
                 var chip = new RectF(x + 6, y, w - 6, 40);
