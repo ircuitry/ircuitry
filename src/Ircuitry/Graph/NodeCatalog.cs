@@ -2294,6 +2294,16 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "event.webhook", Icon = "webhooks-logo", Title = "On Webhook", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "webhook",
+                Description = "Fires on an HTTP request to this bot's webhook URL when hosted (POST http://host:port/hook/<path> on a running ircuitry --server). The path is the shared secret - use a long random one. Outputs the request {body}; pair with JSON to parse it. The bot must be connected.",
+                Outputs = new[] { Ex("then"), Tx("body") },
+                Params = new[] { P("path", "Path (secret)", ParamType.Text, "", "long-random-secret-path") },
+                SummaryParam = "path",
+                Exec = c => c.Pulse(0),
+            },
+            new()
+            {
                 TypeId = "event.schedule", Icon = "calendar", Title = "On Schedule", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "schedule",
                 Description = "Fires on a schedule: an interval, every day at a time, on chosen weekdays, or once at a date/time. Uses your computer's local time. Outputs {time} and {date}; pair with Send to Channel.",

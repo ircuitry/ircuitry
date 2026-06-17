@@ -389,6 +389,25 @@ public sealed class ServerConn : IRuntimeSink
         }
     }
 
+    /// <summary>Fire every On Webhook node whose path matches, with the request vars (body/method/query.*) merged
+    /// into the run scope. Returns how many fired.</summary>
+    public int FireWebhook(string path, Dictionary<string, string> extra)
+    {
+        var graph = _owner.RunGraph;
+        if (graph == null) return 0;
+        int fired = 0;
+        foreach (var node in graph.Nodes)
+        {
+            if (node.Def.TriggerEvent != "webhook" || node.Muted) continue;
+            if (!string.Equals(node.GetParam("path"), path, StringComparison.Ordinal)) continue;
+            var vars = BaseVars();
+            foreach (var kv in extra) vars[kv.Key] = kv.Value;
+            FireNode(node, vars);
+            fired++;
+        }
+        return fired;
+    }
+
     internal void FireNode(Node node, Dictionary<string, string> vars) => Dispatch(() => RunNode(node, vars));
 
     private void RunNode(Node node, Dictionary<string, string> vars)

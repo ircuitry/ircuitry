@@ -100,6 +100,17 @@ public static class ControlServer
                 WriteJson(ctx, 200, new { ok = true, app = "ircuitry", version = AppInfo.Version, bots = _app.Bots.Count });
                 return;
             }
+            if (path.StartsWith("/hook/", StringComparison.Ordinal))   // webhook trigger (path IS the shared secret; no token)
+            {
+                string hook = Uri.UnescapeDataString(path["/hook/".Length..]);
+                string body; using (var sr = new StreamReader(ctx.Request.InputStream, ctx.Request.ContentEncoding ?? Encoding.UTF8)) body = sr.ReadToEnd();
+                var vars = new Dictionary<string, string> { ["body"] = body, ["webhook"] = hook, ["method"] = ctx.Request.HttpMethod };
+                foreach (string? k in ctx.Request.QueryString.AllKeys) if (!string.IsNullOrEmpty(k)) vars["query." + k] = ctx.Request.QueryString[k] ?? "";
+                int fired = 0;
+                lock (Gate) foreach (var b in _app.Bots) fired += b.Runtime.FireWebhook(hook, vars);
+                WriteJson(ctx, fired > 0 ? 200 : 404, new { fired });
+                return;
+            }
             if (path == "/ws" && ctx.Request.IsWebSocketRequest)
             {
                 var wsCtx = await ctx.AcceptWebSocketAsync(null);

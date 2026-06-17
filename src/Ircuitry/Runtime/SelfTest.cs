@@ -165,6 +165,7 @@ public static class SelfTest
         fails += DccTest();
         fails += CapabilityCorsTest();
         fails += ThemeRoundTripTest();
+        fails += WebhookTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -188,6 +189,18 @@ public static class SelfTest
         fails += Expect("theme-hex", Ircuitry.Core.ThemeData.TryHex("#7ED6E4", out var hc) && hc == new Microsoft.Xna.Framework.Color(126, 214, 228)
             && !Ircuitry.Core.ThemeData.TryHex("nope", out _) && Ircuitry.Core.ThemeData.TryHex("#abc", out _), "");
         return fails;
+    }
+
+    /// <summary>Webhook: an On Webhook trigger fires its graph and the request {body} flows into the run.</summary>
+    private static int WebhookTest()
+    {
+        var g = new NodeGraph();
+        var hook = N(g, "event.webhook", 0, 0); hook.SetParam("path", "abc");
+        var reply = N(g, "action.reply", 300, 0); reply.SetParam("message", "got {body}");
+        g.Connect(hook.Id, 0, reply.Id, 0);
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, hook, new System.Collections.Generic.Dictionary<string, string> { ["body"] = "ping", ["channel"] = "#h", ["nick"] = "hook" });
+        return Expect("webhook-fire", sink.Sent.Count == 1 && sink.Sent[0] == ("#h", "got ping"), Dump(sink));
     }
 
     /// <summary>DCC: CTCP offer parsing, the 32-bit IP conversion, filename sanitising, and a real loopback

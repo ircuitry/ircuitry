@@ -312,6 +312,9 @@ public sealed class BotRuntime
 
     public int FireCount(string nodeId) => _fireCounts.TryGetValue(nodeId, out var n) ? n : 0;
 
+    /// <summary>Deliver a webhook to this bot's running graph (via its primary connection). 0 if not connected.</summary>
+    public int FireWebhook(string path, Dictionary<string, string> vars) => PrimaryConn?.FireWebhook(path, vars) ?? 0;
+
     // ===================================================================
     //  Schedule maths (static, also exercised directly by the self-tests)
     // ===================================================================
