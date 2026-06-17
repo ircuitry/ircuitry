@@ -54,7 +54,7 @@ public sealed partial class MainScreen
     {
         var p = _l.Console;
         var btn = new RectF(p.Right - 156, p.Y + 7, 144, 24);
-        if (_ui.Button("console.ircview", btn, "📺  Bot's-eye view", Theme.Teal)) OpenIrcWindow();
+        if (_ui.Button("console.ircview", btn, Ircuitry.Core.Icons.Glyph("television") + "  Bot's-eye view", Theme.Teal)) OpenIrcWindow();
     }
 
     private ServerConn? IrcConn => Bot.Runtime.PrimaryConn;
@@ -98,7 +98,7 @@ public sealed partial class MainScreen
     private void DrawIrcHeader(Renderer r, RectF win, ServerConn? conn)
     {
         r.Begin();
-        r.Text(r.Fonts.Get(FontKind.Display, 18), "📺  What ircuitry has seen", new Vector2(win.X + 18, win.Y + 11), Theme.Text);
+        r.Text(r.Fonts.Get(FontKind.Display, 18), Ircuitry.Core.Icons.Glyph("television") + "  What ircuitry has seen", new Vector2(win.X + 18, win.Y + 11), Theme.Text);
 
         bool live = conn?.Running == true && conn.State == Ircuitry.Irc.IrcState.Connected;
         string nick = conn?.CurrentNick ?? "";
@@ -128,7 +128,7 @@ public sealed partial class MainScreen
 
         var f = r.Fonts.Get(FontKind.Sans, 13);
         float y = box.Y + 28;
-        var items = new List<(string id, string label, string sub)> { (StatusTab, "📋  Status", "") };
+        var items = new List<(string id, string label, string sub)> { (StatusTab, Ircuitry.Core.Icons.Glyph("clipboard") + "  Status", "") };
         if (conn != null)
             foreach (var ch in conn.Session.Channels())
                 items.Add((ch, ch, conn.Session.MemberCount(ch) + ""));

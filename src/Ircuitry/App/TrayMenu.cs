@@ -57,7 +57,7 @@ public sealed class TrayMenu : IDbusMenu
     private readonly object _lock = new();
     private uint _revision = 1;
 
-    // the last-built tree: id → (properties, child ids); plus id → command for clickable leaves
+    // the last-built tree: id -> (properties, child ids); plus id -> command for clickable leaves
     private Dictionary<int, (IDictionary<string, object> props, List<int> kids)> _items = new();
     private Dictionary<int, TrayCommand> _actions = new();
     // STABLE ids: a logical item (e.g. "disconnect", "disconnect.bot.h4ks") always keeps the same numeric id

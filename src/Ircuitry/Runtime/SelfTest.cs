@@ -457,7 +457,7 @@ public static class SelfTest
         return false;
     }
 
-    /// <summary>End-to-end AI path against a mock OpenAI-compatible server: On Command → Ask AI → Send Reply.</summary>
+    /// <summary>End-to-end AI path against a mock OpenAI-compatible server: On Command -> Ask AI -> Send Reply.</summary>
     private static int AiLoopTest()
     {
         int port = FreePort();
@@ -575,7 +575,8 @@ public static class SelfTest
         int reqs = 0;
         // round 1: list recent; round 2: react to the cake message by id; round 3: final answer
         string listJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"recent_messages","arguments":"{\"count\":\"15\"}"}}]}}]}""";
-        string reactJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c2","type":"function","function":{"name":"react","arguments":"{\"msgid\":\"mid-cake\",\"emoji\":\"🎂\",\"target\":\"#cake\"}"}}]}}]}""";
+        string cakeEmoji = "\U0001F382";   // intentional unicode (birthday cake) - raw string below can't carry a \U escape
+        string reactJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c2","type":"function","function":{"name":"react","arguments":"{\"msgid\":\"mid-cake\",\"emoji\":\"CAKE_EMOJI\",\"target\":\"#cake\"}"}}]}}]}""".Replace("CAKE_EMOJI", cakeEmoji);
         string finalJson = """{"choices":[{"message":{"content":"done"}}]}""";
         var server = new Thread(() =>
         {
@@ -611,7 +612,7 @@ public static class SelfTest
         GraphExecutor.Fire(g, s, cmd, Vars("!do react to the cake person", "u", "#cake"));
         stop = true; try { listener.Stop(); } catch { }
 
-        bool reacted = s.Sent.Contains(("#cake", "react:🎂"));
+        bool reacted = s.Sent.Contains(("#cake", "react:" + cakeEmoji));   // intentional unicode (birthday cake)
         return Expect("superai-tools-react", reacted && reqs >= 3, $"{Dump(s)} reqs={reqs}");
     }
 
@@ -1082,11 +1083,11 @@ public static class SelfTest
         {
             var g = new NodeGraph();
             var msg = N(g, "event.message", 0, 0);
-            var react = N(g, "action.react", 250, 0); react.SetParam("emoji", "🎉");
+            var react = N(g, "action.react", 250, 0); react.SetParam("emoji", "\U0001F389");   // intentional unicode (party popper)
             g.Connect(msg.Id, 0, react.Id, 0);
             var v = Vars("hi", "alice", "#c"); v["msgid"] = "abc";
             var s = new FakeSink(); GraphExecutor.Fire(g, s, msg, v);
-            fails += Expect("react-node", s.Sent.Count == 1 && s.Sent[0] == ("#c", "react:🎉"), Dump(s));
+            fails += Expect("react-node", s.Sent.Count == 1 && s.Sent[0] == ("#c", "react:\U0001F389"), Dump(s));
         }
 
         // From Account: branches on the account tag
@@ -1205,7 +1206,7 @@ public static class SelfTest
                 fails += Expect("sql-run", e1 == null && e2 == null && e3 == null && aff == 2 && rows == 2 && res == "5\n9",
                     $"e=[{e1}|{e2}|{e3}] aff={aff} rows={rows} res={res.Replace("\n", "/")}");
 
-                // node path: SELECT via db.sql → reply
+                // node path: SELECT via db.sql -> reply
                 var g = new NodeGraph();
                 var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "q");
                 var sql = N(g, "db.sql", 200, 0); sql.SetParam("file", db); sql.SetParam("sql", "SELECT count(*) FROM t;");
@@ -1620,7 +1621,7 @@ public static class SelfTest
         try
         {
             fails += Expect("secret-expand", Ircuitry.Core.Secrets.Expand("Bearer {{secret.openai}}") == "Bearer sk-xyz", "");
-            fails += Expect("secret-missing", Ircuitry.Core.Secrets.Expand("{{secret.nope}}") == "", "missing → empty");
+            fails += Expect("secret-missing", Ircuitry.Core.Secrets.Expand("{{secret.nope}}") == "", "missing -> empty");
             fails += Expect("secret-references", Ircuitry.Core.Secrets.References("x {{secret.pw}}") && !Ircuitry.Core.Secrets.References("plain"), "");
             // forgiving lookup: a name-case mismatch and inner whitespace must still resolve
             fails += Expect("secret-case-insensitive", Ircuitry.Core.Secrets.Expand("{{secret.OpenAI}}") == "sk-xyz", "case-insensitive name");
@@ -1661,7 +1662,7 @@ public static class SelfTest
             fails += Expect("stream-roundtrip", g2.Find(h.Id)?.StreamAsTool == true, "should persist the opted-in state");
         }
 
-        // auto-layout lays nodes out left→right by dependency depth
+        // auto-layout lays nodes out left->right by dependency depth
         {
             var g = new NodeGraph();
             var a = g.Add(NodeCatalog.Get("event.command"), new Vector2(100, 100));
@@ -1819,7 +1820,7 @@ public static class SelfTest
         return fails;
     }
 
-    /// <summary>End-to-end over a real loopback socket: connect → register → !ping → pong.</summary>
+    /// <summary>End-to-end over a real loopback socket: connect -> register -> !ping -> pong.</summary>
     private static int IrcLoopTest()
     {
         using var mock = new MockIrcServer();
@@ -1930,7 +1931,7 @@ public static class SelfTest
         return fails;
     }
 
-    /// <summary>Stop → restart the same runtime must reconnect, re-join the channel, and reply again
+    /// <summary>Stop -> restart the same runtime must reconnect, re-join the channel, and reply again
     /// (regression: the throttle writer thread used to die on the first Stop, silently dropping all sends).</summary>
     private static int IrcRestartTest()
     {
@@ -1971,7 +1972,7 @@ public static class SelfTest
     {
         int fails = 0;
 
-        // --- origin routing: !ping on A → pong on A, nothing on B ---
+        // --- origin routing: !ping on A -> pong on A, nothing on B ---
         {
             using var a = new MockIrcServer(new[] { (150, ":u!u@h PRIVMSG #ircuitry-test :!ping") });
             using var b = new MockIrcServer(System.Array.Empty<(int, string)>());
@@ -1991,7 +1992,7 @@ public static class SelfTest
             fails += Expect("multiserver-reply-to-origin", onA && !onB, $"onA={onA} onB={onB}");
         }
 
-        // --- per-node override: !ping on A → pong on B (reply routed to "beta") ---
+        // --- per-node override: !ping on A -> pong on B (reply routed to "beta") ---
         {
             using var a = new MockIrcServer(new[] { (150, ":u!u@h PRIVMSG #ircuitry-test :!ping") });
             using var b = new MockIrcServer(System.Array.Empty<(int, string)>());
@@ -2116,7 +2117,7 @@ public static class SelfTest
 
             var ed = new Ircuitry.Editor.GraphEditor(g);
             ed.Selection.Add(t1.Id); ed.Selection.Add(t2.Id);
-            var manifest = ed.BuildCompositeFromSelection("Shout Reverse", "🔁", "Data", "upper then reverse", false, out var err);
+            var manifest = ed.BuildCompositeFromSelection("Shout Reverse", "repeat", "Data", "upper then reverse", false, out var err);
             if (manifest == null) return Expect("composite-bake", false, "build failed: " + err);
 
             Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
@@ -2166,7 +2167,7 @@ public static class SelfTest
             var rep = mg.Add(NodeCatalog.Get("action.reply"), new Vector2(200, 0)); rep.SetParam("message", "{greeting} world");
             mg.Connect(fin.Id, 0, rep.Id, 0);
             var ed = new Ircuitry.Editor.GraphEditor(mg);
-            var manifest = ed.SerializeAsComposite("subflow.greet", "Greet", "🧩", "Action", "",
+            var manifest = ed.SerializeAsComposite("subflow.greet", "Greet", "puzzle-piece", "Action", "",
                 new Dictionary<string, string> { ["greeting"] = "hi" });
             if (manifest == null) return Expect("composite-expose", false, "serialize failed");
 
@@ -2230,7 +2231,7 @@ public static class SelfTest
         var ret = mg.Add(NodeCatalog.Get("flow.return"), new Vector2(400, 100)); ret.SetParam("name", "out");
         mg.Connect(fin.Id, 0, ret.Id, 0); mg.Connect(arg.Id, 0, up.Id, 0); mg.Connect(up.Id, 0, ret.Id, 1);
         var med = new Ircuitry.Editor.GraphEditor(mg);
-        var m = med.SerializeAsComposite("subflow.mini", "Mini", "🧩", "Data", "x");
+        var m = med.SerializeAsComposite("subflow.mini", "Mini", "puzzle-piece", "Data", "x");
         var def = m != null ? CustomNode.Load(m) : null;
         bool ok = def != null && def.Inputs.Any(p => p.Name == "text") && def.Outputs.Any(p => p.Name == "out");
         return Expect("composite-mini-serialize", ok, "built=" + (m != null));
@@ -2369,7 +2370,7 @@ public static class SelfTest
             var tReply = subA.Add(NodeCatalog.Get("tool.reply"), new Vector2(220, 0));
             subA.Connect(aiTool.Id, 1, tReply.Id, 0);   // call -> reply exec
             subA.Connect(aiTool.Id, 2, tReply.Id, 1);   // arg 1 (query) -> reply result
-            string manifestA = "{\"typeId\":\"custom.echoa\",\"title\":\"Echo A\",\"icon\":\"🧰\",\"category\":\"Logic\",\"description\":\"\","
+            string manifestA = "{\"typeId\":\"custom.echoa\",\"title\":\"Echo A\",\"icon\":\"toolbox\",\"category\":\"Logic\",\"description\":\"\","
                 + "\"inputs\":[{\"name\":\"\",\"kind\":\"Exec\"}],\"outputs\":[{\"name\":\"then\",\"kind\":\"Exec\"},{\"name\":\"tool\",\"kind\":\"Tool\"}],"
                 + "\"subgraph\":" + GraphSerializer.Save(subA, "Echo A") + "}";
             File.WriteAllText(Path.Combine(tmp, "nodes", "custom.echoa.ircnode"), manifestA);
@@ -2381,7 +2382,7 @@ public static class SelfTest
             var bret = subB.Add(NodeCatalog.Get("flow.return"), new Vector2(220, 0)); bret.SetParam("name", "result");
             subB.Connect(bin.Id, 0, bret.Id, 0); subB.Connect(barg.Id, 0, bret.Id, 1);
             string manifestB = new Ircuitry.Editor.GraphEditor(subB)
-                .SerializeAsComposite("custom.echob", "Echo B", "🧰", "Logic", "echoes its argument", null, true) ?? "";
+                .SerializeAsComposite("custom.echob", "Echo B", "toolbox", "Logic", "echoes its argument", null, true) ?? "";
             File.WriteAllText(Path.Combine(tmp, "nodes", "custom.echob.ircnode"), manifestB);
 
             // (C) a self-contained tool whose AiToolName collides with (A)'s inner tool name "echo_baked":
@@ -2392,7 +2393,7 @@ public static class SelfTest
             var cret = subC.Add(NodeCatalog.Get("flow.return"), new Vector2(220, 0)); cret.SetParam("name", "result");
             subC.Connect(cin.Id, 0, cret.Id, 0); subC.Connect(carg.Id, 0, cret.Id, 1);
             string manifestC = new Ircuitry.Editor.GraphEditor(subC)
-                .SerializeAsComposite("echo_baked", "Echo Collide", "🧰", "Logic", "dup", null, true) ?? "";
+                .SerializeAsComposite("echo_baked", "Echo Collide", "toolbox", "Logic", "dup", null, true) ?? "";
             File.WriteAllText(Path.Combine(tmp, "nodes", "echo_baked.ircnode"), manifestC);
 
             NodeCatalog.LoadCustom();

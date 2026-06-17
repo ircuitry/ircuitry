@@ -137,7 +137,8 @@ public static class CommunityNodes
         R("text.mock", One("text.mock", "Mock Case", "text-aa", "Data", "mOcKiNg SpOnGeBoB case.", "text", "data.case", new[] { ("op", "mock") }));
         R("text.spongebob", One("text.spongebob", "Caps Alternator", "eraser", "Data", "AlTeRnAtInG caps.", "text", "data.case", new[] { ("op", "mock") }));
         R("text.leet", One("text.leet", "Leetspeak", "floppy-disk", "Data", "Converts letters to l33t numerals.", "text", "data.case", new[] { ("op", "leet") }));
-        R("fun.clap", One("fun.clap", "Clap Emojify", "hands-clapping", "Data", "Inserts 👏 between 👏 words.", "text", "data.case", new[] { ("op", "clap") }));
+        // intentional unicode (clap) in the node description text
+        R("fun.clap", One("fun.clap", "Clap Emojify", "hands-clapping", "Data", "Inserts \U0001F44F between \U0001F44F words.", "text", "data.case", new[] { ("op", "clap") }));
 
         // ===== shape =====
         R("text.reverse", One("text.reverse", "Reverse Text", "arrow-bend-up-left", "Data", "Reverses the characters.", "text", "data.shape", new[] { ("op", "reverse") }));

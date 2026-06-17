@@ -112,7 +112,7 @@ public static class McpTools
                 return new { id = n.Id, key = Str(a, "key"), value = n.GetParam(Str(a, "key")) };
             });
 
-        Tool("connect", "Wire an output pin to an input pin (pin indices are 0-based, in pin order). Exec→exec or data→data.",
+        Tool("connect", "Wire an output pin to an input pin (pin indices are 0-based, in pin order). Exec\u2192exec or data\u2192data.",   // intentional unicode (rightwards arrow)
             Obj(new { bot = BotArg(), from = S("source node id"), fromPin = I("source output pin index"), to = S("target node id"), toPin = I("target input pin index") }, "from", "to"),
             true, (a, app) =>
             {
@@ -164,7 +164,7 @@ public static class McpTools
                 return new { host = s.Host, port = s.Port, tls = s.UseTls, nick = s.Nick, channels = s.Channels };
             });
 
-        Tool("auto_layout", "Tidy a bot's graph into clean left→right layers.",
+        Tool("auto_layout", "Tidy a bot's graph into clean left\u2192right layers.",   // intentional unicode (rightwards arrow)
             Obj(new { bot = BotArg() }), true, (a, app) => { var bot = ResolveBot(a, app); new Ircuitry.Editor.GraphEditor(bot.Graph).AutoLayout(); return new { nodes = bot.Graph.Nodes.Count }; });
 
         // ---------------- validate & test ----------------

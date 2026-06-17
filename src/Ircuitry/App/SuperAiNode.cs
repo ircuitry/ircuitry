@@ -53,7 +53,7 @@ public static class SuperAiNode
         };
 
         return new GraphEditor(g).SerializeAsComposite(
-            "superai", "SuperAI", "🦾", "Ai",
+            "superai", "SuperAI", "robot", "Ai",
             "An AI that reads the chat it has seen, can fetch older history (even from before it joined), and reacts to a specific message by id - assembled from nodes you can edit. Right-click -> Edit to rewire it. Add an OpenAI key as a secret named 'openai', set a goal, and wire 'reply' into Send Reply.",
             exposed) ?? "";
     }

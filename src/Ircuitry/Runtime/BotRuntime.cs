@@ -163,7 +163,7 @@ public sealed class BotRuntime
         if (!Running) return;
         FreezeGraph(graph);
         AppliedSig = graph.BehaviorSignature();
-        _log.Add(LogLevel.System, $"↻ applied workflow changes - {CountTriggers()} trigger(s) armed");
+        _log.Add(LogLevel.System, $"{Ircuitry.Core.Icons.Glyph("arrows-clockwise")} applied workflow changes - {CountTriggers()} trigger(s) armed");
     }
 
     private void FreezeGraph(NodeGraph graph) =>
@@ -323,7 +323,7 @@ public sealed class BotRuntime
         if (tok.Length == 0) return 0;
         if (int.TryParse(tok, out var num)) return num is >= 1 and <= 7 ? num : 0;
         int idx = Array.FindIndex(DayNames, d => tok.StartsWith(d));
-        return idx < 0 ? 0 : (idx == 0 ? 7 : idx);   // Sun(idx0)→7, Mon(idx1)→1 …
+        return idx < 0 ? 0 : (idx == 0 ? 7 : idx);   // Sun(idx0)->7, Mon(idx1)->1 ...
     }
 
     private static bool DayAllowed(string spec, DayOfWeek day)

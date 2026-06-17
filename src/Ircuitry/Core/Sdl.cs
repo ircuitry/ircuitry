@@ -152,6 +152,6 @@ public static class Sdl
             };
             SDL_SetEventFilter(_filter, IntPtr.Zero);
         }
-        catch { /* no SDL → window closes normally */ }
+        catch { /* no SDL -> window closes normally */ }
     }
 }

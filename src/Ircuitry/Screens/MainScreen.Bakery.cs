@@ -66,7 +66,7 @@ public partial class MainScreen
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
         float pw = Math.Min(760, _vw - 60), ph = Math.Min(640, _vh - 60);
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
-        Hud.Panel(r, panel, "🧁  Bot Bakery", Theme.Berry);
+        Hud.Panel(r, panel, Ircuitry.Core.Icons.Glyph("cake") + "  Bot Bakery", Theme.Berry);
 
         float pad = 22, cx = panel.X + pad, cw = panel.W - 2 * pad;
         float y = panel.Y + Hud.HeaderH + 12;
@@ -94,7 +94,7 @@ public partial class MainScreen
             var box = new RectF(rect.X + 8, rect.Center.Y - 8, 16, 16);
             r.RoundFill(box, sel ? Theme.Berry : Theme.Panel, 4f);
             r.RoundOutline(box, sel ? Theme.Berry : Theme.Edge, 4f);
-            if (sel) r.Text(r.Fonts.Get(FontKind.SansBold, 12), "✓", new Vector2(box.X + 3, box.Y), Theme.TextInk);
+            if (sel) r.Text(r.Fonts.Get(FontKind.SansBold, 12), Ircuitry.Core.Icons.Glyph("check"), new Vector2(box.X + 3, box.Y), Theme.TextInk);
             r.Text(r.Fonts.Get(FontKind.SansBold, 12), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 12), _app.Bots[i].Name, colW - 90), new Vector2(rect.X + 32, rect.Center.Y - 9), Theme.Text);
             r.TextRight(r.Fonts.Get(FontKind.Sans, 10), _app.Bots[i].Graph.Nodes.Count + " nodes", rect.Right - 8, rect.Center.Y - 7, Theme.TextFaint);
             if (hover && In.LeftPressed) { if (sel) _bakeSel.Remove(i); else _bakeSel.Add(i); }
@@ -107,7 +107,7 @@ public partial class MainScreen
             if (_bakeConf.Count == 0)
             {
                 r.RoundFill(new RectF(cx, y, cw, 30), Theme.WithAlpha(Theme.Ok, 0.14f), 8f);
-                r.Text(sans, "✓ No command clashes - these bots merge cleanly.", new Vector2(cx + 10, y + 8), Theme.Text);
+                r.Text(sans, Ircuitry.Core.Icons.Glyph("check") + " No command clashes - these bots merge cleanly.", new Vector2(cx + 10, y + 8), Theme.Text);
                 y += 40;
             }
             else
@@ -150,7 +150,7 @@ public partial class MainScreen
         // ---- footer ----
         float bh = 36, by2 = panel.Bottom - bh - 10;
         bool ready = _bakeOrder.Count >= 2;
-        if (_ui.Button("bk.bake", new RectF(panel.Right - pad - 160, by2, 160, bh), "🧁  Bake!", Theme.Berry, primary: true, enabled: ready))
+        if (_ui.Button("bk.bake", new RectF(panel.Right - pad - 160, by2, 160, bh), Ircuitry.Core.Icons.Glyph("cake") + "  Bake!", Theme.Berry, primary: true, enabled: ready))
             StartBake(clock);
         if (_ui.Button("bk.close", new RectF(cx, by2, 90, bh), "CLOSE", Theme.Idle)) _bakeryOpen = false;
         if (!ready) r.Text(sans, "Select at least two bots.", new Vector2(cx + 104, by2 + 11), Theme.TextFaint);
@@ -180,7 +180,7 @@ public partial class MainScreen
         {
             _app.AddBotFrom(name, merged, servers);
             _editor.FocusContent(_l.Canvas);
-            Notify($"🧁 {name} is out of the oven - {merged.Nodes.Count} nodes");
+            Notify(Ircuitry.Core.Icons.Glyph("cake") + $" {name} is out of the oven - {merged.Nodes.Count} nodes");
         };
         _bakeryOpen = false;
         _bakeStart = clock.Time;

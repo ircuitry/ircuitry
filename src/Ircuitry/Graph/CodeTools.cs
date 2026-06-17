@@ -824,7 +824,7 @@ public static class CodeTools
             int n = (int)Math.Min(fs.Length, 4096);
             var buf = new byte[n];
             int read = fs.Read(buf, 0, n);
-            for (int i = 0; i < read; i++) if (buf[i] == 0) return true;   // NUL byte ⇒ treat as binary
+            for (int i = 0; i < read; i++) if (buf[i] == 0) return true;   // NUL byte -> treat as binary
             return false;
         }
         catch { return true; }

@@ -129,7 +129,7 @@ public sealed class IrcuitryGame : Game
         if (_shotPath == null && ms != null)
         {
             ms.OnExitRequested = Exit;
-            // minimise → vanish to the tray if a tray icon is up, else a normal taskbar minimise
+            // minimise -> vanish to the tray if a tray icon is up, else a normal taskbar minimise
             ms.OnMinimizeRequested = () =>
             {
                 if (TrayIcon.Available) Ircuitry.Core.Sdl.Hide(Window.Handle);
@@ -410,7 +410,7 @@ public sealed class IrcuitryGame : Game
             IrcState.Error => "ERROR",
             _ => rt.Running ? "STARTING" : "OFFLINE",
         };
-        string title = $"ircuitry - {bot.Name}{(_app.Dirty ? " ●" : "")}  ·  {status}  ·  {bot.Graph.Nodes.Count} nodes / {bot.Graph.Connections.Count} wires"
+        string title = $"ircuitry - {bot.Name}{(_app.Dirty ? " *" : "")}  ·  {status}  ·  {bot.Graph.Nodes.Count} nodes / {bot.Graph.Connections.Count} wires"
                      + $"  ·  {_app.Bots.Count} bot{(_app.Bots.Count == 1 ? "" : "s")}";
         if (title != _lastTitle) { Window.Title = title; _lastTitle = title; }
     }
@@ -495,7 +495,7 @@ public sealed class IrcuitryGame : Game
             if (_pendingShot != null && _clock.Frame >= _pendingShotFrame)
             {
                 SaveScreenshot(_pendingShot);
-                sms.NotifyExternal("📸 Saved to shots/" + Path.GetFileName(_pendingShot));   // toast next frame, not in the shot
+                sms.NotifyExternal(Ircuitry.Core.Icons.Glyph("camera") + " Saved to shots/" + Path.GetFileName(_pendingShot));   // toast next frame, not in the shot
                 _pendingShot = null;
             }
         }

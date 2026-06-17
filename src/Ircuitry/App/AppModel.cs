@@ -113,7 +113,7 @@ public sealed class AppModel
             foreach (var s in servers) bot.Servers.Add(s.Clone());
             if (bot.Servers.Count == 0) bot.Servers.Add(new Ircuitry.Irc.IrcSettings());
         }
-        bot.Log.Add(LogLevel.System, $"🧁 baked “{bot.Name}” - {graph.Nodes.Count} node(s) merged in.");
+        bot.Log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("cake") + $" baked “{bot.Name}” - {graph.Nodes.Count} node(s) merged in.");
         Bots.Add(bot);
         Active = Bots.Count - 1;
         Dirty = true;
@@ -121,14 +121,14 @@ public sealed class AppModel
         return bot;
     }
 
-    /// <summary>Starter workflows offered when creating a bot: (key, emoji, label, blurb).</summary>
+    /// <summary>Starter workflows offered when creating a bot: (key, icon, label, blurb).</summary>
     public static readonly (string Key, string Icon, string Label, string Blurb)[] Templates =
     {
-        ("blank",    "📄", "Blank",        "Start from an empty canvas."),
-        ("pingpong", "🏓", "Ping-Pong",    "Classic !ping → pong command."),
-        ("greeter",  "👋", "Welcomer",     "Greet people when they join a channel."),
-        ("reactor",  "💜", "Auto-React",   "React with an emoji when a keyword appears."),
-        ("ai",       "🤖", "AI Chatbot",   "Answer !ask questions with any OpenAI-compatible model."),
+        ("blank",    Ircuitry.Core.Icons.Glyph("file"),        "Blank",        "Start from an empty canvas."),
+        ("pingpong", Ircuitry.Core.Icons.Glyph("ping-pong"),   "Ping-Pong",    "Classic !ping " + Ircuitry.Core.Icons.Glyph("arrow-right") + " pong command."),
+        ("greeter",  Ircuitry.Core.Icons.Glyph("hand-waving"), "Welcomer",     "Greet people when they join a channel."),
+        ("reactor",  Ircuitry.Core.Icons.Glyph("heart"),       "Auto-React",   "React with an emoji when a keyword appears."),
+        ("ai",       Ircuitry.Core.Icons.Glyph("robot"),       "AI Chatbot",   "Answer !ask questions with any OpenAI-compatible model."),
     };
 
     private static void BuildTemplate(NodeGraph g, string template)
@@ -139,14 +139,14 @@ public sealed class AppModel
             case "pingpong":
             {
                 var cmd = N("event.command", -280, -40); cmd.SetParam("command", "ping");
-                var reply = N("action.reply", 60, -40); reply.SetParam("message", "pong! 🏓");
+                var reply = N("action.reply", 60, -40); reply.SetParam("message", "pong! \U0001F3D3");   // intentional unicode (ping-pong)
                 g.Connect(cmd.Id, 0, reply.Id, 0);
                 break;
             }
             case "greeter":
             {
                 var join = N("event.join", -280, -40);
-                var reply = N("action.reply", 60, -40); reply.SetParam("message", "welcome to {channel}, {nick}! 🎉");
+                var reply = N("action.reply", 60, -40); reply.SetParam("message", "welcome to {channel}, {nick}! \U0001F389");   // intentional unicode (party popper)
                 g.Connect(join.Id, 0, reply.Id, 0);
                 break;
             }
@@ -154,7 +154,7 @@ public sealed class AppModel
             {
                 var msg = N("event.message", -320, -40);
                 var has = N("filter.contains", -20, -40); has.SetParam("needle", "ircuitry");
-                var react = N("action.react", 300, -60); react.SetParam("emoji", "💜");
+                var react = N("action.react", 300, -60); react.SetParam("emoji", "\U0001F49C");   // intentional unicode (purple heart)
                 g.Connect(msg.Id, 0, has.Id, 0);
                 g.Connect(msg.Id, 1, has.Id, 1);
                 g.Connect(has.Id, 0, react.Id, 0);
@@ -166,11 +166,11 @@ public sealed class AppModel
                 var ai = N("ai.reply", -40, -40); ai.SetParam("prompt", "{args}");
                 var reply = N("action.reply", 320, -40);
                 g.Connect(cmd.Id, 0, ai.Id, 0);     // exec
-                g.Connect(ai.Id, 0, reply.Id, 0);   // then → reply exec
-                g.Connect(ai.Id, 1, reply.Id, 1);   // AI text → reply message
+                g.Connect(ai.Id, 0, reply.Id, 0);   // then reply exec
+                g.Connect(ai.Id, 1, reply.Id, 1);   // AI text reply message
                 break;
             }
-            // "blank" and anything unknown → empty canvas
+            // "blank" and anything unknown -> empty canvas
         }
     }
 
@@ -199,7 +199,7 @@ public sealed class AppModel
             File.WriteAllText(WorkspacePath, json);
             _lastPersisted = json;        // remember our own write so the file-watcher ignores it
             Dirty = false;
-            if (announce) ActiveBot.Log.Add(LogLevel.System, "saved → " + WorkspacePath);
+            if (announce) ActiveBot.Log.Add(LogLevel.System, "saved " + Ircuitry.Core.Icons.Glyph("arrow-right") + " " + WorkspacePath);
             return true;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "save failed: " + ex.Message); return false; }
@@ -213,7 +213,7 @@ public sealed class AppModel
             Directory.CreateDirectory(WorkspaceDir);
             string path = Path.Combine(WorkspaceDir, SafeName(ActiveBot.Name) + ".ircbot");
             File.WriteAllText(path, GraphSerializer.Save(ActiveBot.Graph, ActiveBot.Name));
-            ActiveBot.Log.Add(LogLevel.System, "exported nodes → " + path);
+            ActiveBot.Log.Add(LogLevel.System, "exported nodes " + Ircuitry.Core.Icons.Glyph("arrow-right") + " " + path);
             return path;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "export failed: " + ex.Message); return ""; }
@@ -229,7 +229,7 @@ public sealed class AppModel
             Active = Bots.Count - 1;
             Dirty = true;
             bot.Log.Add(LogLevel.System, $"imported {g.Nodes.Count} node(s) from {Path.GetFileName(path)}");
-            if (skipped.Count > 0) bot.Log.Add(LogLevel.Warn, "⚠ " + GraphSerializer.SkippedWarning(skipped));
+            if (skipped.Count > 0) bot.Log.Add(LogLevel.Warn, Ircuitry.Core.Icons.Glyph("warning") + " " + GraphSerializer.SkippedWarning(skipped));
             return bot;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "import failed: " + ex.Message); return null; }
@@ -246,7 +246,7 @@ public sealed class AppModel
             Active = Bots.Count - 1;
             Dirty = true;
             bot.Log.Add(LogLevel.System, $"imported {g.Nodes.Count} node(s)");
-            if (skipped.Count > 0) bot.Log.Add(LogLevel.Warn, "⚠ " + GraphSerializer.SkippedWarning(skipped));
+            if (skipped.Count > 0) bot.Log.Add(LogLevel.Warn, Ircuitry.Core.Icons.Glyph("warning") + " " + GraphSerializer.SkippedWarning(skipped));
             return bot;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "import failed: " + ex.Message); return null; }
@@ -302,8 +302,8 @@ public sealed class AppModel
             _lastPersisted = text;
             Dirty = false;
             ActiveBot.Log.Add(LogLevel.System, keptLive > 0
-                ? $"⟳ reloaded workspace from disk (external change; {keptLive} running bot(s) kept live - restart to apply)"
-                : "⟳ reloaded workspace from disk (external change)");
+                ? Ircuitry.Core.Icons.Glyph("arrows-clockwise") + $" reloaded workspace from disk (external change; {keptLive} running bot(s) kept live - restart to apply)"
+                : Ircuitry.Core.Icons.Glyph("arrows-clockwise") + " reloaded workspace from disk (external change)");
             return true;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "reload failed: " + ex.Message); return false; }
@@ -321,7 +321,7 @@ public sealed class AppModel
             string name = "workspace-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".ircuitry";
             string path = Path.Combine(SnapshotDir, name);
             File.Copy(WorkspacePath, path, true);
-            ActiveBot.Log.Add(LogLevel.System, "📸 snapshot saved → " + name);
+            ActiveBot.Log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("camera") + " snapshot saved " + Ircuitry.Core.Icons.Glyph("arrow-right") + " " + name);
             return path;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "snapshot failed: " + ex.Message); return ""; }
@@ -352,7 +352,7 @@ public sealed class AppModel
             Bots.AddRange(bots);
             Active = Math.Clamp(active, 0, Bots.Count - 1);
             Dirty = true;
-            ActiveBot.Log.Add(LogLevel.System, "↩ restored snapshot " + Path.GetFileName(path));
+            ActiveBot.Log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("arrow-bend-up-left") + " restored snapshot " + Path.GetFileName(path));
             return true;
         }
         catch (Exception ex) { ActiveBot.Log.Add(LogLevel.Error, "restore failed: " + ex.Message); return false; }
@@ -384,13 +384,13 @@ public sealed class AppModel
 
         // chain 1: !ping -> pong
         var cmd = N("event.command", -300, -150); cmd.SetParam("command", "ping");
-        var reply = N("action.reply", 40, -150); reply.SetParam("message", "pong! 🏓");
+        var reply = N("action.reply", 40, -150); reply.SetParam("message", "pong! \U0001F3D3");   // intentional unicode (ping-pong)
         g.Connect(cmd.Id, 0, reply.Id, 0);
 
         // chain 2: message contains 'ircuitry' -> reply with the nick
         var msg = N("event.message", -300, 90);
         var contains = N("filter.contains", 40, 90); contains.SetParam("needle", "ircuitry");
-        var reply2 = N("action.reply", 360, 70); reply2.SetParam("message", "you rang, {nick}? 👋");
+        var reply2 = N("action.reply", 360, 70); reply2.SetParam("message", "you rang, {nick}? \U0001F44B");   // intentional unicode (waving hand)
         g.Connect(msg.Id, 0, contains.Id, 0);
         g.Connect(msg.Id, 1, contains.Id, 1);
         g.Connect(contains.Id, 0, reply2.Id, 0);

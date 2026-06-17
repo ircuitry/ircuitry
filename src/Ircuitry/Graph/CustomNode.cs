@@ -29,7 +29,7 @@ public static class CustomNode
             TypeId = typeId,
             Title = Str(r, "title", typeId),
             Subtitle = Str(r, "subtitle", "community"),
-            Icon = Str(r, "icon", "🧩"),
+            Icon = Str(r, "icon", "puzzle-piece"),
             IconImage = r.TryGetProperty("iconImage", out var ii) && ii.ValueKind == JsonValueKind.String && ii.GetString() is { Length: > 0 } b64 ? b64 : null,
             Category = ParseCategory(Str(r, "category", "Action")),
             Description = Str(r, "description", ""),

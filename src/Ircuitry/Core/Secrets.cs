@@ -23,7 +23,7 @@ public static class Secrets
     public static string FilePath => Path.Combine(Dir, "secrets.json");
 
     // case-insensitive: {{secret.Pollinations}} must still find a secret named "pollinations".
-    // A name-case mismatch should never silently resolve to an empty (→ "unauthorized") key.
+    // A name-case mismatch should never silently resolve to an empty (-> "unauthorized") key.
     private static Dictionary<string, string> Empty() => new(StringComparer.OrdinalIgnoreCase);
 
     private static Dictionary<string, string> Load()
@@ -55,7 +55,7 @@ public static class Secrets
     public static List<string> Names() { lock (Gate) { var k = new List<string>(Load().Keys); k.Sort(StringComparer.OrdinalIgnoreCase); return k; } }
     public static bool Has(string name) { lock (Gate) return Load().ContainsKey(name); }
 
-    /// <summary>Replace every <c>{{secret.NAME}}</c> with its value (missing → empty). Tolerates inner
+    /// <summary>Replace every <c>{{secret.NAME}}</c> with its value (missing -> empty). Tolerates inner
     /// whitespace (<c>{{ secret.x }}</c>) and any name case.</summary>
     public static string Expand(string s)
     {

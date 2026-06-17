@@ -162,7 +162,7 @@ public static class NodeCatalog
     private static ParamDef RootParam() => P("root", "Codebase folder", ParamType.Text, "",
         "~/projects/mybot · all paths are relative to this and can't escape it");
 
-    /// <summary>Where an accepted DCC file lands: blank → ~/ircuitry/files/dcc/&lt;name&gt;; a folder → that
+    /// <summary>Where an accepted DCC file lands: blank -> ~/ircuitry/files/dcc/&lt;name&gt;; a folder -> that
     /// folder + the offered name; otherwise the given path IS the file. The offered name is always sanitised.</summary>
     private static string DccSavePath(string given, string offeredFile)
     {
@@ -255,7 +255,7 @@ public static class NodeCatalog
         }
         var file = ResolveFile(source);
         if (file.Length == 0) return "";
-        if (Directory.Exists(file))   // a whole folder of .ics files → merge them
+        if (Directory.Exists(file))   // a whole folder of .ics files -> merge them
             return string.Join("\n", Directory.GetFiles(file, "*.ics")
                 .Where(f => !TooBig(f))
                 .Select(f => { try { return File.ReadAllText(f); } catch { return ""; } }));
@@ -678,7 +678,7 @@ public static class NodeCatalog
                 Description = "Reacts to the triggering message with an emoji (IRCv3 +draft/react). Needs a server that supports message tags.",
                 Inputs = new[] { Ex(), Tx("emoji") },
                 Outputs = new[] { Ex("then") },
-                Params = new[] { P("emoji", "Emoji", ParamType.Text, "👍", "👍 ❤️ 🎉") },
+                Params = new[] { P("emoji", "Emoji", ParamType.Text, "\U0001F44D", "\U0001F44D \u2764\uFE0F \U0001F389") },   // intentional unicode (thumbs-up; heart; party popper)
                 SummaryParam = "emoji",
                 Exec = c => { c.React(c.InOr(1, c.Param("emoji"))); c.Pulse(0); },
             },
@@ -1064,7 +1064,7 @@ public static class NodeCatalog
                 {
                     P("name", "Tool name (for AI)", ParamType.Text, "react", "react"),
                     P("msgid", "Message id", ParamType.Text, "", "{arg.msgid}"),
-                    P("emoji", "Emoji", ParamType.Text, "", "🎂"),
+                    P("emoji", "Emoji", ParamType.Text, "", "\U0001F382"),   // intentional unicode (birthday cake)
                     P("target", "Target (blank = here)", ParamType.Text, "", "#channel or nick"),
                 },
                 Exec = c =>
@@ -2025,7 +2025,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "data.case", Icon = "translate", Title = "Change Case", Subtitle = "data", Category = NodeCategory.Data,
-                Description = "Recases text: UPPER, lower, Title, Sentence, camelCase, snake_case, kebab-case, mOcKiNg, l33t, clap👏case, and more.",
+                Description = "Recases text: UPPER, lower, Title, Sentence, camelCase, snake_case, kebab-case, mOcKiNg, l33t, clap\U0001F44Fcase, and more.",   // intentional unicode (clap)
                 Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
                 Params = new[] { P("op", "Style", ParamType.Choice, "upper", "", new[] { "upper", "lower", "title", "sentence", "capitalize", "camel", "pascal", "snake", "kebab", "constant", "mock", "leet", "clap", "invert" }) },
                 SummaryParam = "op",

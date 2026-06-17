@@ -22,7 +22,7 @@ public sealed class ServerConn : IRuntimeSink
     private IrcSettings _cfg;
     private System.Threading.Thread? _timer;
     private volatile bool _running;
-    private readonly ConcurrentDictionary<string, DateTime> _typing = new();   // target → last +typing=active
+    private readonly ConcurrentDictionary<string, DateTime> _typing = new();   // target -> last +typing=active
 
     // Workflow runs execute on this pool, NOT the IRC read thread - so a slow node (delay, http, ai)
     // never blocks PING/PONG keepalive, and independent runs proceed concurrently instead of queueing.
@@ -57,7 +57,7 @@ public sealed class ServerConn : IRuntimeSink
         _client.RawOut = line => _owner.LogFrom(Label, LogLevel.Out, line);
         _client.Status = (msg, err) => _owner.LogFrom(Label, err ? LogLevel.Error : LogLevel.System, msg);
         _client.Registered = OnRegistered;
-        _client.Closed = reason => { _running = false; _owner.LogFrom(Label, LogLevel.System, "● " + reason); };
+        _client.Closed = reason => { _running = false; _owner.LogFrom(Label, LogLevel.System, Ircuitry.Core.Icons.Glyph("circle") + " " + reason); };
         _client.Message = OnIrc;
     }
 
@@ -83,7 +83,7 @@ public sealed class ServerConn : IRuntimeSink
         _session.Reset();
         _running = true;
         StartRunWorkers();
-        _owner.LogFrom(Label, LogLevel.System, $"▶ connecting - {_owner.CountTriggers()} trigger(s) armed");
+        _owner.LogFrom(Label, LogLevel.System, $"{Ircuitry.Core.Icons.Glyph("play")} connecting - {_owner.CountTriggers()} trigger(s) armed");
         _client.Connect(_cfg);
         StartTimers();
     }
@@ -91,7 +91,7 @@ public sealed class ServerConn : IRuntimeSink
     public void Stop()
     {
         if (!_running && State == IrcState.Disconnected) return;
-        _owner.LogFrom(Label, LogLevel.System, "■ disconnecting");
+        _owner.LogFrom(Label, LogLevel.System, Ircuitry.Core.Icons.Glyph("square") + " disconnecting");
         _running = false;
         lock (_pendLock) _pending.Clear();   // drop any waiting human-in-the-loop gates
         try { _runQueue?.CompleteAdding(); } catch { /* already completed */ }   // workers drain + exit
@@ -400,7 +400,7 @@ public sealed class ServerConn : IRuntimeSink
         int before = _owner.TotalActions;
         var stream = new WorkflowStream(this, vars, node.DisplayTitle);
         GraphExecutor.Fire(graph, this, node, vars, rec, stream.OnNode);
-        StopAllTyping();   // a workflow run ends → drop any typing it started but didn't stop
+        StopAllTyping();   // a workflow run ends -> drop any typing it started but didn't stop
         rec.Actions = Math.Max(0, _owner.TotalActions - before);   // approximate under concurrency, never negative
         rec.Fired = rec.Nodes.Count > 0 && rec.Nodes[0].Pulsed.Count > 0;
         if (rec.Fired) _owner.AddHistory(rec);
@@ -637,7 +637,7 @@ public sealed class ServerConn : IRuntimeSink
                 using (tcp)
                 {
                     long got = Ircuitry.Net.Dcc.StreamIn(tcp.GetStream(), savePath, size);
-                    Log($"DCC: received {label} ({got} bytes) → {savePath}", LogLevel.System);
+                    Log($"DCC: received {label} ({got} bytes) {Ircuitry.Core.Icons.Glyph("arrow-right")} {savePath}", LogLevel.System);
                 }
             }
             catch (Exception ex) { Log($"DCC receive failed: {ex.Message}", LogLevel.Error); }

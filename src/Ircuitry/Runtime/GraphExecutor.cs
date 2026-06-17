@@ -157,7 +157,7 @@ public static class GraphExecutor
 
         // The visiting set is threaded through nested input reads so the cycle
         // guard survives pure-node-calls-pure-node chains (a fresh set per level
-        // would let A↔B data cycles recurse forever → StackOverflow).
+        // would let A<->B data cycles recurse forever -> StackOverflow).
         public string ResolveInput(Node node, int inputIndex, HashSet<string>? visiting = null)
         {
             var conn = Graph.IntoPin(node.Id, inputIndex);
@@ -243,7 +243,7 @@ public static class GraphExecutor
                 case "nl": return "\n";
                 case "version": return Ircuitry.App.AppInfo.Version;
                 default:
-                    // {arg1}, {arg2}, ... → the Nth word of the command args
+                    // {arg1}, {arg2}, ... -> the Nth word of the command args
                     if (name.Length > 3 && name.StartsWith("arg") && int.TryParse(name[3..], out var n) && n > 0)
                     {
                         var parts = (Vars.TryGetValue("args", out var a) ? a : "").Split(' ', System.StringSplitOptions.RemoveEmptyEntries);

@@ -9,7 +9,7 @@ namespace Ircuitry.Core;
 /// <summary>One achievement definition with its current unlocked status filled in for display.</summary>
 public sealed class AchDef
 {
-    public string Id = "", Category = "", Title = "", Desc = "", Icon = "🏆";
+    public string Id = "", Category = "", Title = "", Desc = "", Icon = Ircuitry.Core.Icons.Glyph("trophy");
     public bool Unlocked;
     public string Detail = "";
     public float Progress;
@@ -21,7 +21,7 @@ public sealed class AchDef
 /// </summary>
 public sealed class SpecDef
 {
-    public string Id = "", Group = "", Title = "", Icon = "🌐", Cap = "";
+    public string Id = "", Group = "", Title = "", Icon = Ircuitry.Core.Icons.Glyph("globe"), Cap = "";
     public string[] Nodes = Array.Empty<string>();
     public bool Draft;
 }
@@ -68,55 +68,55 @@ public static class Achievements
             => l.Add(new SpecDef { Id = "spec.cap." + id, Group = draft ? "IRCv3 drafts" : "IRCv3 caps", Title = title, Icon = icon, Cap = cap, Draft = draft });
 
         // node-based (ratified)
-        Node("tags", "Tag Whisperer", "🔖", false, "data.gettag");
-        Node("account", "From Account", "🪪", false, "filter.fromAccount");
-        Node("botmode", "Know Your Bots", "🤖", false, "filter.isBot");
-        Node("raw", "Down to the Metal", "📡", false, "irc.raw");
-        Node("setname", "Name Changer", "✏️", false, "action.setname");
-        Node("away", "Gone Fishing", "🌙", false, "action.away");
-        Node("tagmsg", "Tag, You're It", "🏷️", false, "action.tagmsg");
-        Node("monitor", "Lookout", "👀", false, "action.monitor");
+        Node("tags", "Tag Whisperer", Ircuitry.Core.Icons.Glyph("bookmark-simple"), false, "data.gettag");
+        Node("account", "From Account", Ircuitry.Core.Icons.Glyph("identification-card"), false, "filter.fromAccount");
+        Node("botmode", "Know Your Bots", Ircuitry.Core.Icons.Glyph("robot"), false, "filter.isBot");
+        Node("raw", "Down to the Metal", Ircuitry.Core.Icons.Glyph("broadcast"), false, "irc.raw");
+        Node("setname", "Name Changer", Ircuitry.Core.Icons.Glyph("pencil"), false, "action.setname");
+        Node("away", "Gone Fishing", Ircuitry.Core.Icons.Glyph("moon"), false, "action.away");
+        Node("tagmsg", "Tag, You're It", Ircuitry.Core.Icons.Glyph("tag"), false, "action.tagmsg");
+        Node("monitor", "Lookout", Ircuitry.Core.Icons.Glyph("eyes"), false, "action.monitor");
         // node-based (draft)
-        Node("react", "Reactive", "💜", true, "action.react");
-        Node("reply", "Threadsmith", "🧵", true, "action.replythread");
-        Node("typing", "Now Typing…", "✍️", true, "irc.typing.start", "irc.typing.stop");
-        Node("redact", "Eraser", "🩹", true, "action.redact");
-        Node("chathistory", "Time Traveller", "📜", true, "action.chathistory");
-        Node("rename", "Renamer", "🔤", true, "action.rename");
-        Node("metadata", "Librarian", "🗂️", true, "action.metadata");
-        Node("multiline", "Poet", "📃", true, "action.multiline");
+        Node("react", "Reactive", Ircuitry.Core.Icons.Glyph("heart"), true, "action.react");
+        Node("reply", "Threadsmith", Ircuitry.Core.Icons.Glyph("needle"), true, "action.replythread");
+        Node("typing", "Now Typing…", Ircuitry.Core.Icons.Glyph("pencil-line"), true, "irc.typing.start", "irc.typing.stop");
+        Node("redact", "Eraser", Ircuitry.Core.Icons.Glyph("bandaids"), true, "action.redact");
+        Node("chathistory", "Time Traveller", Ircuitry.Core.Icons.Glyph("scroll"), true, "action.chathistory");
+        Node("rename", "Renamer", Ircuitry.Core.Icons.Glyph("translate"), true, "action.rename");
+        Node("metadata", "Librarian", Ircuitry.Core.Icons.Glyph("folders"), true, "action.metadata");
+        Node("multiline", "Poet", Ircuitry.Core.Icons.Glyph("file-text"), true, "action.multiline");
 
         // cap-based (ratified)
-        Cap("sasl", "SASL", "🔐", "sasl");
-        Cap("servertime", "Server Time", "🕒", "server-time");
-        Cap("messagetags", "Message Tags", "🔖", "message-tags");
-        Cap("accounttag", "Account Tag", "🪪", "account-tag");
-        Cap("accountnotify", "Account Notify", "📒", "account-notify");
-        Cap("awaynotify", "Away Notify", "🚶", "away-notify");
-        Cap("extjoin", "Extended Join", "👋", "extended-join");
-        Cap("chghost", "Chghost", "🔁", "chghost");
-        Cap("multiprefix", "Multi-Prefix", "➕", "multi-prefix");
-        Cap("uhnames", "Userhost in Names", "🧑", "userhost-in-names");
-        Cap("echo", "Echo Message", "🪞", "echo-message");
-        Cap("labeled", "Labeled Response", "🏷️", "labeled-response");
-        Cap("batch", "Batch", "📦", "batch");
-        Cap("capnotify", "Cap Notify", "📣", "cap-notify");
-        Cap("invitenotify", "Invite Notify", "✉️", "invite-notify");
-        Cap("setnamecap", "Setname (cap)", "📝", "setname");
-        Cap("stdreplies", "Standard Replies", "📨", "standard-replies");
-        Cap("sts", "Strict Transport", "🔒", "sts");
-        Cap("utf8only", "UTF8ONLY", "🔤", "utf8only");
-        Cap("extmonitor", "Extended Monitor", "🔭", "extended-monitor");
+        Cap("sasl", "SASL", Ircuitry.Core.Icons.Glyph("lock-key"), "sasl");
+        Cap("servertime", "Server Time", Ircuitry.Core.Icons.Glyph("clock"), "server-time");
+        Cap("messagetags", "Message Tags", Ircuitry.Core.Icons.Glyph("bookmark-simple"), "message-tags");
+        Cap("accounttag", "Account Tag", Ircuitry.Core.Icons.Glyph("identification-card"), "account-tag");
+        Cap("accountnotify", "Account Notify", Ircuitry.Core.Icons.Glyph("notebook"), "account-notify");
+        Cap("awaynotify", "Away Notify", Ircuitry.Core.Icons.Glyph("person-simple-walk"), "away-notify");
+        Cap("extjoin", "Extended Join", Ircuitry.Core.Icons.Glyph("hand-waving"), "extended-join");
+        Cap("chghost", "Chghost", Ircuitry.Core.Icons.Glyph("repeat"), "chghost");
+        Cap("multiprefix", "Multi-Prefix", Ircuitry.Core.Icons.Glyph("plus"), "multi-prefix");
+        Cap("uhnames", "Userhost in Names", Ircuitry.Core.Icons.Glyph("user"), "userhost-in-names");
+        Cap("echo", "Echo Message", Ircuitry.Core.Icons.Glyph("frame-corners"), "echo-message");
+        Cap("labeled", "Labeled Response", Ircuitry.Core.Icons.Glyph("tag"), "labeled-response");
+        Cap("batch", "Batch", Ircuitry.Core.Icons.Glyph("package"), "batch");
+        Cap("capnotify", "Cap Notify", Ircuitry.Core.Icons.Glyph("megaphone"), "cap-notify");
+        Cap("invitenotify", "Invite Notify", Ircuitry.Core.Icons.Glyph("envelope"), "invite-notify");
+        Cap("setnamecap", "Setname (cap)", Ircuitry.Core.Icons.Glyph("note-pencil"), "setname");
+        Cap("stdreplies", "Standard Replies", Ircuitry.Core.Icons.Glyph("envelope"), "standard-replies");
+        Cap("sts", "Strict Transport", Ircuitry.Core.Icons.Glyph("lock"), "sts");
+        Cap("utf8only", "UTF8ONLY", Ircuitry.Core.Icons.Glyph("translate"), "utf8only");
+        Cap("extmonitor", "Extended Monitor", Ircuitry.Core.Icons.Glyph("binoculars"), "extended-monitor");
         // cap-based (draft)
-        Cap("d_chathistory", "Chathistory (cap)", "📜", "draft/chathistory", true);
-        Cap("d_redaction", "Message Redaction (cap)", "🩹", "draft/message-redaction", true);
-        Cap("d_multiline", "Multiline (cap)", "📃", "draft/multiline", true);
-        Cap("d_rename", "Channel Rename (cap)", "🔤", "draft/channel-rename", true);
-        Cap("d_metadata", "Metadata (cap)", "🗂️", "draft/metadata", true);
-        Cap("d_readmarker", "Read Marker", "✅", "draft/read-marker", true);
-        Cap("d_preaway", "Pre-Away", "🌙", "draft/pre-away", true);
-        Cap("d_accreg", "Account Registration", "📝", "draft/account-registration", true);
-        Cap("d_extisupport", "Extended ISUPPORT", "📐", "draft/extended-isupport", true);
+        Cap("d_chathistory", "Chathistory (cap)", Ircuitry.Core.Icons.Glyph("scroll"), "draft/chathistory", true);
+        Cap("d_redaction", "Message Redaction (cap)", Ircuitry.Core.Icons.Glyph("bandaids"), "draft/message-redaction", true);
+        Cap("d_multiline", "Multiline (cap)", Ircuitry.Core.Icons.Glyph("file-text"), "draft/multiline", true);
+        Cap("d_rename", "Channel Rename (cap)", Ircuitry.Core.Icons.Glyph("translate"), "draft/channel-rename", true);
+        Cap("d_metadata", "Metadata (cap)", Ircuitry.Core.Icons.Glyph("folders"), "draft/metadata", true);
+        Cap("d_readmarker", "Read Marker", Ircuitry.Core.Icons.Glyph("check-circle"), "draft/read-marker", true);
+        Cap("d_preaway", "Pre-Away", Ircuitry.Core.Icons.Glyph("moon"), "draft/pre-away", true);
+        Cap("d_accreg", "Account Registration", Ircuitry.Core.Icons.Glyph("note-pencil"), "draft/account-registration", true);
+        Cap("d_extisupport", "Extended ISUPPORT", Ircuitry.Core.Icons.Glyph("ruler"), "draft/extended-isupport", true);
 
         return l.ToArray();
     }
@@ -185,18 +185,18 @@ public static class Achievements
         var list = new List<AchDef>();
         int bc = BotsCreated;
         foreach (var n in BotTiers)
-            list.Add(Mk("bots." + n, "Bots", n == 1 ? "First bot" : $"{n} bots", $"Create {n} bot{(n == 1 ? "" : "s")}.", "🤖",
+            list.Add(Mk("bots." + n, "Bots", n == 1 ? "First bot" : $"{n} bots", $"Create {n} bot{(n == 1 ? "" : "s")}.", Ircuitry.Core.Icons.Glyph("robot"),
                 bc >= n, $"{Math.Min(bc, n)}/{n}", Math.Min(1f, bc / (float)n)));
 
         double maxSecs = MaxOnlineSeconds();
         foreach (var h in OnlineTiers)
-            list.Add(Mk("online." + h, "Uptime", Hours(h) + " online", $"Keep one bot connected for {Hours(h)}.", "⏱️",
+            list.Add(Mk("online." + h, "Uptime", Hours(h) + " online", $"Keep one bot connected for {Hours(h)}.", Ircuitry.Core.Icons.Glyph("timer"),
                 maxSecs >= h * 3600.0, FormatDur(maxSecs) + " best", (float)Math.Min(1.0, maxSecs / (h * 3600.0))));
 
         var caps = S().Caps;
         var specs = S().Specs;   // satisfied by a successful run (all the spec's nodes ran in one fire)
         bool pioneer = specs.Contains("spec.pioneer");
-        list.Add(Mk("spec.pioneer", "IRCv3 drafts", "Living on the Edge", "Run any draft-spec node (react, typing, redaction, chathistory, multiline...).", "🌟",
+        list.Add(Mk("spec.pioneer", "IRCv3 drafts", "Living on the Edge", "Run any draft-spec node (react, typing, redaction, chathistory, multiline...).", Ircuitry.Core.Icons.Glyph("star"),
             pioneer, pioneer ? "unlocked" : "run a draft node", pioneer ? 1 : 0));
 
         foreach (var sp in SpecList)

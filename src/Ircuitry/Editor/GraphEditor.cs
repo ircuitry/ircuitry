@@ -134,7 +134,7 @@ public sealed class GraphEditor
     {
         // prefer graph JSON on the OS clipboard (lets you paste between editors / from shared JSON)
         var ext = TryLoadClipboardGraph(out var skipped);
-        if (skipped.Count > 0) Notify?.Invoke("⚠ " + GraphSerializer.SkippedWarning(skipped));
+        if (skipped.Count > 0) Notify?.Invoke(Ircuitry.Core.Icons.Glyph("warning") + " " + GraphSerializer.SkippedWarning(skipped));
         if (ext != null) { InsertAtCursor(ext.Nodes, ext.Connections, worldCursor); return; }
         if (_clipNodes is { Count: > 0 }) InsertAtCursor(_clipNodes, _clipConns!, worldCursor);
     }
@@ -192,7 +192,7 @@ public sealed class GraphEditor
         var slug = new string(title.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
         if (slug.Length == 0) slug = "node";
         return "{\"typeId\":" + J("subflow." + slug) + ",\"title\":" + J(title)
-            + ",\"subtitle\":\"subflow\",\"icon\":\"🧩\",\"category\":\"Logic\","
+            + ",\"subtitle\":\"subflow\",\"icon\":\"puzzle-piece\",\"category\":\"Logic\","
             + "\"inputs\":[" + string.Join(",", inputs) + "],\"outputs\":[" + string.Join(",", outputs) + "],"
             + "\"subgraph\":" + GraphSerializer.Save(sub, title) + "}";
     }
@@ -388,7 +388,7 @@ public sealed class GraphEditor
         foreach (var n in sel) { Graph.Nodes.Remove(n); Graph.Nodes.Add(n); }
     }
 
-    /// <summary>Tidy the graph into clean left→right layers (longest-path layering), undoable.</summary>
+    /// <summary>Tidy the graph into clean left-to-right layers (longest-path layering), undoable.</summary>
     public void AutoLayout()
     {
         if (Graph.Nodes.Count == 0) return;
@@ -901,7 +901,7 @@ public sealed class GraphEditor
     }
 
     // ---- simple screen-space orthogonal route (used by the in-progress drag wire) ----
-    /// <summary>Route output→input as right-angle segments (out the right, in the left), the vertical run snapped to the grid.</summary>
+    /// <summary>Route output-to-input as right-angle segments (out the right, in the left), the vertical run snapped to the grid.</summary>
     private List<Vector2> RouteWire(Vector2 p0, Vector2 p1, float jog)
     {
         float z = Cam.Zoom;
@@ -910,7 +910,7 @@ public sealed class GraphEditor
         var b = new Vector2(p1.X - stub, p1.Y);     // arrive at the input from the left
         var pts = new List<Vector2> { p0, a };
 
-        if (MathF.Abs(a.Y - b.Y) <= 1.5f)           // same row → straight across
+        if (MathF.Abs(a.Y - b.Y) <= 1.5f)           // same row -> straight across
         {
             pts.Add(b); pts.Add(p1);
             return pts;
@@ -1093,7 +1093,7 @@ public sealed class GraphEditor
         minX -= pad; minY -= pad; maxX += pad; maxY += pad;
         int cols = (int)MathF.Ceiling((maxX - minX) / step) + 1;
         int rows = (int)MathF.Ceiling((maxY - minY) / step) + 1;
-        if (cols < 2 || rows < 2 || (long)cols * rows > 30000) return null;   // too large → fallback
+        if (cols < 2 || rows < 2 || (long)cols * rows > 30000) return null;   // too large -> fallback
 
         int Cx(float x) => Math.Clamp((int)MathF.Round((x - minX) / step), 0, cols - 1);
         int Cy(float y) => Math.Clamp((int)MathF.Round((y - minY) / step), 0, rows - 1);
@@ -1282,7 +1282,7 @@ public sealed class GraphEditor
             r.RoundFill(sumRect, Theme.PanelLo, 5f);
             var sf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(11 * z), 8, 16));
             string val = n.GetParam(n.Def.SummaryParam!);
-            val = val.Length == 0 ? "-" : val.Replace("\n", " ⏎ ");
+            val = val.Length == 0 ? "-" : val.Replace("\n", " " + Ircuitry.Core.Icons.Glyph("arrow-bend-down-left") + " ");
             val = r.Ellipsize(sf, val, sumRect.W - 14 * z);
             r.Text(sf, val, new Vector2(sumRect.X + 7 * z, sumRect.Center.Y - sf.MeasureString(val).Y / 2f), Theme.Mix(Theme.TextDim, cat, 0.3f));
         }

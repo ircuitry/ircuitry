@@ -145,7 +145,7 @@ public static class TextTools
             case "constant": return Joinwords(s, "_").ToUpperInvariant();
             case "mock": return Mock(s);
             case "leet": return Leet(s);
-            case "clap": return string.Join(" 👏 ", Words(s));
+            case "clap": return string.Join(" \U0001F44F ", Words(s));   // intentional unicode (clap)
             case "invert": return new string(s.Select(c => char.IsUpper(c) ? char.ToLowerInvariant(c) : char.ToUpperInvariant(c)).ToArray());
             default: return s;
         }
@@ -525,7 +525,7 @@ public static class TextTools
         int mod = m.Groups[3].Value.Length > 0 ? int.Parse(m.Groups[3].Value) : 0;
         var rolls = new int[n]; int tot = mod; for (int i = 0; i < n; i++) { rolls[i] = R(sides) + 1; tot += rolls[i]; }
         string extra = (n > 1 || mod != 0) ? "  [" + string.Join("+", rolls) + (mod != 0 ? (mod > 0 ? "+" : "") + mod : "") + "]" : "";
-        return $"🎲 {spec} -> {tot}{extra}";
+        return $"\U0001F3B2 {spec} -> {tot}{extra}";   // intentional unicode (game die)
     }
 
     private static double ParseD(string s) => double.TryParse(s.Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : 0;

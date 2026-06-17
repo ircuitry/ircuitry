@@ -43,30 +43,30 @@ public sealed partial class MainScreen
             string suffix = n > 1 ? $" ({n})" : "";
             bool anyOn = _editor.Selection.Select(id => Bot.Graph.Find(id)).Any(x => x is { Muted: false });
 
-            Item("✂", "Cut" + suffix, "Ctrl+X", true, () => { _editor.CutSelection(); _app.MarkDirty(); });
-            Item("📋", "Copy" + suffix, "Ctrl+C", true, () => _editor.CopySelection());
-            Item("📑", "Duplicate" + suffix, "Ctrl+D", true, () => { _editor.DuplicateSelection(); _app.MarkDirty(); });
-            Item("📥", "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
-            Item("🧁", "Bake into a node…", "", _editor.SelectionCanBake, () => { _saveNodeName = "My Node"; _saveNodeIcon = "puzzle-piece"; _saveNodeCat = "Logic"; _saveNodeDesc = ""; _saveNodeAsTool = false; _saveNodeOpen = true; _saveNodeJustOpened = true; _ui.Focus = "savenode.name"; });
+            Item(Ircuitry.Core.Icons.Glyph("scissors"), "Cut" + suffix, "Ctrl+X", true, () => { _editor.CutSelection(); _app.MarkDirty(); });
+            Item(Ircuitry.Core.Icons.Glyph("clipboard"), "Copy" + suffix, "Ctrl+C", true, () => _editor.CopySelection());
+            Item(Ircuitry.Core.Icons.Glyph("bookmarks"), "Duplicate" + suffix, "Ctrl+D", true, () => { _editor.DuplicateSelection(); _app.MarkDirty(); });
+            Item(Ircuitry.Core.Icons.Glyph("tray"), "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
+            Item(Ircuitry.Core.Icons.Glyph("cake"), "Bake into a node…", "", _editor.SelectionCanBake, () => { _saveNodeName = "My Node"; _saveNodeIcon = "puzzle-piece"; _saveNodeCat = "Logic"; _saveNodeDesc = ""; _saveNodeAsTool = false; _saveNodeOpen = true; _saveNodeJustOpened = true; _ui.Focus = "savenode.name"; });
             var only = n == 1 ? Bot.Graph.Find(_editor.Selection.First()) : null;
             if (only != null && NodeCatalog.IsCustom(only.TypeId))
-                Item("✏️", "Edit node…", "", true, () => OpenNodeBuilderForEdit(only.TypeId));
+                Item(Ircuitry.Core.Icons.Glyph("pencil"), "Edit node…", "", true, () => OpenNodeBuilderForEdit(only.TypeId));
             Sep();
-            Item(anyOn ? "🔇" : "🔊", anyOn ? "Mute" + suffix : "Unmute" + suffix, "M", true, () => { _editor.ToggleMuteSelection(); _app.MarkDirty(); });
-            Item("🔌", "Disconnect wires", "", true, () => { _editor.DisconnectSelection(); _app.MarkDirty(); });
+            Item(anyOn ? Ircuitry.Core.Icons.Glyph("speaker-slash") : Ircuitry.Core.Icons.Glyph("speaker-high"), anyOn ? "Mute" + suffix : "Unmute" + suffix, "M", true, () => { _editor.ToggleMuteSelection(); _app.MarkDirty(); });
+            Item(Ircuitry.Core.Icons.Glyph("plug"), "Disconnect wires", "", true, () => { _editor.DisconnectSelection(); _app.MarkDirty(); });
             Sep();
-            Item("🗑", "Delete" + suffix, "Del", true, () => { _editor.DeleteSelection(); _app.MarkDirty(); });
+            Item(Ircuitry.Core.Icons.Glyph("trash"), "Delete" + suffix, "Del", true, () => { _editor.DeleteSelection(); _app.MarkDirty(); });
         }
         else
         {
             Item("+", "Add node here…", "2×click", true, () => OpenQuickAdd(_ctxAnchor));
-            Item("📥", "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
-            Item("🔲", "Select all", "Ctrl+A", hasNodes, () => _editor.SelectAll());
+            Item(Ircuitry.Core.Icons.Glyph("tray"), "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
+            Item(Ircuitry.Core.Icons.Glyph("square"), "Select all", "Ctrl+A", hasNodes, () => _editor.SelectAll());
             Sep();
-            Item("📐", "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
-            Item("🔍", "Fit to view", "", hasNodes, () => _editor.FocusContent(_l.Canvas));
+            Item(Ircuitry.Core.Icons.Glyph("ruler"), "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
+            Item(Ircuitry.Core.Icons.Glyph("magnifying-glass"), "Fit to view", "", hasNodes, () => _editor.FocusContent(_l.Canvas));
             Sep();
-            Item("🎓", "Tutorial", "", true, ForceStartTutorial);
+            Item(Ircuitry.Core.Icons.Glyph("graduation-cap"), "Tutorial", "", true, ForceStartTutorial);
         }
 
         _ctxOpen = true; _ctxJustOpened = true;

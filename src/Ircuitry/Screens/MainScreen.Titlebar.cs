@@ -44,14 +44,14 @@ public sealed partial class MainScreen
         RectF Btn(float w, float gapBefore = 0) { rx -= gapBefore; var rr = new RectF(rx - w, by, w, bh); rx -= w; NoDrag(rr); return rr; }
 
         var moreR = Btn(38, 6);
-        bool moreClick = IconPad(r, moreR, out var morePad);   // "⋯" doesn't render in this font - draw a hamburger
+        bool moreClick = IconPad(r, moreR, out var morePad);   // a dots glyph doesn't render in this font - draw a hamburger
         for (int i = -1; i <= 1; i++) r.HLine(morePad.Center.X - 7, morePad.Center.X + 7, MathF.Round(morePad.Center.Y + i * 5), Theme.Text, 1.8f);
         if (moreClick) OpenMoreMenu(new Vector2(moreR.X - 80, moreR.Bottom + 3));
         var fileR = Btn(38);
-        if (IconBtn(r, fileR, "📁", 16, _app.Dirty ? Theme.Amber : (Color?)null)) OpenFileMenu(new Vector2(fileR.X - 60, fileR.Bottom + 3));
+        if (IconBtn(r, fileR, Ircuitry.Core.Icons.Glyph("folder"), 16, _app.Dirty ? Theme.Amber : (Color?)null)) OpenFileMenu(new Vector2(fileR.X - 60, fileR.Bottom + 3));
 
         var bellR = Btn(38, 14);
-        if (IconBtn(r, bellR, "🔔", 16)) { _notifOpen = !_notifOpen; _notifJustOpened = true; _notifUnread = 0; _notifScroll = 0; }
+        if (IconBtn(r, bellR, Ircuitry.Core.Icons.Glyph("bell"), 16)) { _notifOpen = !_notifOpen; _notifJustOpened = true; _notifUnread = 0; _notifScroll = 0; }
         if (_notifUnread > 0)
         {
             var c = new Vector2(bellR.Right - 10, bellR.Y + 8);
@@ -62,12 +62,12 @@ public sealed partial class MainScreen
         }
 
         var netR = Btn(38, 14);   // app-global network map (every bot + server + channel)
-        if (IconBtn(r, netR, "🗺", 16)) { _networkOpen = true; _networkJustOpened = true; }
+        if (IconBtn(r, netR, Ircuitry.Core.Icons.Glyph("map-trifold"), 16)) { _networkOpen = true; _networkJustOpened = true; }
         var histR = Btn(38);
-        if (IconBtn(r, histR, "📜", 16)) OpenHistory();
+        if (IconBtn(r, histR, Ircuitry.Core.Icons.Glyph("scroll"), 16)) OpenHistory();
         var testR = Btn(38);
         _testBtnRect = testR;   // the tutorial highlights this
-        if (IconBtn(r, testR, "🧪", 16)) { _testOpen = true; _testJustOpened = true; RunTest(); }
+        if (IconBtn(r, testR, Ircuitry.Core.Icons.Glyph("test-tube"), 16)) { _testOpen = true; _testJustOpened = true; RunTest(); }
         var playR = Btn(50, 4);
         DrawPlayStop(r, playR);
         NoDrag(playR);
@@ -99,13 +99,13 @@ public sealed partial class MainScreen
         _ctxAnchor = anchor;
         _ctxItems.Clear();
         bool maxed = Sdl.IsMaximized(WindowHandle);
-        _ctxItems.Add(new CtxItem { Icon = "—", Label = "Minimize", Shortcut = "", Enabled = true, Do = () => Sdl.Minimize(WindowHandle) });
-        _ctxItems.Add(new CtxItem { Icon = maxed ? "❐" : "□", Label = maxed ? "Restore" : "Maximize", Shortcut = "", Enabled = true, Do = () => Sdl.ToggleMaximize(WindowHandle) });
-        _ctxItems.Add(new CtxItem { Icon = Sdl.AlwaysOnTop ? "✔" : "▢", Label = "Always on top", Shortcut = "", Enabled = true, Do = () => Sdl.ToggleAlwaysOnTop(WindowHandle) });
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("minus"), Label = "Minimize", Shortcut = "", Enabled = true, Do = () => Sdl.Minimize(WindowHandle) });
+        _ctxItems.Add(new CtxItem { Icon = maxed ? Ircuitry.Core.Icons.Glyph("cards") : Ircuitry.Core.Icons.Glyph("square"), Label = maxed ? "Restore" : "Maximize", Shortcut = "", Enabled = true, Do = () => Sdl.ToggleMaximize(WindowHandle) });
+        _ctxItems.Add(new CtxItem { Icon = Sdl.AlwaysOnTop ? Ircuitry.Core.Icons.Glyph("check") : Ircuitry.Core.Icons.Glyph("square"), Label = "Always on top", Shortcut = "", Enabled = true, Do = () => Sdl.ToggleAlwaysOnTop(WindowHandle) });
         _ctxItems.Add(new CtxItem { Sep = true });
-        _ctxItems.Add(new CtxItem { Icon = "📸", Label = "Screenshot this window", Shortcut = "", Enabled = true, Do = RequestScreenshot });
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("camera"), Label = "Screenshot this window", Shortcut = "", Enabled = true, Do = RequestScreenshot });
         _ctxItems.Add(new CtxItem { Sep = true });
-        _ctxItems.Add(new CtxItem { Icon = "×", Label = "Close", Shortcut = "", Enabled = true, Do = () => Sdl.CloseRequested = true });
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("x"), Label = "Close", Shortcut = "", Enabled = true, Do = () => Sdl.CloseRequested = true });
         _ctxOpen = true; _ctxJustOpened = true;
     }
 
@@ -163,7 +163,7 @@ public sealed partial class MainScreen
         return c;
     }
 
-    // The primary run control: a matte, pastel ▶ (start, soft green) / ■ (stop, soft red) button - the same
+    // The primary run control: a matte, pastel play (start, soft green) / stop (soft red) button - the same
     // flat, chunky look as the inspector's RUN BOT, not a glossy candy pill.
     private void DrawPlayStop(Renderer r, RectF rect)
     {
@@ -220,7 +220,7 @@ public sealed partial class MainScreen
     }
 
     // DS game-cartridge tabs in a scrollable gutter. Each is a chunky rounded cartridge with a colour "label"
-    // strip + status dot; the active one is a cream cartridge that pops off the glossy bar. A "▸" button (and
+    // strip + status dot; the active one is a cream cartridge that pops off the glossy bar. A caret button (and
     // mouse wheel) scrolls when the tabs overflow.
     private void DrawCartridgeTabs(Renderer r, RectF bar, RectF gutter, Clock clock, Action<RectF> noDrag)
     {
@@ -269,14 +269,14 @@ public sealed partial class MainScreen
         }
         r.End();
 
-        // "▸" scroll button to page the gutter right (wraps back to start at the end)
+        // caret scroll button to page the gutter right (wraps back to start at the end)
         if (overflow)
         {
             r.Begin();
             var sr = new RectF(gutter.Right - scrollBtnW, top + 2, scrollBtnW - 2, tabH - 4);
             bool sh = !Modal && sr.Contains(In.Mouse);
             r.RoundFill(sr, sh ? Theme.WithAlpha(Color.White, 0.5f) : Theme.WithAlpha(Color.White, 0.3f), 7f);
-            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 15), "▸", sr, Theme.Mix(Theme.Cyan, Theme.Text, 0.4f));
+            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 15), Ircuitry.Core.Icons.Glyph("caret-right"), sr, Theme.Mix(Theme.Cyan, Theme.Text, 0.4f));
             noDrag(sr);
             if (sh && In.LeftPressed) _tabScroll = _tabScroll >= maxScroll - 1 ? 0 : Math.Min(maxScroll, _tabScroll + viewW * 0.8f);
             r.End();
@@ -358,7 +358,7 @@ public sealed partial class MainScreen
         r.RoundFill(rect.Offset(0, 2), Theme.WithAlpha(Color.Black, 0.10f), 11f);
         r.RoundFill(rect, hot ? Theme.Mix(col, Color.White, 0.14f) : col, 11f);
         r.RoundOutline(rect, Theme.WithAlpha(Theme.Mix(col, Theme.Text, 0.25f), hot ? 1f : 0.7f), 11f);
-        r.TextCentered(r.Fonts.Get(FontKind.Sans, 19), "💾", rect, Theme.TextInk);
+        r.TextCentered(r.Fonts.Get(FontKind.Sans, 19), Ircuitry.Core.Icons.Glyph("floppy-disk"), rect, Theme.TextInk);
         if (hot)   // a tiny "apply to live bot" hint on hover
             r.Text(r.Fonts.Get(FontKind.SansBold, 11), "apply", new Vector2(rect.X - 4, rect.Bottom + 2), Theme.Mix(col, Theme.Text, 0.4f));
         r.End();
@@ -366,7 +366,7 @@ public sealed partial class MainScreen
         {
             Bot.Runtime.ApplyGraph(Bot.Graph);
             _app.Save();
-            Notify("↻ Applied changes to the live bot");
+            Notify(Ircuitry.Core.Icons.Glyph("arrows-clockwise") + " Applied changes to the live bot");
         }
     }
 }

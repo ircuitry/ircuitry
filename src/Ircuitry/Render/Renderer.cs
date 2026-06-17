@@ -278,7 +278,6 @@ public sealed class Renderer
     public static string SafeText(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
-        text = Ircuitry.Core.Icons.Swap(text);   // render our emoji as crisp Phosphor icon glyphs
         for (int i = 0; i < text.Length; i++)
         {
             char c = text[i];

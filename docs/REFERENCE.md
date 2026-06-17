@@ -523,7 +523,7 @@ Requires `message-tags` ACKed. Prepend `@` + `;`-joined tags + one space. Client
 @+draft/reply=<msgid> PRIVMSG #chan :see above
 @+typing=active TAGMSG #chan
 @+typing=done   TAGMSG #chan
-@label=42 @+draft/react=👍 TAGMSG #chan       (label for labeled-response correlation)
+@label=42 @+draft/react=<emoji> TAGMSG #chan       (label for labeled-response correlation)
 ```
 - `TAGMSG <target>` is a message that carries only tags, no body - use it for `+typing`, reactions, etc.
 - `+typing` values: `active`, `paused`, `done` (draft spec). `+draft/reply=<message-id>` references the parent message's `msgid` tag.

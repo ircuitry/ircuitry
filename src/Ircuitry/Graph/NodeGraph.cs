@@ -51,7 +51,7 @@ public sealed class NodeGraph
     }
 
     /// <summary>
-    /// Connect output→input with type checking. A data input holds at most one wire
+    /// Connect output->input with type checking. A data input holds at most one wire
     /// (the existing one is replaced), while exec inputs (and explicit multi pins like
     /// Ask AI's tools) fan in - many triggers can feed the same downstream flow. Output
     /// pins always fan out.

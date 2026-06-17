@@ -29,7 +29,7 @@ public static class HeadlessRunner
             bot.Runtime.Start(bot.Graph, live);
             running.Add(bot);
             foreach (var sv in live)
-                Console.WriteLine($"▶ {bot.Name} → {sv.Host}:{sv.Port}  {string.Join(" ", sv.ChannelList)}");
+                Console.WriteLine($"{Ircuitry.Core.Icons.Glyph("play")} {bot.Name} {Ircuitry.Core.Icons.Glyph("arrow-right")} {sv.Host}:{sv.Port}  {string.Join(" ", sv.ChannelList)}");
         }
         if (running.Count == 0) { Console.WriteLine("ircuitry: no runnable bots (open the app and set a server)."); return 1; }
 

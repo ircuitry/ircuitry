@@ -38,7 +38,7 @@ public static class BotTools
     /// <summary>Encoded values must fit the 4094-byte client-tag limit.</summary>
     public static bool Fits(string b64) => b64.Length <= 4094;
 
-    // ---- JsonElement helpers (defensive: anything unexpected → fallback) ----
+    // ---- JsonElement helpers (defensive: anything unexpected -> fallback) ----
     public static string Str(JsonElement e, string prop, string fallback = "")
         => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String
            ? v.GetString() ?? fallback : fallback;

@@ -102,7 +102,7 @@ public static class McpServer
         {
             var app = new AppModel();                 // always operate on the latest on-disk workspace
             object result = tool.Run(args, app);
-            if (tool.Mutates) app.Save(announce: false);   // persist → the running GUI hot-reloads it
+            if (tool.Mutates) app.Save(announce: false);   // persist -> the running GUI hot-reloads it
             ToolResult(id, JsonSerializer.Serialize(result, Json), isError: false);
         }
         catch (Exception ex)

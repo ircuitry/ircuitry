@@ -5,7 +5,7 @@ using Ircuitry.Core;
 namespace Ircuitry.Editor;
 
 /// <summary>
-/// 2D pan/zoom camera. World→screen = world*Zoom + Pan (Pan is screen pixels).
+/// 2D pan/zoom camera. World->screen = world*Zoom + Pan (Pan is screen pixels).
 /// Hit-testing and node geometry live in world space; we draw in screen space
 /// (manual transform) so text stays crisp at any zoom.
 /// </summary>

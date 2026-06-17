@@ -26,7 +26,7 @@ public static class WorkflowValidator
         if (!root.TryGetProperty("name", out var nameEl) || string.IsNullOrWhiteSpace(nameEl.GetString()))
             errors.Add("missing non-empty 'name'");
 
-        // index nodes by id → typeId; flag unknown types and duplicate ids. We also build a live Node per id
+        // index nodes by id -> typeId; flag unknown types and duplicate ids. We also build a live Node per id
         // (with its params) so pin-range checks honour per-instance dynamic pins, e.g. a Switch's case outputs.
         var nodeType = new Dictionary<string, string>();
         var nodeById = new Dictionary<string, Node>();

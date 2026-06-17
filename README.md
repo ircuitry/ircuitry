@@ -76,7 +76,7 @@ usual SDL2/OpenAL native libs (bundled by `MonoGame.Framework.DesktopGL`).
 | Run / Stop the bot | `Ctrl+R` or the **RUN BOT** button |
 | Test bench (dry run) | the **▶ TEST** button - fire a fake message and see what it *would* send + the node-by-node trace, no IRC |
 | Tidy the graph | `Ctrl+L` or the **⤢ TIDY** button - auto-layout left→right by dependency |
-| Secrets | the **🔑 KEYS** button - store keys/passwords referenced as `{{secret.name}}`, kept out of the workspace/exports |
+| Secrets | the **KEYS** button - store keys/passwords referenced as `{{secret.name}}`, kept out of the workspace/exports |
 | Apply edits to a live bot | the **APPLY** button (shown while running) - updates the workflow without a restart |
 | Close window | the **X** prompts **Minimise** (keeps bots running) or **Exit**; the window starts **maximised** |
 | Fullscreen / screenshot | `F11` / `F12` |
@@ -117,8 +117,8 @@ a rate-limited command, etc.). The node library is **searchable** and its
 categories **collapse** so it stays tidy as it grows.
 
 **IRCv3 message tags, made friendly.** When a sender is logged in (account-tag)
-or flagged as a bot, the Event Console shows it as a little badge (`✓account`,
-`🤖`) instead of raw tag soup, and every tag is exposed to the graph - so a noob
+or flagged as a bot, the Event Console shows it as a little badge (`account`,
+`bot`) instead of raw tag soup, and every tag is exposed to the graph - so a noob
 can drop in **From Account**, **Is Bot**, or **Get Tag** without learning the
 wire format. **Add Reaction** and **Reply (threaded)** send `+draft/react` /
 `+draft/reply` so replies thread and reactions land in modern clients.
@@ -198,7 +198,7 @@ ircuitry ships with built-in nodes only; everything else is community content yo
 - **Nodes** (`.ircnode`, loaded from `~/ircuitry/nodes/`): browse the gallery at
   **[ircuitry.github.io/nodes](https://ircuitry.github.io/nodes)**, hit **Copy**, then in the app click
   **Install from clipboard** in the Node Library (or press `Ctrl+Shift+V`) and confirm. You can also drag
-  a `.ircnode` onto the canvas. Hover an installed node in the Node Library and click the **✕** to
+  a `.ircnode` onto the canvas. Hover an installed node in the Node Library and click the **×** to
   uninstall it. Share yours via [ircuitry/community-nodes](https://github.com/ircuitry/community-nodes).
 - **Workflows** (`.ircbot`, whole bots): browse
   **[ircuitry.github.io/workflows](https://ircuitry.github.io/workflows)**, **Copy** one and press

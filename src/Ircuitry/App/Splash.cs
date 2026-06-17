@@ -70,7 +70,7 @@ public sealed class Splash
             float frac = i / (float)N;
             float ang = head - i * (MathF.PI * 2f / N);
             var pos = center + new Vector2(MathF.Cos(ang), MathF.Sin(ang)) * ringR * pop;
-            float tail = 1f - frac;                  // bright head → faint tail
+            float tail = 1f - frac;                  // bright head -> faint tail
             float sz = 1.6f + 3.2f * tail;
             r.Disc(pos, sz * pop, Theme.WithAlpha(Theme.Cyan, (0.12f + 0.7f * tail * tail) * a * pop));
         }

@@ -114,7 +114,7 @@ public sealed class IrcClient
     }
 
     // drains the outgoing queue with a token bucket so the bot can't flood off the server.
-    // Lives for the whole client (background thread) so it survives stop→restart and reconnects;
+    // Lives for the whole client (background thread) so it survives stop->restart and reconnects;
     // it parks on the signal when idle and only writes while a stream is live.
     private void WriterLoop()
     {
@@ -208,7 +208,7 @@ public sealed class IrcClient
             if (_quit) break;
             if (!_cfg.AutoReconnect) break;
 
-            // unexpected drop → exponential backoff, then retry
+            // unexpected drop -> exponential backoff, then retry
             _reconnectAttempt++;
             int delay = Math.Min(30, 1 << Math.Min(_reconnectAttempt, 5));   // 2,4,8,16,30,30…
             State = IrcState.Connecting;
@@ -266,7 +266,7 @@ public sealed class IrcClient
         SendNow("CAP LS 302");
         if (_cfg.ServerPass.Length > 0) SendNow($"PASS {_cfg.ServerPass}");
         // never send an empty NICK/USER/realname - servers reject "USER  0 * :" with 461. Fall back to
-        // sane values: nick → "ircuitry-bot", ident → the nick (first word, no spaces), realname → the nick.
+        // sane values: nick -> "ircuitry-bot", ident -> the nick (first word, no spaces), realname -> the nick.
         string nick = Clean(_cfg.Nick).Trim();
         if (nick.Length == 0) nick = "ircuitry-bot";
         string ident = Clean(_cfg.User).Trim();

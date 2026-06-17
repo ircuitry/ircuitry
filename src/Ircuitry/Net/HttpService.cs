@@ -215,7 +215,7 @@ public static class Ai
                             foreach (var p in ad.RootElement.EnumerateObject())
                                 argd[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.GetRawText();
                     }
-                    catch { /* malformed args → empty */ }
+                    catch { /* malformed args -> empty */ }
 
                     string result;
                     try { result = execTool(name, argd) ?? ""; }

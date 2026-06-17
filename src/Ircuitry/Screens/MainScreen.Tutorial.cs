@@ -29,7 +29,7 @@ public sealed partial class MainScreen
         ResetTut();
         _tut.Begin();
         if (step >= 2) { var c = _editor.Spawn(NodeCatalog.Get("event.command"), new Vector2(-160, 0)); c.SetParam("command", step >= 5 ? "hello" : ""); _tutCmdId = c.Id; }
-        if (step >= 3) { var rp = _editor.Spawn(NodeCatalog.Get("action.reply"), new Vector2(180, 0)); rp.SetParam("message", step >= 6 ? "hi there {nick} ✨" : ""); _tutReplyId = rp.Id; }
+        if (step >= 3) { var rp = _editor.Spawn(NodeCatalog.Get("action.reply"), new Vector2(180, 0)); rp.SetParam("message", step >= 6 ? "hi there {nick} \U00002728" : ""); _tutReplyId = rp.Id; }   // intentional unicode (sparkles)
         if (step >= 4 && _tutCmdId != null && _tutReplyId != null) Bot.Graph.Connect(_tutCmdId, 0, _tutReplyId, 0);
         _editor.FocusContent(_l.Canvas);
         _tut.GoTo(step);
@@ -71,7 +71,7 @@ public sealed partial class MainScreen
         var c = CmdNode(); var rp = ReplyNode();
         if (c == null || rp == null || Wired(c, rp)) return;
         _editor.PushUndo();
-        Bot.Graph.Connect(c.Id, 0, rp.Id, 0);   // 'then' exec → reply exec
+        Bot.Graph.Connect(c.Id, 0, rp.Id, 0);   // 'then' exec to reply exec
         _app.MarkDirty();
     }
 
@@ -130,14 +130,14 @@ public sealed partial class MainScreen
                 accent = Theme.Cyan; spot = canvas;
                 title = "Add a trigger";
                 body = "Every command begins with a trigger. \"On Command\" fires when someone types a prefix and a word - like !hello. Pop one onto the canvas.";
-                prim = cmd == null ? "+  Place 'On Command'" : "Next  ▶";
+                prim = cmd == null ? "+  Place 'On Command'" : "Next  " + Ircuitry.Core.Icons.Glyph("play");
                 break;
 
             case 2:   // place reply
                 accent = Theme.Lime; spot = canvas;
                 title = "Add an action";
                 body = "Now the fun part - what the bot does. \"Send Reply\" answers right back in the channel. Add one next to your trigger.";
-                prim = reply == null ? "+  Place 'Send Reply'" : "Next  ▶";
+                prim = reply == null ? "+  Place 'Send Reply'" : "Next  " + Ircuitry.Core.Icons.Glyph("play");
                 break;
 
             case 3:   // wire
@@ -147,8 +147,8 @@ public sealed partial class MainScreen
                 else spot = canvas;
                 bool wired = cmd != null && reply != null && Wired(cmd, reply);
                 title = "Connect the wire";
-                body = "Wires carry the signal. Link the trigger's → output to the reply so that firing the command runs the reply.";
-                prim = wired ? "Next  ▶" : "🔗  Wire them together";
+                body = "Wires carry the signal. Link the trigger's " + Ircuitry.Core.Icons.Glyph("arrow-right") + " output to the reply so that firing the command runs the reply.";
+                prim = wired ? "Next  " + Ircuitry.Core.Icons.Glyph("play") : Ircuitry.Core.Icons.Glyph("link") + "  Wire them together";
                 break;
 
             case 4:   // name the command
@@ -156,8 +156,8 @@ public sealed partial class MainScreen
                 TutSelect(cmd);
                 bool named = cmd != null && cmd.GetParam("command").Trim().Length > 0;
                 title = "Name your command";
-                body = "Look right → the Inspector shows your trigger. Type a word in the \"Command\" field - try hello. (No prefix, just the word.)";
-                prim = named ? "Next  ▶" : "Type a word first…";
+                body = "Look right " + Ircuitry.Core.Icons.Glyph("arrow-right") + " the Inspector shows your trigger. Type a word in the \"Command\" field - try hello. (No prefix, just the word.)";
+                prim = named ? "Next  " + Ircuitry.Core.Icons.Glyph("play") : "Type a word first…";
                 sec = "Use 'hello'";
                 break;
 
@@ -166,31 +166,31 @@ public sealed partial class MainScreen
                 TutSelect(reply);
                 bool wrote = reply != null && reply.GetParam("message").Trim().Length > 0;
                 title = "Write the reply";
-                body = "Pick the reply node and fill its \"Message\" field with what the bot should say. Try: hi there {nick} ✨  ({nick} becomes who asked!)";
-                prim = wrote ? "Next  ▶" : "Write a message first…";
+                body = "Pick the reply node and fill its \"Message\" field with what the bot should say. Try: hi there {nick} " + Ircuitry.Core.Icons.Glyph("sparkle") + "  ({nick} becomes who asked!)";
+                prim = wrote ? "Next  " + Ircuitry.Core.Icons.Glyph("play") : "Write a message first…";
                 sec = "Use a friendly one";
                 break;
 
             case 6:   // test it
                 accent = Theme.Cyan; spot = TestButtonRect(); card = cardCenter;
                 title = "Try it out!";
-                body = "Moment of truth. Click ▶ TEST up top - the message is already set to your command - then hit RUN and watch your bot reply. 🎉";
+                body = "Moment of truth. Click " + Ircuitry.Core.Icons.Glyph("play") + " TEST up top - the message is already set to your command - then hit RUN and watch your bot reply. " + Ircuitry.Core.Icons.Glyph("confetti");
                 prim = "";   // they must click the real TEST button
                 if (_testRunSeq > _tutTestBaseline) { _tut.GoTo(Tutorial.Done); return; }
                 break;
 
             case Tutorial.Done:   // celebrate
                 accent = Theme.Lime; spot = null; card = cardCenter; confetti = true; showSkip = false;
-                title = "🎉  You built a bot command!";
+                title = Ircuitry.Core.Icons.Glyph("confetti") + "  You built a bot command!";
                 body = "When someone types your command, your bot replies - all wired up by you. Mix in AI, timers, files and more from the Node Library. Happy baking!";
-                prim = "Finish  🎈";
+                prim = "Finish  " + Ircuitry.Core.Icons.Glyph("balloon");
                 break;
 
             default:  // welcome (Step 0)
                 accent = Theme.Cyan; spot = null; card = cardCenter;
                 title = "Welcome to ircuitry!";
                 body = "Let's build your first bot command together - a friendly !hello that answers in chat. Takes about a minute, and you can skip anytime.";
-                prim = "Let's go!  ▶";
+                prim = "Let's go!  " + Ircuitry.Core.Icons.Glyph("play");
                 break;
         }
 
@@ -241,7 +241,7 @@ public sealed partial class MainScreen
                 if (res == TutResult.Primary && cmd != null && cmd.GetParam("command").Trim().Length > 0) _tut.GoTo(5);
                 break;
             case 5:
-                if (res == TutResult.Secondary && reply != null) { reply.SetParam("message", "hi there {nick} ✨"); _app.MarkDirty(); }
+                if (res == TutResult.Secondary && reply != null) { reply.SetParam("message", "hi there {nick} \U00002728"); _app.MarkDirty(); }   // intentional unicode (sparkles)
                 if (res == TutResult.Primary && reply != null && reply.GetParam("message").Trim().Length > 0) _tut.GoTo(6);
                 break;
             case Tutorial.Done:

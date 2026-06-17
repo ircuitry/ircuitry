@@ -171,7 +171,7 @@ public partial class MainScreen
         y = fy + 28 + 10;
         _nbDesc = _ui.TextField("nb.desc", new RectF(cx, y, cw, 26), _nbDesc, "what this node does (one sentence)");
         y += 26 + 8;
-        _nbAsTool = _ui.Toggle("nb.astool", new RectF(cx, y, cw, 22), _nbAsTool, "🧰  Usable as an AI tool - wire into Ask AI (input pins = the model's arguments, first output = result)");
+        _nbAsTool = _ui.Toggle("nb.astool", new RectF(cx, y, cw, 22), _nbAsTool, Ircuitry.Core.Icons.Glyph("toolbox") + "  Usable as an AI tool - wire into Ask AI (input pins = the model's arguments, first output = result)");
         y += 22 + 10;
 
         DrawNbCompositeBody(r, panel, cx, cw, y, clock, Label);
@@ -181,13 +181,13 @@ public partial class MainScreen
         string err = NbValidate(manifest);
         bool ok = err.Length == 0;
         var sans = r.Fonts.Get(FontKind.Sans, 12);
-        r.Text(sans, _nbStatus.Length > 0 ? _nbStatus : (ok ? "ready to bake  ·  " + NbTypeId() : "⚠ " + err),
+        r.Text(sans, _nbStatus.Length > 0 ? _nbStatus : (ok ? "ready to bake  ·  " + NbTypeId() : Ircuitry.Core.Icons.Glyph("warning") + " " + err),
             new Vector2(cx, panel.Bottom - 44), ok ? Theme.Lime : Theme.Amber);
 
         float bw = 150, bh = 34, bx = panel.Right - pad - bw, by = panel.Bottom - bh - 8;
-        if (_ui.Button("nb.save", new RectF(bx, by, bw, bh), _nbEditId.Length > 0 ? "🧁  SAVE" : "🧁  BAKE", Theme.Violet, primary: true, enabled: ok))
+        if (_ui.Button("nb.save", new RectF(bx, by, bw, bh), _nbEditId.Length > 0 ? Ircuitry.Core.Icons.Glyph("cake") + "  SAVE" : Ircuitry.Core.Icons.Glyph("cake") + "  BAKE", Theme.Violet, primary: true, enabled: ok))
             NbSave(manifest);
-        if (_ui.Button("nb.submit", new RectF(bx - 10 - 110, by, 110, bh), "SUBMIT ↗", Theme.Berry, enabled: ok)) NbSubmit(manifest);
+        if (_ui.Button("nb.submit", new RectF(bx - 10 - 110, by, 110, bh), "SUBMIT " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Berry, enabled: ok)) NbSubmit(manifest);
         if (_ui.Button("nb.export", new RectF(bx - 10 - 110 - 10 - 100, by, 100, bh), "EXPORT", Theme.Sky, enabled: ok)) NbExport(manifest);
         if (_ui.Button("nb.cancel", new RectF(cx, by, 90, bh), "CLOSE", Theme.Idle)) _nbOpen = false;
 
@@ -222,7 +222,7 @@ public partial class MainScreen
         _nbEditor.Draw(r, _nbEditorRect, In, clock);
         r.Begin();
 
-        r.Text(r.Fonts.Get(FontKind.Sans, 11), "drop nodes and wire them · select a node to edit/expose its settings → · Del removes",
+        r.Text(r.Fonts.Get(FontKind.Sans, 11), "drop nodes and wire them · select a node to edit/expose its settings " + Ircuitry.Core.Icons.Glyph("arrow-right") + " · Del removes",
             new Vector2(cx + 8, _nbEditorRect.Bottom - 18), Theme.TextFaint);
 
         // inspector for the selected inner node (edit its settings, choose hardcode vs expose)
@@ -258,7 +258,7 @@ public partial class MainScreen
         var sel = _nbEditor!.Selection;
         if (sel.Count != 1)
         {
-            foreach (var line in Wrap(sans, "Select one node to edit its settings - and pick which become 🔒 hard-coded vs 👤 filled by whoever uses the node.", w))
+            foreach (var line in Wrap(sans, "Select one node to edit its settings - and pick which become " + Ircuitry.Core.Icons.Glyph("lock") + " hard-coded vs " + Ircuitry.Core.Icons.Glyph("user") + " filled by whoever uses the node.", w))
             { r.Text(sans, line, new Vector2(x, y), Theme.TextDim); y += 16; }
             return;
         }
@@ -280,8 +280,8 @@ public partial class MainScreen
 
             if (exposed)
             {
-                r.Text(sans, "👤 filled by the user", new Vector2(x, y + 4), Theme.Lime);
-                if (_ui.Button($"nb.unx.{node.Id}.{p.Key}", new RectF(x + w - 96, y, 96, 24), "🔒 Hard-code", Theme.Idle))
+                r.Text(sans, Ircuitry.Core.Icons.Glyph("user") + " filled by the user", new Vector2(x, y + 4), Theme.Lime);
+                if (_ui.Button($"nb.unx.{node.Id}.{p.Key}", new RectF(x + w - 96, y, 96, 24), Ircuitry.Core.Icons.Glyph("lock") + " Hard-code", Theme.Idle))
                 {
                     node.SetParam(p.Key, _nbExposed.TryGetValue(p.Key, out var d) ? d : p.Default);
                     if (!NbOtherExposes(node.Id, token)) _nbExposed.Remove(p.Key);
@@ -296,7 +296,7 @@ public partial class MainScreen
                     node.SetParam(p.Key, _ui.Choice($"nb.pv.{node.Id}.{p.Key}", new RectF(x, y, fw, 24), BoolChoices, val == "true" || val == "1" ? "true" : "false"));
                 else
                     node.SetParam(p.Key, _ui.TextField($"nb.pv.{node.Id}.{p.Key}", new RectF(x, y, fw, 24), val, p.Placeholder));
-                if (canExpose && _ui.Button($"nb.exp.{node.Id}.{p.Key}", new RectF(x + w - 74, y, 74, 24), "👤 Expose", Theme.Berry))
+                if (canExpose && _ui.Button($"nb.exp.{node.Id}.{p.Key}", new RectF(x + w - 74, y, 74, 24), Ircuitry.Core.Icons.Glyph("user") + " Expose", Theme.Berry))
                 {
                     _nbExposed[p.Key] = val.Length > 0 ? val : p.Default;   // current value becomes the setting's default
                     node.SetParam(p.Key, token);
@@ -316,8 +316,8 @@ public partial class MainScreen
             System.IO.Directory.CreateDirectory(NodeCatalog.CustomDir);
             System.IO.File.WriteAllText(System.IO.Path.Combine(NodeCatalog.CustomDir, def.TypeId + ".ircnode"), manifest);
             NodeCatalog.LoadCustom();
-            Bot.Log.Add(LogLevel.System, $"baked node “{def.Title}” → Node Library ▸ {def.Category}");
-            PushToast($"🧁 {def.Title} baked into your library");
+            Bot.Log.Add(LogLevel.System, $"baked node “{def.Title}” " + Ircuitry.Core.Icons.Glyph("arrow-right") + " Node Library " + Ircuitry.Core.Icons.Glyph("caret-right") + $" {def.Category}");
+            PushToast(Ircuitry.Core.Icons.Glyph("cake") + $" {def.Title} baked into your library");
             _nbOpen = false;
         }
         catch (Exception ex) { _nbStatus = "save failed: " + ex.Message; }
@@ -328,7 +328,7 @@ public partial class MainScreen
         try
         {
             System.IO.File.WriteAllText(System.IO.Path.Combine(AppModel.WorkspaceDir, NbTypeId() + ".ircnode"), manifest);
-            PushToast("📄 exported - opening folder");
+            PushToast(Ircuitry.Core.Icons.Glyph("file") + " exported - opening folder");
             Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir);
         }
         catch (Exception ex) { _nbStatus = "export failed: " + ex.Message; }
@@ -340,7 +340,7 @@ public partial class MainScreen
         string prefilled = $"https://github.com/ircuitry/community-nodes/new/main?filename={Uri.EscapeDataString(file)}&value={Uri.EscapeDataString(manifest)}";
         try
         {
-            if (prefilled.Length <= 7000) { Ircuitry.App.DeepLink.OpenUrl(prefilled); PushToast("↗ opening a GitHub PR for your node"); }
+            if (prefilled.Length <= 7000) { Ircuitry.App.DeepLink.OpenUrl(prefilled); PushToast(Ircuitry.Core.Icons.Glyph("arrow-up-right") + " opening a GitHub PR for your node"); }
             else { try { Clipboard.SetText(manifest); } catch { } Ircuitry.App.DeepLink.OpenUrl("https://github.com/ircuitry/community-nodes/new/main"); PushToast("node copied - paste it into the GitHub editor"); }
         }
         catch (Exception ex) { _nbStatus = "submit failed: " + ex.Message; }

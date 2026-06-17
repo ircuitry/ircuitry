@@ -201,7 +201,7 @@ public sealed partial class MainScreen
     private void DrawTagsLine(Renderer r, IrcMessage m, float x, float y, float maxX)
     {
         var f = r.Fonts.Get(FontKind.Mono, 10);
-        r.Text(r.Fonts.Get(FontKind.Sans, 10), "🏷", new Vector2(x, y), Theme.AmberDim);
+        r.Text(r.Fonts.Get(FontKind.Sans, 10), Ircuitry.Core.Icons.Glyph("tag"), new Vector2(x, y), Theme.AmberDim);
         float cx = x + 16;
         bool first = true;
         foreach (var kv in m.Tags)

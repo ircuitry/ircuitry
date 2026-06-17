@@ -15,14 +15,14 @@ public enum PinKind
     Channel,  // a channel name
     Number,   // numeric (stored as text)
     Bool,     // boolean (stored as "true"/"false")
-    Tool,     // an AI tool definition (AI Tool → Ask AI)
+    Tool,     // an AI tool definition (AI Tool -> Ask AI)
 }
 
 public static class Pins
 {
     public static bool IsExec(this PinKind k) => k == PinKind.Exec;
 
-    /// <summary>Exec↔exec, Tool↔Tool, or any data kind to any data kind.</summary>
+    /// <summary>Exec-to-exec, Tool-to-Tool, or any data kind to any data kind.</summary>
     public static bool Compatible(PinKind a, PinKind b)
     {
         if (a == PinKind.Tool || b == PinKind.Tool) return a == PinKind.Tool && b == PinKind.Tool;

@@ -40,7 +40,7 @@ public sealed class MockIrcServer : IDisposable
 
     private void Run()
     {
-        // accept connections in a loop so the bot can disconnect and reconnect (stop→restart)
+        // accept connections in a loop so the bot can disconnect and reconnect (stop->restart)
         while (!_stop)
         {
             TcpClient client;
@@ -70,7 +70,7 @@ public sealed class MockIrcServer : IDisposable
             string? line;
             while (!_stop && (line = reader.ReadLine()) != null)
             {
-                // a client line may be tag-prefixed (@tags COMMAND …) - detect the command after the tags
+                // a client line may be tag-prefixed (@tags COMMAND ...) - detect the command after the tags
                 string body = line;
                 if (body.StartsWith('@')) { int sp = body.IndexOf(' '); body = sp >= 0 ? body[(sp + 1)..] : ""; }
 
@@ -95,7 +95,7 @@ public sealed class MockIrcServer : IDisposable
                 }
                 else if (body.StartsWith("PRIVMSG", StringComparison.Ordinal) || body.StartsWith("NOTICE", StringComparison.Ordinal) || body.StartsWith("TAGMSG", StringComparison.Ordinal))
                 {
-                    lock (_lock) _outgoing.Add(line);   // record the FULL line incl. client tags (+reply, +draft/bot-tools, …)
+                    lock (_lock) _outgoing.Add(line);   // record the FULL line incl. client tags (+reply, +draft/bot-tools, ...)
                 }
                 else if (body.StartsWith("PONG", StringComparison.Ordinal))
                 {

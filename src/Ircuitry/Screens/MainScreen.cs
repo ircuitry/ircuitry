@@ -59,7 +59,7 @@ public sealed partial class MainScreen : IScreen
     private Bot? _confirmDeleteBot;
     private bool _confirmJustOpened;
 
-    // close prompt (window X → exit / minimise)
+    // close prompt (window X -> exit / minimise)
     private bool _closePromptOpen, _closeJustOpened;
     public Action? OnExitRequested;
     public Action? OnMinimizeRequested;
@@ -104,7 +104,7 @@ public sealed partial class MainScreen : IScreen
     private bool _serversOpen, _serversJustOpened;
     private string _serverSaveName = "";
     private float _serversScroll;
-    // irc:// / ircs:// link → "save this server" (prompt only when one already exists)
+    // irc:// / ircs:// link -> "save this server" (prompt only when one already exists)
     private bool _serverLinkOpen, _serverLinkJustOpened;
     private Ircuitry.Core.ServerProfile? _serverLinkProfile;
     private string _serverLinkExisting = "";
@@ -230,8 +230,8 @@ public sealed partial class MainScreen : IScreen
             if (skipped.Count > 0)
             {
                 var w = Ircuitry.Graph.GraphSerializer.SkippedWarning(skipped);
-                Bot.Log.Add(LogLevel.Warn, "⚠ " + w);
-                PushToast("⚠ " + w);
+                Bot.Log.Add(LogLevel.Warn, Ircuitry.Core.Icons.Glyph("warning") + " " + w);
+                PushToast(Ircuitry.Core.Icons.Glyph("warning") + " " + w);
             }
         }
         catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "load failed: " + ex.Message); }
@@ -320,7 +320,7 @@ public sealed partial class MainScreen : IScreen
         }
         profile.Name = UniqueServerName(host);
         Ircuitry.Core.Servers.Save(profile);
-        Notify($"📡 saved server {host}:{port}" + (channels.Length > 0 ? "  ·  " + channels : ""));
+        Notify(Ircuitry.Core.Icons.Glyph("broadcast") + $" saved server {host}:{port}" + (channels.Length > 0 ? "  ·  " + channels : ""));
         Bot.Log.Add(LogLevel.System, $"saved server '{profile.Name}' ({host}:{port}) from a link");
     }
 
@@ -356,7 +356,7 @@ public sealed partial class MainScreen : IScreen
         if (_ui.Button("svlink.add", addRect, "ADD ANYWAY", Theme.Sky, primary: true))
         {
             Ircuitry.Core.Servers.Save(p);
-            Notify($"📡 saved server {p.Host}:{p.Port}");
+            Notify(Ircuitry.Core.Icons.Glyph("broadcast") + $" saved server {p.Host}:{p.Port}");
             Bot.Log.Add(LogLevel.System, $"saved server '{p.Name}' ({p.Host}:{p.Port}) from a link");
             _serverLinkOpen = false; _serverLinkProfile = null;
         }
@@ -406,13 +406,13 @@ public sealed partial class MainScreen : IScreen
         Hud.Panel(r, panel, "Install community workflow?", Theme.Sky);
 
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
-        r.Text(r.Fonts.Get(FontKind.SansBold, 16), "🤖  " + _wfInstallName, new Vector2(x, y), Theme.Text); y += 26;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 16), Ircuitry.Core.Icons.Glyph("robot") + "  " + _wfInstallName, new Vector2(x, y), Theme.Text); y += 26;
         r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{_wfInstallNodes} node(s) · adds a new bot tab", new Vector2(x, y), Theme.TextDim); y += 24;
         if (_wfInstallDesc.Length > 0)
             foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), _wfInstallDesc, w))
             { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 17; }
         y += 8;
-        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), "⚠  A workflow can include Code nodes that run on your machine. Review it before you press RUN BOT.", w))
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), Ircuitry.Core.Icons.Glyph("warning") + "  A workflow can include Code nodes that run on your machine. Review it before you press RUN BOT.", w))
         { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.Alert); y += 17; }
 
         var goR = new RectF(panel.Right - 22 - 130, panel.Bottom - 50, 130, 34);
@@ -421,7 +421,7 @@ public sealed partial class MainScreen : IScreen
         if (_ui.Button("wfinstall.go", goR, "INSTALL", Theme.Sky, primary: true))
         {
             var bot = _app.ImportText(_wfInstallText);
-            if (bot != null) { Bot.Log.Add(LogLevel.System, $"imported workflow “{bot.Name}” - set your server/nick/channels, then RUN BOT"); PushToast($"✓ {bot.Name} added as a new bot tab"); }
+            if (bot != null) { Bot.Log.Add(LogLevel.System, $"imported workflow “{bot.Name}” - set your server/nick/channels, then RUN BOT"); PushToast(Ircuitry.Core.Icons.Glyph("check") + $" {bot.Name} added as a new bot tab"); }
             _wfInstallOpen = false;
         }
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_wfInstallJustOpened) _wfInstallOpen = false;
@@ -461,7 +461,7 @@ public sealed partial class MainScreen : IScreen
         else if (node != null && node.TypeId == "cal.add") { node.SetParam("path", path); _editor.Selection.Clear(); _editor.Selection.Add(node.Id); }
         else { var n = _editor.Spawn(NodeCatalog.Get("file.ical"), _editor.Cam.ScreenToWorld(screen)); n.SetParam("source", path); }
         _app.MarkDirty();
-        Bot.Log.Add(LogLevel.System, "calendar source set → " + System.IO.Path.GetFileName(path.TrimEnd('/', '\\')));
+        Bot.Log.Add(LogLevel.System, "calendar source set " + Ircuitry.Core.Icons.Glyph("arrow-right") + " " + System.IO.Path.GetFileName(path.TrimEnd('/', '\\')));
     }
 
     /// <summary>Debug hook (--inspect): select the first node with a multi-line param to preview the inspector.</summary>
@@ -523,10 +523,10 @@ public sealed partial class MainScreen : IScreen
     public void DebugNotifications()
     {
         _l = Layout.Compute(_vw, _vh, _consoleH);
-        PushToast("💾 Workspace saved");
-        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-1), "📤 Exported welcomer"));
-        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-3), "📡 saved server irc.libera.chat:6697"));
-        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-8), "↩ Snapshot restored"));
+        PushToast(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved");
+        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-1), Ircuitry.Core.Icons.Glyph("export") + " Exported welcomer"));
+        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-3), Ircuitry.Core.Icons.Glyph("broadcast") + " saved server irc.libera.chat:6697"));
+        _notifLog.Insert(0, (DateTime.Now.AddMinutes(-8), Ircuitry.Core.Icons.Glyph("arrow-bend-up-left") + " Snapshot restored"));
         _notifOpen = true; _notifJustOpened = true; _notifUnread = 0;
     }
     public void DebugMultiServer()
@@ -538,7 +538,7 @@ public sealed partial class MainScreen : IScreen
         b.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = "OFTC", Host = "irc.oftc.net", Channels = "#bots" });
         b.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = "Libera (test)", Host = "irc.libera.chat", Channels = "#test" });
         b.SelectedServer = 0;
-        _editor.Selection.Clear();   // no node selected → the connection inspector shows
+        _editor.Selection.Clear();   // no node selected -> the connection inspector shows
     }
     public void DebugShowNetwork()
     {
@@ -562,10 +562,10 @@ public sealed partial class MainScreen : IScreen
         var rep = Add("action.reply", 300, -150);
         g.Connect(cmd.Id, 0, ai.Id, 0); g.Connect(ai.Id, 0, rep.Id, 0); g.Connect(ai.Id, 1, rep.Id, 1);
         var join = Add("event.join", -360, 40);
-        var welcome = Add("action.reply", -30, 40); welcome.SetParam("message", "welcome to {channel}, {nick}! 🎉");
+        var welcome = Add("action.reply", -30, 40); welcome.SetParam("message", "welcome to {channel}, {nick}! \U0001F389");   // intentional unicode (party popper)
         g.Connect(join.Id, 0, welcome.Id, 0);
         var timer = Add("event.timer", -360, 210); timer.SetParam("seconds", "3600");
-        var say = Add("action.say", -30, 210); say.SetParam("channel", "#ircuitry"); say.SetParam("message", "still here and cosy ☕");
+        var say = Add("action.say", -30, 210); say.SetParam("channel", "#ircuitry"); say.SetParam("message", "still here and cosy \u2615");   // intentional unicode (hot beverage)
         g.Connect(timer.Id, 0, say.Id, 0);
         b.Name = "demo";
         b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true;
@@ -590,7 +590,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugShowLabels()
     {
         var n = Bot.Graph.Nodes.FirstOrDefault();
-        if (n != null) { n.Title = "✨ my greeting"; _editor.Selection.Clear(); _editor.Selection.Add(n.Id); _lastGraph = Bot.Graph; }
+        if (n != null) { n.Title = Ircuitry.Core.Icons.Glyph("sparkle") + " my greeting"; _editor.Selection.Clear(); _editor.Selection.Add(n.Id); _lastGraph = Bot.Graph; }
         _renamingBot = Bot; _ui.Focus = "tab.rename";
     }
 
@@ -616,7 +616,7 @@ public sealed partial class MainScreen : IScreen
         }
         else if (!_tut.Active)   // tutorial owns the canvas while it runs (it places/wires for you)
         {
-            // right-click anywhere on the canvas → context menu
+            // right-click anywhere on the canvas -> context menu
             if (In.RightPressed && _l.Canvas.Contains(input.Mouse) && !_ui.AnyFieldFocused)
             {
                 // right-clicking a node that isn't already selected makes it the target
@@ -625,7 +625,7 @@ public sealed partial class MainScreen : IScreen
                 OpenContextMenu(input.Mouse, hit != null);
             }
 
-            // double-click empty canvas → quick-add menu
+            // double-click empty canvas -> quick-add menu
             if (In.LeftPressed && _l.Canvas.Contains(input.Mouse) && _editor.IsEmptyAt(input.Mouse))
             {
                 if (clock.Time - _lastClickTime < 0.35f && Vector2.Distance(input.Mouse, _lastClickPos) < 6f)
@@ -637,9 +637,9 @@ public sealed partial class MainScreen : IScreen
             {
                 _editor.Update(input, _l.Canvas, _ui.AnyFieldFocused);
                 if (input.Ctrl && input.KeyPressed(Keys.K)) OpenCommandPalette();
-                if (input.Ctrl && input.KeyPressed(Keys.S)) { _app.Save(); Notify("💾 Workspace saved"); }
+                if (input.Ctrl && input.KeyPressed(Keys.S)) { _app.Save(); Notify(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved"); }
                 if (input.Ctrl && input.KeyPressed(Keys.R)) ToggleRun();
-                if (input.Ctrl && input.KeyPressed(Keys.E)) { _app.ExportActive(); Notify($"📤 Exported {Bot.Name}"); }
+                if (input.Ctrl && input.KeyPressed(Keys.E)) { _app.ExportActive(); Notify(Ircuitry.Core.Icons.Glyph("export") + $" Exported {Bot.Name}"); }
                 if (input.Ctrl && input.KeyPressed(Keys.H)) OpenHistory();
                 if (input.Ctrl && input.KeyPressed(Keys.L)) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); }
                 if (input.Ctrl && input.Shift && input.KeyPressed(Keys.V)) InstallFromClipboard();
@@ -929,19 +929,19 @@ public sealed partial class MainScreen : IScreen
         _saveNodeDesc = _ui.TextField("savenode.desc", new RectF(x, y, w, 28), _saveNodeDesc, "what this node does"); y += 28 + 10;
         // makes the baked node wireable into Ask AI: its input pins become the model's arguments, its first
         // data output the result (or, if it contains an AI Tool node, that tool is used directly)
-        _saveNodeAsTool = _ui.Toggle("savenode.astool", new RectF(x, y, w, 24), _saveNodeAsTool, "🧰 Usable as an AI tool (wire into Ask AI)");
+        _saveNodeAsTool = _ui.Toggle("savenode.astool", new RectF(x, y, w, 24), _saveNodeAsTool, Ircuitry.Core.Icons.Glyph("toolbox") + " Usable as an AI tool (wire into Ask AI)");
 
         var saveR = new RectF(panel.Right - 22 - 132, panel.Bottom - 50, 132, 34);
         var cancelR = new RectF(saveR.X - 12 - 110, panel.Bottom - 50, 110, 34);
         if (_ui.Button("savenode.cancel", cancelR, "CANCEL", Theme.Idle)) _saveNodeOpen = false;
-        if (_ui.Button("savenode.save", saveR, "🧁  BAKE", Theme.Violet, primary: true))
+        if (_ui.Button("savenode.save", saveR, Ircuitry.Core.Icons.Glyph("cake") + "  BAKE", Theme.Violet, primary: true))
         {
             var name = _saveNodeName.Trim(); if (name.Length == 0) name = "My Node";
             // an explicit Subflow Start means the author defined the pins by hand; otherwise auto-wrap them
             string? manifest = _editor.SelectionIsSubflow
                 ? _editor.SaveSelectionAsNode(name, _saveNodeAsTool)
                 : _editor.BuildCompositeFromSelection(name, _saveNodeIcon, _saveNodeCat, _saveNodeDesc, _saveNodeAsTool, out _);
-            if (manifest == null) { Bot.Log.Add(LogLevel.Error, "Select a couple of wired-up nodes to bake first."); PushToast("⚠ nothing to bake - select some nodes"); }
+            if (manifest == null) { Bot.Log.Add(LogLevel.Error, "Select a couple of wired-up nodes to bake first."); PushToast(Ircuitry.Core.Icons.Glyph("warning") + " nothing to bake - select some nodes"); }
             else
             {
                 try
@@ -950,11 +950,11 @@ public sealed partial class MainScreen : IScreen
                     System.IO.Directory.CreateDirectory(NodeCatalog.CustomDir);
                     System.IO.File.WriteAllText(System.IO.Path.Combine(NodeCatalog.CustomDir, def.TypeId + ".ircnode"), manifest);
                     NodeCatalog.LoadCustom();
-                    Bot.Log.Add(LogLevel.System, $"baked node “{name}” → Node Library ▸ {def.Category}");
-                    PushToast($"🧁 {name} baked into your library");
+                    Bot.Log.Add(LogLevel.System, $"baked node “{name}” " + Ircuitry.Core.Icons.Glyph("arrow-right") + " Node Library " + Ircuitry.Core.Icons.Glyph("caret-right") + $" {def.Category}");
+                    PushToast(Ircuitry.Core.Icons.Glyph("cake") + $" {name} baked into your library");
                     _saveNodeOpen = false;
                 }
-                catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "bake failed: " + ex.Message); PushToast("⚠ bake failed: " + ex.Message); }
+                catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "bake failed: " + ex.Message); PushToast(Ircuitry.Core.Icons.Glyph("warning") + " bake failed: " + ex.Message); }
             }
         }
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_saveNodeJustOpened) _saveNodeOpen = false;
@@ -975,7 +975,7 @@ public sealed partial class MainScreen : IScreen
             r.Text(r.Fonts.Get(FontKind.SansBold, 15), Ircuitry.Core.Icons.Glyph(d.Icon) + "  " + d.Title, new Vector2(x, y), Theme.Text); y += 24;
             r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{d.TypeId} · {d.Category} · {d.Inputs.Length}in/{d.Outputs.Length}out", new Vector2(x, y), Theme.TextDim); y += 22;
         }
-        r.Text(r.Fonts.Get(FontKind.Sans, 12), "⚠  This runs code on your machine. Review before installing:", new Vector2(x, y), Theme.Alert); y += 22;
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), Ircuitry.Core.Icons.Glyph("warning") + "  This runs code on your machine. Review before installing:", new Vector2(x, y), Theme.Alert); y += 22;
 
         var box = new RectF(x, y, w, panel.Bottom - 50 - y - 12);
         r.RoundFill(box, Theme.PanelLo, 7f);
@@ -1076,12 +1076,12 @@ public sealed partial class MainScreen : IScreen
         r.Text(r.Fonts.Get(FontKind.Sans, 13), "Load a saved snapshot of the whole workspace. Your current state is saved first.", new Vector2(x, y), Theme.TextDim);
         y += 28;
         if (_snapFiles.Length == 0)
-            r.Text(r.Fonts.Get(FontKind.Sans, 14), "No snapshots yet - use File ▸ Save a snapshot.", new Vector2(x, y + 8), Theme.TextFaint);
+            r.Text(r.Fonts.Get(FontKind.Sans, 14), "No snapshots yet - use File " + Ircuitry.Core.Icons.Glyph("caret-right") + " Save a snapshot.", new Vector2(x, y + 8), Theme.TextFaint);
         foreach (var f in _snapFiles)
         {
             if (y + 36 > panel.Bottom - 52) break;
-            string label = "📸  " + System.IO.Path.GetFileNameWithoutExtension(f).Replace("workspace-", "");
-            if (_ui.Button("snap." + f, new RectF(x, y, w, 34), label, Theme.Cyan)) { _app.RestoreSnapshot(f); _snapOpen = false; Notify("↩ Snapshot restored"); }
+            string label = Ircuitry.Core.Icons.Glyph("camera") + "  " + System.IO.Path.GetFileNameWithoutExtension(f).Replace("workspace-", "");
+            if (_ui.Button("snap." + f, new RectF(x, y, w, 34), label, Theme.Cyan)) { _app.RestoreSnapshot(f); _snapOpen = false; Notify(Ircuitry.Core.Icons.Glyph("arrow-bend-up-left") + " Snapshot restored"); }
             y += 40;
         }
         if (_ui.Button("snap.cancel", new RectF(panel.Right - 130, panel.Bottom - 46, 110, 32), "CANCEL", Theme.Idle)) _snapOpen = false;
@@ -1108,12 +1108,12 @@ public sealed partial class MainScreen : IScreen
         foreach (var file in _importFiles)
         {
             if (y + 36 > panel.Bottom - 52) break;
-            if (_ui.Button("imp." + file, new RectF(x, y, w, 34), "📦  " + System.IO.Path.GetFileName(file), Theme.Cyan))
+            if (_ui.Button("imp." + file, new RectF(x, y, w, 34), Ircuitry.Core.Icons.Glyph("package") + "  " + System.IO.Path.GetFileName(file), Theme.Cyan))
             { _app.ImportFile(file); _importOpen = false; }
             y += 40;
         }
 
-        if (_ui.Button("imp.browse", new RectF(x, panel.Bottom - 46, 254, 32), "🌐  Browse community workflows ↗", Theme.Lime))
+        if (_ui.Button("imp.browse", new RectF(x, panel.Bottom - 46, 254, 32), Ircuitry.Core.Icons.Glyph("globe") + "  Browse community workflows " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Lime))
             Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
         if (_ui.Button("imp.cancel", new RectF(panel.Right - 130, panel.Bottom - 46, 110, 32), "CANCEL", Theme.Idle))
             _importOpen = false;
@@ -1141,7 +1141,7 @@ public sealed partial class MainScreen : IScreen
     {
         var f = r.Fonts.Get(FontKind.Mono, 16);
         float a = 0.25f + 0.1f * clock.Sin01(2.4f);
-        r.TextCenteredX(f, "▣  drag a node from the Node Library to begin", c.Center.X, c.Center.Y - 10, Theme.WithAlpha(Theme.TextDim, a));
+        r.TextCenteredX(f, Ircuitry.Core.Icons.Glyph("square") + "  drag a node from the Node Library to begin", c.Center.X, c.Center.Y - 10, Theme.WithAlpha(Theme.TextDim, a));
     }
 
     // ===================================================================
@@ -1153,16 +1153,16 @@ public sealed partial class MainScreen : IScreen
         _ctxItems.Clear();
         void Item(string icon, string label, string sc, bool en, Action a) => _ctxItems.Add(new CtxItem { Icon = icon, Label = label, Shortcut = sc, Enabled = en, Do = a });
         void Sep() => _ctxItems.Add(new CtxItem { Sep = true });
-        Item("💾", _app.Dirty ? "Save" : "Save (up to date)", "Ctrl+S", true, () => { _app.Save(); Notify("💾 Workspace saved"); });
-        Item("📸", "Save a snapshot", "", true, () => { _app.SaveSnapshot(); Notify("📸 Snapshot saved"); });
-        Item("↩", "Restore a snapshot…", "", _app.Snapshots().Length > 0, () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
+        Item("floppy-disk", _app.Dirty ? "Save" : "Save (up to date)", "Ctrl+S", true, () => { _app.Save(); Notify(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved"); });
+        Item("camera", "Save a snapshot", "", true, () => { _app.SaveSnapshot(); Notify(Ircuitry.Core.Icons.Glyph("camera") + " Snapshot saved"); });
+        Item("arrow-bend-up-left", "Restore a snapshot…", "", _app.Snapshots().Length > 0, () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
         Sep();
-        Item("📤", "Export this bot…", "Ctrl+E", true, () => { _app.ExportActive(); Notify($"📤 Exported {Bot.Name}"); });
-        Item("📥", "Import a bot…", "", true, () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
+        Item("export", "Export this bot…", "Ctrl+E", true, () => { _app.ExportActive(); Notify(Ircuitry.Core.Icons.Glyph("export") + $" Exported {Bot.Name}"); });
+        Item("tray", "Import a bot…", "", true, () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
         Sep();
-        Item("🧁", "Bot Bakery (merge bots)…", "", _app.Bots.Count >= 2, OpenBakery);
+        Item("cake", "Bot Bakery (merge bots)…", "", _app.Bots.Count >= 2, OpenBakery);
         Sep();
-        Item("📂", "Show files", "", true, () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
+        Item("folder-open", "Show files", "", true, () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
         _ctxOpen = true; _ctxJustOpened = true;
     }
 
@@ -1174,16 +1174,16 @@ public sealed partial class MainScreen : IScreen
         void Item(string icon, string label, string sc, bool en, Action a) => _ctxItems.Add(new CtxItem { Icon = icon, Label = label, Shortcut = sc, Enabled = en, Do = a });
         void Sep() => _ctxItems.Add(new CtxItem { Sep = true });
         bool hasNodes = Bot.Graph.Nodes.Count > 0;
-        Item("🔑", "Secret keys…", "", true, () => { _secretsOpen = true; _secretsJustOpened = true; });
-        Item("🏆", "Achievements", "", true, () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
+        Item("key", "Secret keys…", "", true, () => { _secretsOpen = true; _secretsJustOpened = true; });
+        Item("trophy", "Achievements", "", true, () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
         Item("puzzle-piece", "Community nodes…", "", true, OpenNodeManager);
         Sep();
-        Item("📐", "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
-        Item("🔍", "Fit to view", "", hasNodes, () => _editor.FocusContent(_l.Canvas));
-        Item("🎯", "Frame selection", "F", hasNodes, () => _editor.FrameSelection(_l.Canvas));
-        Item(_editor.SnapToGrid ? "⊞" : "⊡", _editor.SnapToGrid ? "Snap to grid: on" : "Snap to grid: off", "", true, () => _editor.SnapToGrid = !_editor.SnapToGrid);
+        Item("ruler", "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
+        Item("magnifying-glass", "Fit to view", "", hasNodes, () => _editor.FocusContent(_l.Canvas));
+        Item("target", "Frame selection", "F", hasNodes, () => _editor.FrameSelection(_l.Canvas));
+        Item("grid-four", _editor.SnapToGrid ? "Snap to grid: on" : "Snap to grid: off", "", true, () => _editor.SnapToGrid = !_editor.SnapToGrid);
         Sep();
-        Item("🎓", "Tutorial", "", true, ForceStartTutorial);
+        Item("graduation-cap", "Tutorial", "", true, ForceStartTutorial);
         _ctxOpen = true; _ctxJustOpened = true;
     }
 
@@ -1204,16 +1204,16 @@ public sealed partial class MainScreen : IScreen
 
     private static string CategoryIcon(NodeCategory c) => c switch
     {
-        NodeCategory.Event => "⚡",
-        NodeCategory.Filter => "❓",
-        NodeCategory.Logic => "🔀",
-        NodeCategory.Data => "🔢",
-        NodeCategory.Ai => "🤖",
-        NodeCategory.Storage => "💾",
-        NodeCategory.Code => "💻",
-        NodeCategory.Action => "💬",
-        NodeCategory.Ircv3 => "📡",
-        _ => "puzzle-piece",
+        NodeCategory.Event => Ircuitry.Core.Icons.Glyph("lightning"),
+        NodeCategory.Filter => Ircuitry.Core.Icons.Glyph("question"),
+        NodeCategory.Logic => Ircuitry.Core.Icons.Glyph("shuffle"),
+        NodeCategory.Data => Ircuitry.Core.Icons.Glyph("hash"),
+        NodeCategory.Ai => Ircuitry.Core.Icons.Glyph("robot"),
+        NodeCategory.Storage => Ircuitry.Core.Icons.Glyph("floppy-disk"),
+        NodeCategory.Code => Ircuitry.Core.Icons.Glyph("laptop"),
+        NodeCategory.Action => Ircuitry.Core.Icons.Glyph("chat-circle"),
+        NodeCategory.Ircv3 => Ircuitry.Core.Icons.Glyph("broadcast"),
+        _ => Ircuitry.Core.Icons.Glyph("puzzle-piece"),
     };
 
     private void DrawPalette(Renderer r)
@@ -1226,14 +1226,14 @@ public sealed partial class MainScreen : IScreen
         float x = content.X + 8, w = content.W - 16;
         var searchRect = new RectF(x, content.Y + 8, w, 30);
         r.Begin(BlendMode.Alpha, content.ToRectangle());
-        _paletteSearch = _ui.TextField("palette.search", searchRect, _paletteSearch, "⌕  search nodes…");
+        _paletteSearch = _ui.TextField("palette.search", searchRect, _paletteSearch, Ircuitry.Core.Icons.Glyph("magnifying-glass") + "  search nodes…");
         // contextual: only appears when a node is sitting in the clipboard, and names it
         float listTopY = searchRect.Bottom + 8;
         if (_clipNodeTitle != null)
         {
             string label = _clipNodeTitle.Length > 20 ? _clipNodeTitle[..19] + "…" : _clipNodeTitle;
             var clipRect = new RectF(x, searchRect.Bottom + 8, w, 32);
-            if (_ui.Button("palette.clip", clipRect, "⎘  Install \"" + label + "\"", Theme.Amber, primary: true)) InstallFromClipboard();
+            if (_ui.Button("palette.clip", clipRect, Ircuitry.Core.Icons.Glyph("copy") + "  Install \"" + label + "\"", Theme.Amber, primary: true)) InstallFromClipboard();
             r.Text(r.Fonts.Get(FontKind.Sans, 9), "found in your clipboard", new Vector2(x + 6, clipRect.Bottom), Theme.TextFaint);
             listTopY = clipRect.Bottom + 16;
         }
@@ -1245,11 +1245,11 @@ public sealed partial class MainScreen : IScreen
         int customCount = NodeCatalog.Custom.Count;
         float footY = content.Bottom - 102;
         r.Begin(BlendMode.Alpha, content.ToRectangle());
-        if (_ui.Button("palette.build", new RectF(x, footY, w, 30), "🧁  Bake a node…", Theme.Violet, primary: true))
+        if (_ui.Button("palette.build", new RectF(x, footY, w, 30), Ircuitry.Core.Icons.Glyph("cake") + "  Bake a node…", Theme.Violet, primary: true))
             OpenNodeBuilder();
-        if (_ui.Button("palette.manage", new RectF(x, footY + 34, w, 30), customCount > 0 ? $"🧩  Community nodes · {customCount}" : "🧩  Community nodes", Theme.Berry))
+        if (_ui.Button("palette.manage", new RectF(x, footY + 34, w, 30), customCount > 0 ? Ircuitry.Core.Icons.Glyph("puzzle-piece") + $"  Community nodes · {customCount}" : Ircuitry.Core.Icons.Glyph("puzzle-piece") + "  Community nodes", Theme.Berry))
             OpenNodeManager();
-        if (_ui.Button("palette.workflows", new RectF(x, footY + 68, w, 30), "🤖  Community workflows ↗", Theme.Sky))
+        if (_ui.Button("palette.workflows", new RectF(x, footY + 68, w, 30), Ircuitry.Core.Icons.Glyph("robot") + "  Community workflows " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Sky))
             Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
         r.End();
 
@@ -1286,8 +1286,8 @@ public sealed partial class MainScreen : IScreen
             var favSet = Ircuitry.Core.NodePrefs.Favorites.ToHashSet();
             var recents = Ircuitry.Core.NodePrefs.Recents.Where(t => !favSet.Contains(t)).Take(6)
                 .Select(t => NodeCatalog.TryGet(t, out var d) ? d : null).Where(d => d != null).Cast<NodeDef>();
-            Section("Favorites", "★", Theme.Amber, favs);
-            Section("Recent", "🕘", Theme.Sky, recents);
+            Section("Favorites", Ircuitry.Core.Icons.Glyph("star"), Theme.Amber, favs);
+            Section("Recent", Ircuitry.Core.Icons.Glyph("clock"), Theme.Sky, recents);
         }
 
         foreach (var group in NodeCatalog.ByCategory())
@@ -1320,7 +1320,7 @@ public sealed partial class MainScreen : IScreen
             r.RoundFill(badge, Theme.WithAlpha(col, 0.92f), 9f);
             r.Text(cf, cnt, new Vector2(badge.Center.X - cf.MeasureString(cnt).X / 2f, badge.Center.Y - cf.MeasureString(cnt).Y / 2f), Theme.TextInk);
             var chf = r.Fonts.Get(FontKind.SansBold, 12);
-            r.Text(chf, collapsed ? "▸" : "▾", new Vector2(hdr.Right - 18, hdr.Center.Y - chf.MeasureString("M").Y / 2f - 1), Theme.WithAlpha(Theme.Text, 0.55f));
+            r.Text(chf, collapsed ? Ircuitry.Core.Icons.Glyph("caret-right") : Ircuitry.Core.Icons.Glyph("caret-down"), new Vector2(hdr.Right - 18, hdr.Center.Y - chf.MeasureString("M").Y / 2f - 1), Theme.WithAlpha(Theme.Text, 0.55f));
 
             if (!searching && !Modal && In.LeftPressed && hdr.Contains(In.Mouse))
                 _openCat = _openCat == group.Key ? (NodeCategory?)null : group.Key;
@@ -1404,7 +1404,7 @@ public sealed partial class MainScreen : IScreen
         if (fav || hover)
         {
             var sf = r.Fonts.Get(FontKind.Display, 15);
-            string star = fav ? "★" : "☆";
+            string star = Ircuitry.Core.Icons.Glyph("star");   // colour (amber vs faint) distinguishes pinned from not
             r.Text(sf, star, new Vector2(chip.Right - 24, chip.Center.Y - sf.MeasureString(star).Y / 2f), fav ? Theme.Amber : Theme.WithAlpha(Theme.Text, starHover ? 0.8f : 0.4f));
         }
 
@@ -1559,16 +1559,16 @@ public sealed partial class MainScreen : IScreen
 
         r.Begin();
         float bh = 30, by = top - 2, gap = 10, bx = panel.Right - 20;
-        bx -= 138; if (_ui.Button("nm.browse", new RectF(bx, by, 138, bh), "🌐 Browse library ↗", Theme.Lime)) Ircuitry.App.DeepLink.OpenUrl(NodeLibraryUrl);
+        bx -= 138; if (_ui.Button("nm.browse", new RectF(bx, by, 138, bh), Ircuitry.Core.Icons.Glyph("globe") + " Browse library " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Lime)) Ircuitry.App.DeepLink.OpenUrl(NodeLibraryUrl);
         // only offer clipboard install when an actual .ircnode manifest is sitting in the clipboard, and name it
         if (_clipNodeTitle != null)
         {
             string cn = _clipNodeTitle.Length > 16 ? _clipNodeTitle[..15] + "…" : _clipNodeTitle;
-            string clabel = $"⎘  Install {cn} (from clipboard)";
+            string clabel = Ircuitry.Core.Icons.Glyph("copy") + $"  Install {cn} (from clipboard)";
             float cw = r.Fonts.Get(FontKind.SansBold, 13).MeasureString(clabel).X + 30;
             bx -= gap + cw; if (_ui.Button("nm.paste", new RectF(bx, by, cw, bh), clabel, Theme.Cyan, primary: true)) { _nodeMgrOpen = false; InstallFromClipboard(); }
         }
-        if (updates > 0) { bx -= gap + 138; if (_ui.Button("nm.updateall", new RectF(bx, by, 138, bh), $"⤓ Update all ({updates})", Theme.Amber, primary: true)) foreach (var tid in _nodeMgrUpdates.Keys.ToList()) UpdateNode(tid); }
+        if (updates > 0) { bx -= gap + 138; if (_ui.Button("nm.updateall", new RectF(bx, by, 138, bh), Ircuitry.Core.Icons.Glyph("download-simple") + $" Update all ({updates})", Theme.Amber, primary: true)) foreach (var tid in _nodeMgrUpdates.Keys.ToList()) UpdateNode(tid); }
         r.End();
 
         float listTop = top + 44;
@@ -1596,7 +1596,7 @@ public sealed partial class MainScreen : IScreen
             else { _nodeMgrSel.Clear(); foreach (var d in custom) _nodeMgrSel.Add(d.TypeId); }
         }
         bool canRemove = sel > 0;
-        if (_ui.Button("nm.remove", rmR, canRemove ? $"🗑  Remove selected ({sel})" : "Remove selected", canRemove ? Theme.Alert : Theme.Idle, primary: canRemove) && canRemove)
+        if (_ui.Button("nm.remove", rmR, canRemove ? Ircuitry.Core.Icons.Glyph("trash") + $"  Remove selected ({sel})" : "Remove selected", canRemove ? Theme.Alert : Theme.Idle, primary: canRemove) && canRemove)
             RemoveSelectedNodes();
         if (_ui.Button("nm.close", closeR, "CLOSE", Theme.Cyan, primary: true)) _nodeMgrOpen = false;
         r.End();
@@ -1632,7 +1632,7 @@ public sealed partial class MainScreen : IScreen
                 var cb = new RectF(row.X + 12, row.Center.Y - 9, 18, 18);
                 r.RoundFill(cb, selected ? Theme.Cyan : Theme.PanelLo, 5);
                 r.RoundOutline(cb, selected ? Theme.Cyan : Theme.Edge, 5);
-                if (selected) r.Text(tf, "✓", new Vector2(cb.Center.X - tf.MeasureString("✓").X / 2f, cb.Center.Y - tf.MeasureString("✓").Y / 2f), Theme.TextInk);
+                if (selected) r.Text(tf, Ircuitry.Core.Icons.Glyph("check"), new Vector2(cb.Center.X - tf.MeasureString(Ircuitry.Core.Icons.Glyph("check")).X / 2f, cb.Center.Y - tf.MeasureString(Ircuitry.Core.Icons.Glyph("check")).Y / 2f), Theme.TextInk);
 
                 var iconImg = def.IconImage != null ? r.IconTexture(def.TypeId, def.IconImage) : null;
                 if (iconImg != null) r.Image(iconImg, new RectF(row.X + 40, row.Center.Y - 11, 22, 22));
@@ -1651,7 +1651,7 @@ public sealed partial class MainScreen : IScreen
                 var upR = new RectF(row.Right - 12 - 96, row.Center.Y - 14, 96, 28);
                 if (hasUpdate)
                 {
-                    bool up = _ui.Button("nm.up." + def.TypeId, upR, "⤓ Update", Theme.Amber);
+                    bool up = _ui.Button("nm.up." + def.TypeId, upR, Ircuitry.Core.Icons.Glyph("download-simple") + " Update", Theme.Amber);
                     if (up && rect.Contains(In.Mouse)) UpdateNode(def.TypeId);
                 }
 
@@ -1874,10 +1874,10 @@ public sealed partial class MainScreen : IScreen
         r.Begin();
         var goR = new RectF(panel.Right - 22 - 150, panel.Bottom - 48, 150, 34);
         var laterR = new RectF(goR.X - 12 - 110, panel.Bottom - 48, 110, 34);
-        if (_ui.Button("up.changelog", new RectF(x, panel.Bottom - 48, 168, 34), "📋 Full changelog ↗", Theme.Idle))
+        if (_ui.Button("up.changelog", new RectF(x, panel.Bottom - 48, 168, 34), Ircuitry.Core.Icons.Glyph("clipboard") + " Full changelog " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Idle))
             Ircuitry.App.DeepLink.OpenUrl($"https://github.com/{Ircuitry.App.AppInfo.Repo}/releases/tag/v{_upVer}");
         if (_ui.Button("up.later", laterR, "LATER", Theme.Idle)) _upPromptOpen = false;
-        if (_ui.Button("up.go", goR, UpAuto ? "⤓  Update now" : "⤓  Download", Theme.Lime, primary: true)) StartUpdateDownload();
+        if (_ui.Button("up.go", goR, UpAuto ? Ircuitry.Core.Icons.Glyph("download-simple") + "  Update now" : Ircuitry.Core.Icons.Glyph("download-simple") + "  Download", Theme.Lime, primary: true)) StartUpdateDownload();
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_upPromptJustOpened) _upPromptOpen = false;
         _upPromptJustOpened = false;
         r.End();
@@ -1922,7 +1922,7 @@ public sealed partial class MainScreen : IScreen
 
         r.Begin(BlendMode.Alpha);
         r.TextCenteredX(r.Fonts.Get(FontKind.Display, 30), "Updating ircuitry", cx, cy + 84f, Theme.Text);
-        r.TextCenteredX(r.Fonts.Get(FontKind.SansBold, 15), "v" + Ircuitry.App.AppInfo.Version + "   →   v" + _upVer, cx, cy + 126f, Theme.CyanDim);
+        r.TextCenteredX(r.Fonts.Get(FontKind.SansBold, 15), "v" + Ircuitry.App.AppInfo.Version + "   " + Ircuitry.Core.Icons.Glyph("arrow-right") + "   v" + _upVer, cx, cy + 126f, Theme.CyanDim);
 
         float barW = 360f, barH = 10f;
         var track = new RectF(cx - barW / 2f, cy + 158f, barW, barH);
@@ -2023,12 +2023,12 @@ public sealed partial class MainScreen : IScreen
         }
     }
 
-    /// <summary>A clickable "▸ Obby · advanced" header; returns the new expanded state. Advances y.</summary>
+    /// <summary>A clickable "Obby · advanced" header; returns the new expanded state. Advances y.</summary>
     private bool ObbyHeader(Renderer r, ref float y, float x, float w, bool expanded)
     {
         var hdr = new RectF(x, y, w, 24);
         bool hover = !Modal && hdr.Contains(In.Mouse);
-        r.Text(r.Fonts.Get(FontKind.SansBold, 12), (expanded ? "▾  " : "▸  ") + "OBBY · ADVANCED (IRCv3 bot-tools)",
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), (expanded ? Ircuitry.Core.Icons.Glyph("caret-down") + "  " : Ircuitry.Core.Icons.Glyph("caret-right") + "  ") + "OBBY · ADVANCED (IRCv3 bot-tools)",
             new Vector2(x, y + 4), hover ? Theme.Text : Theme.TextFaint);
         y += 26;
         return hover && In.LeftPressed ? !expanded : expanded;
@@ -2115,13 +2115,13 @@ public sealed partial class MainScreen : IScreen
 
             string hint = ParamHint(pdef.Key, next);
             if (hint.Length > 0)
-                foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 10), "⚠ " + hint, w))
+                foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 10), Ircuitry.Core.Icons.Glyph("warning") + " " + hint, w))
                 { r.Text(r.Fonts.Get(FontKind.Sans, 10), line, new Vector2(x, y - 2), Theme.Amber); y += 13; }
         }
 
         y += 8;
         // dry-run just this node and report whether it ran (and its output)
-        if (_ui.Button("insp.testnode." + n.Id, new RectF(x, y, w, 30), "🧪 Test this node", Theme.Cyan))
+        if (_ui.Button("insp.testnode." + n.Id, new RectF(x, y, w, 30), Ircuitry.Core.Icons.Glyph("test-tube") + " Test this node", Theme.Cyan))
         { _nodeTestId = n.Id; _nodeTestResult = TestNode(n); }
         y += 36;
         if (_nodeTestId == n.Id && _nodeTestResult.Length > 0)
@@ -2176,10 +2176,10 @@ public sealed partial class MainScreen : IScreen
             if (found != null) break;
         }
         if (found == null)
-            return $"✗ didn't run for a test message “{_testMsg}”. Open 🧪 TEST to change the event, or check the wires/filters above it.";
+            return Ircuitry.Core.Icons.Glyph("x") + $" didn't run for a test message “{_testMsg}”. Open " + Ircuitry.Core.Icons.Glyph("test-tube") + " TEST to change the event, or check the wires/filters above it.";
         string outs = found.Outputs.Count > 0 ? "  ·  out: " + string.Join(", ", found.Outputs.Select(o => $"{o.pin}={Trunc(o.value, 40)}")) : "";
-        string fired = found.Pulsed.Count > 0 ? "  ·  → " + string.Join(", ", found.Pulsed) : "";
-        return $"✓ ran{outs}{fired}";
+        string fired = found.Pulsed.Count > 0 ? "  ·  " + Ircuitry.Core.Icons.Glyph("arrow-right") + " " + string.Join(", ", found.Pulsed) : "";
+        return Ircuitry.Core.Icons.Glyph("check") + $" ran{outs}{fired}";
     }
 
     private static string Trunc(string s, int n) => s.Length <= n ? s : s[..n] + "…";
@@ -2225,7 +2225,7 @@ public sealed partial class MainScreen : IScreen
         if (nm != Bot.Name) { Bot.Name = string.IsNullOrWhiteSpace(nm) ? Bot.Name : nm; _app.MarkDirty(); }
         y += 38;
         // reusable saved servers (the bots/servers/channels map lives globally in the title bar now)
-        if (_ui.Button("c.servers", new RectF(x, y, w, 28), "📡 Servers", Theme.Sky)) { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; }
+        if (_ui.Button("c.servers", new RectF(x, y, w, 28), Ircuitry.Core.Icons.Glyph("broadcast") + " Servers", Theme.Sky)) { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; }
         y += 40;
 
         // ---- server selector: a bot can hold several servers; pick which one to edit ----
@@ -2280,7 +2280,7 @@ public sealed partial class MainScreen : IScreen
 
         y = Labeled(r, "NICK", x, y);
         s.Nick = Edit("c.nick", new RectF(x, y, w - 38, 30), s.Nick, "BananaBread66");
-        if (_ui.Button("c.nick.gen", new RectF(x + w - 34, y, 34, 30), "🎲", Theme.Berry)) { s.Nick = Ircuitry.Core.BakeryNames.Random(); _app.MarkDirty(); }
+        if (_ui.Button("c.nick.gen", new RectF(x + w - 34, y, 34, 30), Ircuitry.Core.Icons.Glyph("dice-five"), Theme.Berry)) { s.Nick = Ircuitry.Core.BakeryNames.Random(); _app.MarkDirty(); }
         y += 40;
         float idW = (w - 8) / 2f;
         Labeled(r, "IDENT", x, y); Labeled(r, "REAL NAME", x + idW + 8, y); y += 18;
@@ -2303,12 +2303,12 @@ public sealed partial class MainScreen : IScreen
         {
             bool thisOn = selConn?.Running == true;
             float bw = (w - 8) / 2f;
-            if (_ui.Button("c.svrun", new RectF(x, y, bw, 30), thisOn ? "■ Disconnect this" : "▸ Connect this", thisOn ? Theme.Alert : Theme.Sky))
+            if (_ui.Button("c.svrun", new RectF(x, y, bw, 30), thisOn ? Ircuitry.Core.Icons.Glyph("square") + " Disconnect this" : Ircuitry.Core.Icons.Glyph("caret-right") + " Connect this", thisOn ? Theme.Alert : Theme.Sky))
             {
                 if (thisOn) Bot.Runtime.DisconnectServer(s.DisplayName);
                 else Bot.Runtime.ConnectServer(Bot.Graph, s);
             }
-            if (_ui.Button("c.svdel", new RectF(x + bw + 8, y, bw, 30), "🗑 Remove server", Theme.Idle))
+            if (_ui.Button("c.svdel", new RectF(x + bw + 8, y, bw, 30), Ircuitry.Core.Icons.Glyph("trash") + " Remove server", Theme.Idle))
             {
                 Bot.Runtime.DisconnectServer(s.DisplayName);
                 Bot.Servers.RemoveAt(Bot.SelectedServer);
@@ -2319,7 +2319,7 @@ public sealed partial class MainScreen : IScreen
         }
 
         if (_ui.Button("c.run", new RectF(x, y, w, 34),
-                Bot.Runtime.Running ? "■  STOP BOT" : (Bot.Servers.Count > 1 ? "▶  RUN ALL SERVERS" : "▶  RUN BOT"),
+                Bot.Runtime.Running ? Ircuitry.Core.Icons.Glyph("square") + "  STOP BOT" : (Bot.Servers.Count > 1 ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ALL SERVERS" : Ircuitry.Core.Icons.Glyph("play") + "  RUN BOT"),
                 Bot.Runtime.Running ? Theme.Alert : Theme.Cyan, primary: true))
             ToggleRun();
         return y + 42;
@@ -2330,7 +2330,7 @@ public sealed partial class MainScreen : IScreen
     {
         IrcState.Connecting => ("CONNECTING", Theme.Warn),
         IrcState.Registering => ("REGISTERING", Theme.Warn),
-        IrcState.Connected => ("LIVE ▸ " + c.CurrentNick, Theme.Ok),
+        IrcState.Connected => ("LIVE " + Ircuitry.Core.Icons.Glyph("caret-right") + " " + c.CurrentNick, Theme.Ok),
         IrcState.Error => ("ERROR", Theme.Alert),
         _ => c?.Running == true ? ("STARTING", Theme.Warn) : ("OFFLINE", Theme.Idle),
     };
@@ -2350,9 +2350,9 @@ public sealed partial class MainScreen : IScreen
     private void SecretButton(Renderer r, string id, ref float y, float x, float w, string cur, string label, Action<string> apply)
     {
         var m = SecretRef.Match(cur ?? "");
-        string disp = m.Success ? "🔑  " + m.Groups[1].Value
-            : string.IsNullOrEmpty(cur) ? "🔑  Choose a key…"
-            : "🔑  •••• (tap to secure)";
+        string disp = m.Success ? Ircuitry.Core.Icons.Glyph("key") + "  " + m.Groups[1].Value
+            : string.IsNullOrEmpty(cur) ? Ircuitry.Core.Icons.Glyph("key") + "  Choose a key…"
+            : Ircuitry.Core.Icons.Glyph("key") + "  •••• (tap to secure)";
         if (_ui.Button(id + ".sec", new RectF(x, y, w, 30), disp, m.Success ? Theme.Lime : Theme.Idle))
             OpenSecretPicker(cur ?? "", label, apply);
         y += 40;
@@ -2390,7 +2390,7 @@ public sealed partial class MainScreen : IScreen
             foreach (var name in names)
             {
                 if (ly + 30 >= listRect.Y && ly <= listRect.Bottom)
-                    if (_ui.Button("sp.k." + name, new RectF(listRect.X, ly, w, 30), "🔑  " + name, Theme.Lime))
+                    if (_ui.Button("sp.k." + name, new RectF(listRect.X, ly, w, 30), Ircuitry.Core.Icons.Glyph("key") + "  " + name, Theme.Lime))
                     { _secretPickApply?.Invoke("{{secret." + name + "}}"); _secretPickOpen = false; }
                 ly += 34;
             }
@@ -2488,7 +2488,7 @@ public sealed partial class MainScreen : IScreen
         r.Text(r.Fonts.Get(FontKind.SansBold, 11), "SAVE THIS BOT'S CONNECTION", new Vector2(x, saveY), Theme.TextFaint);
         _serverSaveName = _ui.TextField("sv.name", new RectF(x, saveY + 18, w - 120, 30), _serverSaveName, "server name");
         bool canSave = _serverSaveName.Trim().Length > 0 && Bot.Settings.Host.Length > 0;
-        if (_ui.Button("sv.save", new RectF(x + w - 112, saveY + 18, 112, 30), "💾 Save", canSave ? Theme.Sky : Theme.Idle, primary: canSave) && canSave)
+        if (_ui.Button("sv.save", new RectF(x + w - 112, saveY + 18, 112, 30), Ircuitry.Core.Icons.Glyph("floppy-disk") + " Save", canSave ? Theme.Sky : Theme.Idle, primary: canSave) && canSave)
             SaveCurrentAsServer(_serverSaveName);
         if (_ui.Button("sv.close", new RectF(panel.Right - 20 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _serversOpen = false;
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_serversJustOpened) _serversOpen = false;
@@ -2616,11 +2616,11 @@ public sealed partial class MainScreen : IScreen
         bool Vis(float y, float h) => y + h >= area.Y && y <= area.Bottom;
         for (int j = 0; j < servers.Count; j++)
             if (Vis(srvY[j], srvH))
-                Card(new RectF(srvX, srvY[j], srvW, srvH), Theme.Sky, "📡", servers[j].host,
+                Card(new RectF(srvX, srvY[j], srvW, srvH), Theme.Sky, Ircuitry.Core.Icons.Glyph("broadcast"), servers[j].host,
                     servers[j].host == "(no server)" ? "set a server" : $":{servers[j].port}{(servers[j].tls ? "  ·  TLS" : "")}", serverOn.Contains(j) ? Theme.Ok : Theme.Idle);
         foreach (int bi in botOrder)
             if (Vis(botY[bi], botH))
-                Card(new RectF(botX, botY[bi], botW, botH), Theme.Lime, "🤖", _app.Bots[bi].Name, _app.Bots[bi].Runtime.Running ? "online" : "offline", StatusColor(_app.Bots[bi].Runtime));
+                Card(new RectF(botX, botY[bi], botW, botH), Theme.Lime, Ircuitry.Core.Icons.Glyph("robot"), _app.Bots[bi].Name, _app.Bots[bi].Runtime.Running ? "online" : "offline", StatusColor(_app.Bots[bi].Runtime));
         foreach (int ci in chanOrder)
             if (Vis(chanY[ci], chanH))
                 Card(new RectF(chanX, chanY[ci], chanW, chanH), Theme.Violet, "", channels[ci].name, "", null);
@@ -2677,7 +2677,7 @@ public sealed partial class MainScreen : IScreen
         r.RoundFill(tile, Theme.WithAlpha(Theme.Amber, 0.22f), 11);
         var icf = r.Fonts.Get(FontKind.Display, 24);
         r.Text(icf, Ircuitry.Core.Icons.Glyph(_achCur.Icon), new Vector2(tile.Center.X - icf.MeasureString(Ircuitry.Core.Icons.Glyph(_achCur.Icon)).X / 2f, tile.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(_achCur.Icon)).Y / 2f), Theme.Text);
-        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "🏆 ACHIEVEMENT UNLOCKED", new Vector2(tile.Right + 12, panel.Y + 14), Theme.AmberDim);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), Ircuitry.Core.Icons.Glyph("trophy") + " ACHIEVEMENT UNLOCKED", new Vector2(tile.Right + 12, panel.Y + 14), Theme.AmberDim);
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 16), _achCur.Title, pw - 80), new Vector2(tile.Right + 12, panel.Y + 32), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.Sans, 11), _achCur.Category, new Vector2(tile.Right + 12, panel.Y + 54), Theme.TextDim);
         r.End();
@@ -2725,7 +2725,7 @@ public sealed partial class MainScreen : IScreen
         float pw = 340, ph = MathF.Min(380, 70 + _notifLog.Count * 34f + 12);
         var panel = new RectF(_vw - pw - 18, _l.Titlebar.Bottom + 6, pw, MathF.Max(110, ph));
         r.Begin();
-        Hud.Panel(r, panel, "🔔 Notifications", Theme.Amber);
+        Hud.Panel(r, panel, Ircuitry.Core.Icons.Glyph("bell") + " Notifications", Theme.Amber);
         if (_notifLog.Count == 0)
             r.Text(r.Fonts.Get(FontKind.Sans, 13), "Nothing yet - saves, runs and links show up here.", new Vector2(panel.X + 18, panel.Y + Hud.HeaderH + 14), Theme.TextDim);
         r.End();
@@ -2772,25 +2772,25 @@ public sealed partial class MainScreen : IScreen
         void A(string icon, string label, string hint, Action act) => list.Add(new Cmd { Icon = icon, Label = label, Hint = hint, Do = act });
         bool running = Bot.Runtime.Running, hasNodes = Bot.Graph.Nodes.Count > 0;
 
-        A("💾", "Save workspace", "Ctrl+S", () => { _app.Save(); Notify("💾 Workspace saved"); });
-        A(running ? "■" : "▶", running ? "Stop bot" : "Run bot", "Ctrl+R", ToggleRun);
-        if (running) A("⟲", "Apply changes to the live bot", "", () => Bot.Runtime.ApplyGraph(Bot.Graph));
-        A("🧪", "Test (dry run)", "", () => { _testOpen = true; _testJustOpened = true; RunTest(); });
-        A("📐", "Tidy layout", "Ctrl+L", () => { if (hasNodes) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); } });
-        A("🔍", "Fit to view", "", () => _editor.FocusContent(_l.Canvas));
-        A("⟲", "Run history", "Ctrl+H", OpenHistory);
-        A("🔔", "Notifications", "", () => { _notifOpen = true; _notifJustOpened = true; _notifUnread = 0; });
-        A("🏆", "Achievements", "", () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
-        A("🔑", "Secret keys", "", () => { _secretsOpen = true; _secretsJustOpened = true; });
+        A("floppy-disk", "Save workspace", "Ctrl+S", () => { _app.Save(); Notify(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved"); });
+        A(running ? "square" : "play", running ? "Stop bot" : "Run bot", "Ctrl+R", ToggleRun);
+        if (running) A("arrows-clockwise", "Apply changes to the live bot", "", () => Bot.Runtime.ApplyGraph(Bot.Graph));
+        A("test-tube", "Test (dry run)", "", () => { _testOpen = true; _testJustOpened = true; RunTest(); });
+        A("ruler", "Tidy layout", "Ctrl+L", () => { if (hasNodes) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); } });
+        A("magnifying-glass", "Fit to view", "", () => _editor.FocusContent(_l.Canvas));
+        A("arrows-clockwise", "Run history", "Ctrl+H", OpenHistory);
+        A("bell", "Notifications", "", () => { _notifOpen = true; _notifJustOpened = true; _notifUnread = 0; });
+        A("trophy", "Achievements", "", () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
+        A("key", "Secret keys", "", () => { _secretsOpen = true; _secretsJustOpened = true; });
         A("puzzle-piece", "Community nodes", "", OpenNodeManager);
-        A("📡", "Saved servers", "", () => { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; });
-        A("🗺", "Network map", "", () => { _networkOpen = true; _networkJustOpened = true; });
-        A("📸", "Save a snapshot", "", () => { _app.SaveSnapshot(); Notify("📸 Snapshot saved"); });
-        if (_app.Snapshots().Length > 0) A("↩", "Restore a snapshot", "", () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
-        A("📤", "Export this bot", "Ctrl+E", () => { _app.ExportActive(); Notify($"📤 Exported {Bot.Name}"); });
-        A("📥", "Import a bot", "", () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
-        A("📂", "Show files", "", () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
-        A("🎓", "Tutorial", "", ForceStartTutorial);
+        A("broadcast", "Saved servers", "", () => { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; });
+        A("map-trifold", "Network map", "", () => { _networkOpen = true; _networkJustOpened = true; });
+        A("camera", "Save a snapshot", "", () => { _app.SaveSnapshot(); Notify(Ircuitry.Core.Icons.Glyph("camera") + " Snapshot saved"); });
+        if (_app.Snapshots().Length > 0) A("arrow-bend-up-left", "Restore a snapshot", "", () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
+        A("export", "Export this bot", "Ctrl+E", () => { _app.ExportActive(); Notify(Ircuitry.Core.Icons.Glyph("export") + $" Exported {Bot.Name}"); });
+        A("tray", "Import a bot", "", () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
+        A("folder-open", "Show files", "", () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
+        A("graduation-cap", "Tutorial", "", ForceStartTutorial);
 
         // every node: "Add <Title>", spawned at the centre of the canvas
         foreach (var def in NodeCatalog.All)
@@ -2848,11 +2848,11 @@ public sealed partial class MainScreen : IScreen
 
         float x = panel.X + 16, w = panel.W - 32, y = panel.Y + 14;
         r.Begin();
-        r.Text(r.Fonts.Get(FontKind.Display, 16), "⌘", new Vector2(x, y + 3), Theme.Violet);
+        r.Text(r.Fonts.Get(FontKind.Display, 16), Ircuitry.Core.Icons.Glyph("command"), new Vector2(x, y + 3), Theme.Violet);
         r.End();
         r.Begin();
         var prev = _cmdkQuery;
-        _cmdkQuery = _ui.TextField("cmdk.query", new RectF(x + 26, y, w - 26, 32), _cmdkQuery, "Type a command or node…  (↑ ↓ Enter)");
+        _cmdkQuery = _ui.TextField("cmdk.query", new RectF(x + 26, y, w - 26, 32), _cmdkQuery, "Type a command or node…  (" + Ircuitry.Core.Icons.Glyph("arrow-up") + " " + Ircuitry.Core.Icons.Glyph("arrow-down") + " Enter)");
         if (_cmdkQuery != prev) { _cmdkSel = 0; _cmdkScroll = 0; }
         r.End();
         y += 42;
@@ -2944,7 +2944,7 @@ public sealed partial class MainScreen : IScreen
                 r.Text(r.Fonts.Get(FontKind.Sans, 10), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 10), d.Desc, row.W - 150), new Vector2(row.X + 50, row.Y + 26), Theme.TextFaint);
                 // progress / status on the right
                 if (d.Unlocked)
-                    r.TextRight(bf, "✓", row.Right - 14, row.Center.Y - 8, Theme.Amber);
+                    r.TextRight(bf, Ircuitry.Core.Icons.Glyph("check"), row.Right - 14, row.Center.Y - 8, Theme.Amber);
                 else
                 {
                     float bw = 88;
@@ -3000,7 +3000,7 @@ public sealed partial class MainScreen : IScreen
         {
             IrcState.Connecting => ("CONNECTING", Theme.Warn, true),
             IrcState.Registering => ("REGISTERING", Theme.Warn, true),
-            IrcState.Connected => ("LIVE ▸ " + rt.CurrentNick, Theme.Ok, true),
+            IrcState.Connected => ("LIVE " + Ircuitry.Core.Icons.Glyph("caret-right") + " " + rt.CurrentNick, Theme.Ok, true),
             IrcState.Error => ("ERROR", Theme.Alert, false),
             _ => rt.Running ? ("STARTING", Theme.Warn, true) : ("OFFLINE", Theme.Idle, false),
         };
@@ -3111,7 +3111,7 @@ public sealed partial class MainScreen : IScreen
                 string sum = run.Summary.Length == 0 ? "-" : run.Summary.Replace("\n", " ");
                 r.Text(sf, r.Ellipsize(sf, sum, row.W - 44), new Vector2(row.X + 34, row.Y + 26), Theme.TextDim);
                 r.TextRight(sf, run.Time.ToString("HH:mm:ss"), row.Right - 8, row.Y + 6, Theme.TextFaint);
-                if (run.Actions > 0) r.TextRight(sf, run.Actions + "⚡", row.Right - 8, row.Y + 26, Theme.WithAlpha(Theme.Ok, 0.95f));
+                if (run.Actions > 0) r.TextRight(sf, run.Actions + Ircuitry.Core.Icons.Glyph("lightning"), row.Right - 8, row.Y + 26, Theme.WithAlpha(Theme.Ok, 0.95f));
                 if (hover && In.LeftPressed) { _historySel = i; _historyDetailScroll = 0; }
             }
             y += rowH;
@@ -3155,9 +3155,9 @@ public sealed partial class MainScreen : IScreen
                 r.Text(r.Fonts.Get(FontKind.Display, 14), Ircuitry.Core.Icons.Glyph(nt.Icon), new Vector2(x + 8, cy), Theme.Cyan);
                 r.Text(nf, nt.Title, new Vector2(x + 30, cy + 1), Theme.Text);
                 cy += 22;
-                if (nt.Pulsed.Count > 0) { r.Text(lf, "▸ " + string.Join(", ", nt.Pulsed), new Vector2(x + 12, cy), Theme.WithAlpha(Theme.Ok, 0.95f)); cy += 18; }
-                foreach (var (pin, val) in nt.Inputs) { DrawIOLine(r, lf, x + 12, cy, w - 24, "in ▸ " + pin, val, Theme.CyanDim); cy += 16; }
-                foreach (var (pin, val) in nt.Outputs) { DrawIOLine(r, lf, x + 12, cy, w - 24, "out ◂ " + pin, val, Theme.AmberDim); cy += 16; }
+                if (nt.Pulsed.Count > 0) { r.Text(lf, Ircuitry.Core.Icons.Glyph("caret-right") + " " + string.Join(", ", nt.Pulsed), new Vector2(x + 12, cy), Theme.WithAlpha(Theme.Ok, 0.95f)); cy += 18; }
+                foreach (var (pin, val) in nt.Inputs) { DrawIOLine(r, lf, x + 12, cy, w - 24, "in " + Ircuitry.Core.Icons.Glyph("caret-right") + " " + pin, val, Theme.CyanDim); cy += 16; }
+                foreach (var (pin, val) in nt.Outputs) { DrawIOLine(r, lf, x + 12, cy, w - 24, "out " + Ircuitry.Core.Icons.Glyph("caret-left") + " " + pin, val, Theme.AmberDim); cy += 16; }
             }
             y += ch + 8;
         }
@@ -3169,7 +3169,7 @@ public sealed partial class MainScreen : IScreen
     private void DrawIOLine(Renderer r, DynamicSpriteFont f, float x, float y, float w, string label, string val, Color lc)
     {
         r.Text(f, label, new Vector2(x, y), lc);
-        string v = val.Length == 0 ? "∅" : val.Replace("\n", " ⏎ ");
+        string v = val.Length == 0 ? "∅" : val.Replace("\n", " " + Ircuitry.Core.Icons.Glyph("arrow-bend-down-left") + " ");
         r.Text(f, r.Ellipsize(f, v, w - 96), new Vector2(x + 92, y), Theme.Text);
     }
 
@@ -3192,7 +3192,7 @@ public sealed partial class MainScreen : IScreen
 
         float x = panel.X + 12, w = panel.W - 24, y = panel.Y + 32;
         r.Begin();
-        _quickSearch = _ui.TextField("quick.search", new RectF(x, y, w, 30), _quickSearch, "⌕  search nodes…");
+        _quickSearch = _ui.TextField("quick.search", new RectF(x, y, w, 30), _quickSearch, Ircuitry.Core.Icons.Glyph("magnifying-glass") + "  search nodes…");
         r.End();
         y += 38;
 
@@ -3283,7 +3283,7 @@ public sealed partial class MainScreen : IScreen
         _testNick = _ui.TextField("test.nick", new RectF(fx, y, fw, 30), _testNick, "alice"); y += 40;
         r.Text(r.Fonts.Get(FontKind.SansBold, 12), "CHANNEL", new Vector2(fx, y), Theme.TextDim); y += 18;
         _testChan = _ui.TextField("test.chan", new RectF(fx, y, fw, 30), _testChan, "#test"); y += 42;
-        if (_ui.Button("test.run", new RectF(fx, y, fw, 36), "▶  RUN", Theme.Ok, primary: true)) RunTest();
+        if (_ui.Button("test.run", new RectF(fx, y, fw, 36), Ircuitry.Core.Icons.Glyph("play") + "  RUN", Theme.Ok, primary: true)) RunTest();
         y += 46;
         foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), "Fires every On Message / On Command node against this fake event. Nothing is sent and your variables aren't touched.", fw))
         { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(fx, y), Theme.TextFaint); y += 16; }
