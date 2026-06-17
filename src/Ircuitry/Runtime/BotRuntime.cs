@@ -204,7 +204,50 @@ public sealed class BotRuntime
         _log.Add(level, message, multi && server.Length > 0 ? server : "");
     }
 
-    public void NodeFired(string nodeId) { _activity[nodeId] = DateTime.Now; _fireCounts.AddOrUpdate(nodeId, 1, (_, n) => n + 1); }
+    // ---- visual playback (slow-motion) ----
+    // Execution always calls NodeFired the instant a node runs. The fire COUNT updates immediately (stays
+    // accurate); the GLOW is what we optionally defer: with slow-mo on we queue the node and a UI-side stepper
+    // reveals one every Playback.Delay, so a run lights up node-by-node. Nothing here blocks the bot.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _pbQueue = new();
+    private double _pbLast = -1;
+
+    public void NodeFired(string nodeId)
+    {
+        _fireCounts.AddOrUpdate(nodeId, 1, (_, n) => n + 1);
+        if (Ircuitry.Core.Playback.SlowMo)
+        {
+            _pbQueue.Enqueue(nodeId);
+            while (_pbQueue.Count > 20000 && _pbQueue.TryDequeue(out _)) { }   // OOM backstop on a runaway bot; jump-to-now is the real escape
+        }
+        else _activity[nodeId] = DateTime.Now;
+    }
+
+    /// <summary>Nodes waiting to be revealed (the playback backlog). 0 when caught up / slow-mo off.</summary>
+    public int PlaybackPending => _pbQueue.Count;
+
+    /// <summary>Call once per UI frame: reveal at most one queued node per Playback.Delay. When slow-mo is off,
+    /// flush the whole queue instantly so toggling off snaps to live.</summary>
+    public void PlaybackStep(double uiTime)
+    {
+        if (!Ircuitry.Core.Playback.SlowMo)
+        {
+            while (_pbQueue.TryDequeue(out var id)) _activity[id] = DateTime.Now;
+            _pbLast = -1;
+            return;
+        }
+        if (_pbQueue.IsEmpty) { _pbLast = -1; return; }                       // idle -> next first node reveals at once
+        if (_pbLast < 0 || uiTime - _pbLast >= Ircuitry.Core.Playback.Delay)
+            if (_pbQueue.TryDequeue(out var nid)) { _activity[nid] = DateTime.Now; _pbLast = uiTime; }
+    }
+
+    /// <summary>Drop the backlog and snap to live: reveal the most recent queued node, discard the rest.</summary>
+    public void PlaybackJumpToNow()
+    {
+        string? last = null;
+        while (_pbQueue.TryDequeue(out var id)) last = id;
+        if (last != null) _activity[last] = DateTime.Now;
+        _pbLast = -1;
+    }
 
     internal void CreditRun(IReadOnlyCollection<string> executedTypes)
     {

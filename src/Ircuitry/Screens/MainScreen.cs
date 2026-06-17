@@ -615,6 +615,7 @@ public sealed partial class MainScreen : IScreen
         _l = Layout.Compute(_vw, _vh, _consoleH);
         ClipboardPoll(clock);
         AchievementsTick(clock);
+        foreach (var b in _app.Bots) b.Runtime.PlaybackStep(clock.Time);   // reveal queued node glows (slow-mo); instant + drains when off
 
         if (DebugAutoHistory && Bot.Runtime.HistoryCount > 0 && (!_historyOpen || _historyRuns.Count != Bot.Runtime.HistoryCount)) OpenHistory();
         if (DebugAutoQuick && !Modal) { OpenQuickAdd(_l.Canvas.Center); DebugAutoQuick = false; }
@@ -638,8 +639,10 @@ public sealed partial class MainScreen : IScreen
         }
         else if (!_tut.Active)   // tutorial owns the canvas while it runs (it places/wires for you)
         {
+            bool overBar = PlaybackBarRect().Contains(input.Mouse);   // the on-canvas playback bar swallows canvas input
+
             // right-click anywhere on the canvas -> context menu
-            if (In.RightPressed && _l.Canvas.Contains(input.Mouse) && !_ui.AnyFieldFocused)
+            if (In.RightPressed && _l.Canvas.Contains(input.Mouse) && !_ui.AnyFieldFocused && !overBar)
             {
                 // right-clicking a node that isn't already selected makes it the target
                 var hit = _editor.NodeAt(input.Mouse);
@@ -648,7 +651,7 @@ public sealed partial class MainScreen : IScreen
             }
 
             // double-click empty canvas -> quick-add menu
-            if (In.LeftPressed && _l.Canvas.Contains(input.Mouse) && _editor.IsEmptyAt(input.Mouse))
+            if (In.LeftPressed && _l.Canvas.Contains(input.Mouse) && _editor.IsEmptyAt(input.Mouse) && !overBar)
             {
                 if (clock.Time - _lastClickTime < 0.35f && Vector2.Distance(input.Mouse, _lastClickPos) < 6f)
                 { OpenQuickAdd(input.Mouse); _lastClickTime = 0; }
@@ -657,7 +660,7 @@ public sealed partial class MainScreen : IScreen
 
             if (!Modal)
             {
-                _editor.Update(input, _l.Canvas, _ui.AnyFieldFocused);
+                _editor.Update(input, _l.Canvas, _ui.AnyFieldFocused || overBar);
                 if (input.Ctrl && input.KeyPressed(Keys.K)) OpenCommandPalette();
                 if (input.Ctrl && input.KeyPressed(Keys.S)) { _app.Save(); Notify(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved"); }
                 if (input.Ctrl && input.KeyPressed(Keys.R)) ToggleRun();
@@ -712,6 +715,7 @@ public sealed partial class MainScreen : IScreen
         if (Bot.Graph.Nodes.Count == 0) EmptyHint(r, _l.Canvas, clock);
         CanvasFrame(r, _l.Canvas);
         r.End();
+        DrawPlaybackBar(r);   // slow-motion run playback control (over the canvas)
 
         // ---------- panel chromes ----------
         r.Begin();
@@ -2042,6 +2046,48 @@ public sealed partial class MainScreen : IScreen
     }
 
     // ===================================================================
+    // the on-canvas slow-motion playback bar (top-left of the canvas): a toggle, a per-node speed slider, and a
+    // live / jump-to-now indicator. Reveals each fired node Playback.Delay apart so a run can be followed.
+    private RectF PlaybackBarRect() => new RectF(_l.Canvas.X + 14, _l.Canvas.Y + 14, 400, 36);
+
+    private void DrawPlaybackBar(Renderer r)
+    {
+        var bar = PlaybackBarRect();
+        r.Begin();
+        r.RoundFill(new RectF(bar.X, bar.Y + 2, bar.W, bar.H), Theme.WithAlpha(Color.Black, 0.10f), 12f);
+        r.RoundFill(bar, Theme.WithAlpha(Theme.PanelHi, 0.94f), 12f);
+        r.RoundOutline(bar, Theme.Edge, 12f);
+
+        float cy = bar.Center.Y, x = bar.X + 12;
+        r.Text(r.Fonts.Get(FontKind.Display, 14), Ircuitry.Core.Icons.Glyph("film-strip"), new Vector2(x, cy - 10), Theme.Berry);
+        x += 24;
+
+        Ircuitry.Core.Playback.SlowMo = _ui.Toggle("pb.slow", new RectF(x, bar.Y, 98, bar.H), Ircuitry.Core.Playback.SlowMo, "Slow-mo");
+        x += 102;
+
+        Ircuitry.Core.Playback.Delay = _ui.Slider("pb.delay", new RectF(x, cy - 11, 88, 22), Ircuitry.Core.Playback.Delay, Ircuitry.Core.Playback.MinDelay, Ircuitry.Core.Playback.MaxDelay);
+        x += 92;
+        r.Text(r.Fonts.Get(FontKind.Mono, 11), Ircuitry.Core.Playback.Delay.ToString("0.00") + "s", new Vector2(x, cy - 7), Theme.TextDim);
+
+        // right slot: a calm "live" dot when caught up, a jump-to-now button once a backlog builds
+        var slot = new RectF(bar.Right - 12 - 112, bar.Y + 4, 112, bar.H - 8);
+        if (Ircuitry.Core.Playback.SlowMo)
+        {
+            int pend = _app.ActiveBot.Runtime.PlaybackPending;
+            if (pend >= 4)
+            {
+                if (_ui.Button("pb.jump", slot, Ircuitry.Core.Icons.Glyph("fast-forward") + " now (" + pend + ")", Theme.Amber, primary: true))
+                    _app.ActiveBot.Runtime.PlaybackJumpToNow();
+            }
+            else
+            {
+                Hud.SoftDot(r, new Vector2(slot.Right - 14, cy), 4f, Theme.Ok);
+                r.TextRight(r.Fonts.Get(FontKind.SansBold, 12), "live", slot.Right - 24, cy - 7, Theme.Mix(Theme.Text, Theme.Ok, 0.35f));
+            }
+        }
+        r.End();
+    }
+
     private void DrawInspector(Renderer r)
     {
         var p = _l.Inspector;
