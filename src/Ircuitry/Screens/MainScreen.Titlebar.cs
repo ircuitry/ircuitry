@@ -32,6 +32,10 @@ public sealed partial class MainScreen
     // a glyph/ink colour guaranteed to contrast with the bar under ANY theme (derived from the bar, not from
     // the theme's text colours, which flip light/dark and don't track the bar's own lightness).
     private static Color BarInk => Lum(BarFace) > 0.5f ? Theme.Mix(BarFace, Color.Black, 0.72f) : Theme.Mix(BarFace, Color.White, 0.9f);
+    // the key-pad surface tracks the (light) bar, not the theme's panel - so it stays light and BarInk reads on
+    // it in every theme (panel-coloured pads went dark in dark themes and swallowed the icons).
+    private static Color BarKey => Theme.Mix(BarTop, Color.White, 0.42f);
+    private static Color BarKeyHot => Theme.Mix(BarTop, Color.White, 0.66f);
 
     private void DrawTitlebar(Renderer r, Clock clock)
     {
@@ -159,7 +163,7 @@ public sealed partial class MainScreen
         bool hot = !Modal && rect.Contains(In.Mouse);
         pad = rect.Inflate(-3, -1);
         r.RoundFill(pad.Offset(0, 1), Theme.WithAlpha(BarDim, 0.35f), 9f);                  // tiny drop shadow
-        r.RoundFill(pad, hot ? Theme.PanelHi : BarPad, 9f);
+        r.RoundFill(pad, hot ? BarKeyHot : BarKey, 9f);
         r.RoundFill(new RectF(pad.X + 2, pad.Y + 2, pad.W - 4, pad.H * 0.42f), Theme.WithAlpha(Color.White, 0.5f), 6f);  // gloss
         return hot && In.LeftPressed && !_ircWinJustOpened;
     }
