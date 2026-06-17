@@ -133,6 +133,47 @@ public static class Program
                 Environment.Exit(0);
                 return;
             }
+            int di = Array.IndexOf(args, "--emit-docs");
+            if (di >= 0)
+            {
+                // the FULL built-in node reference (title/subtitle/icon/category/description/trigger + every
+                // pin and param), so the website docs page can render a complete, always-current node manual.
+                string path = di + 1 < args.Length && !args[di + 1].StartsWith("--") ? args[di + 1] : "node-reference.json";
+                System.Text.Json.Nodes.JsonNode S(string s) => s;
+                System.Text.Json.Nodes.JsonArray Pins(Ircuitry.Graph.PinDef[] pins)
+                {
+                    var a = new System.Text.Json.Nodes.JsonArray();
+                    foreach (var p in pins) a.Add(new System.Text.Json.Nodes.JsonObject { ["n"] = S(p.Name), ["k"] = S(p.Kind.ToString()), ["multi"] = p.Multi });
+                    return a;
+                }
+                var nodes = new System.Text.Json.Nodes.JsonArray();
+                foreach (var d in Ircuitry.Graph.NodeCatalog.All)
+                {
+                    if (Ircuitry.Graph.NodeCatalog.IsCustom(d.TypeId)) continue;
+                    var ps = new System.Text.Json.Nodes.JsonArray();
+                    foreach (var p in d.Params)
+                    {
+                        var pj = new System.Text.Json.Nodes.JsonObject
+                        {
+                            ["key"] = S(p.Key), ["label"] = S(p.Label), ["type"] = S(p.Type.ToString()),
+                            ["default"] = S(p.Default), ["placeholder"] = S(p.Placeholder),
+                        };
+                        if (p.Choices is { Length: > 0 }) pj["choices"] = new System.Text.Json.Nodes.JsonArray(System.Array.ConvertAll(p.Choices, c => (System.Text.Json.Nodes.JsonNode)c));
+                        ps.Add(pj);
+                    }
+                    nodes.Add(new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["typeId"] = S(d.TypeId), ["title"] = S(d.Title), ["subtitle"] = S(d.Subtitle),
+                        ["icon"] = S(d.Icon), ["category"] = S(d.Category.ToString()), ["description"] = S(d.Description),
+                        ["trigger"] = d.IsTrigger, ["inputs"] = Pins(d.Inputs), ["outputs"] = Pins(d.Outputs), ["params"] = ps,
+                    });
+                }
+                var doc2 = new System.Text.Json.Nodes.JsonObject { ["app"] = "ircuitry", ["version"] = App.AppInfo.Version, ["nodes"] = nodes };
+                File.WriteAllText(path, doc2.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n");
+                Console.WriteLine($"wrote {path} ({nodes.Count} nodes, v{App.AppInfo.Version})");
+                Environment.Exit(0);
+                return;
+            }
         }
         if (Array.IndexOf(args, "--schema") >= 0)
         {
