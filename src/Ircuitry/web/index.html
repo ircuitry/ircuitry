@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4ecd8">
+  <title>ircuitry cockpit</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="stylesheet" href="cockpit.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><img src="icon.png" alt="" onerror="this.style.display='none'"> ircuitry <span class="sub">cockpit</span></div>
+    <div class="conn" id="conn"><span class="dot" id="dot"></span><span id="connText">offline</span></div>
+  </header>
+
+  <main>
+    <section id="login" class="card login" hidden>
+      <h1>Connect</h1>
+      <p class="muted">Enter the access token printed by <code>ircuitry --server</code>.</p>
+      <label>Access token</label>
+      <input id="token" type="password" placeholder="token" autocomplete="current-password">
+      <button id="loginBtn" class="btn primary">Connect</button>
+      <p class="err" id="loginErr"></p>
+    </section>
+
+    <section id="dash" hidden>
+      <div class="row">
+        <h2>Bots</h2>
+        <button id="logout" class="btn ghost small">Sign out</button>
+      </div>
+      <div id="bots" class="bots"></div>
+      <h2>Console</h2>
+      <div id="console" class="console"></div>
+    </section>
+  </main>
+
+  <script src="cockpit.js"></script>
+</body>
+</html>

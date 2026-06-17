@@ -30,11 +30,13 @@ public static class ControlServer
     private static AppModel _app = null!;
     private static List<McpTool> _tools = null!;
     private static readonly Dictionary<string, string> _tokens = new();   // token -> user name
+    private static bool _web;
 
     public static int Run(string[] args)
     {
         string bind = Arg(args, "--bind") ?? "127.0.0.1";
         int port = int.TryParse(Arg(args, "--port"), out var p) ? p : 48700;
+        _web = Array.IndexOf(args, "--web") >= 0;
         string? data = Arg(args, "--data");
         if (!string.IsNullOrWhiteSpace(data)) Environment.SetEnvironmentVariable("IRCUITRY_HOME", data);
 
@@ -62,6 +64,7 @@ public static class ControlServer
 
         Console.WriteLine($"ircuitry control server on http://{(host == "+" ? bind : host)}:{port}/  -  workspace {AppModel.WorkspaceDir}");
         Console.WriteLine($"  bots: {_app.Bots.Count}    connect a desktop with: Server > Connect ({bind}:{port})");
+        if (_web) Console.WriteLine($"  cockpit (PWA): http://{(host == "+" ? bind : host)}:{port}/");
         Console.WriteLine($"  admin token: {_tokens.Keys.First()}");
 
         using var stop = new ManualResetEventSlim(false);
@@ -103,10 +106,51 @@ public static class ControlServer
                 await Serve(wsCtx.WebSocket);
                 return;
             }
+            if (_web && ctx.Request.HttpMethod == "GET" && TryServeWeb(ctx, path)) return;
             WriteJson(ctx, 404, new { error = "not found" });
         }
         catch { try { ctx.Response.Abort(); } catch { } }
     }
+
+    // ---------------- web cockpit (served when --web) ----------------
+    private static readonly string[] WebFiles = { "index.html", "cockpit.js", "cockpit.css", "manifest.webmanifest", "sw.js" };
+
+    private static bool TryServeWeb(HttpListenerContext ctx, string path)
+    {
+        string file = path is "/" or "" ? "index.html" : path.TrimStart('/');
+        if (file == "icon.png") { ServeIcon(ctx); return true; }
+        if (Array.IndexOf(WebFiles, file) < 0) return false;
+        var asm = typeof(ControlServer).Assembly;
+        string? res = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith(".web." + file, StringComparison.OrdinalIgnoreCase));
+        if (res == null) return false;
+        using var s = asm.GetManifestResourceStream(res);
+        if (s == null) return false;
+        var ms = new MemoryStream(); s.CopyTo(ms); var bytes = ms.ToArray();
+        ctx.Response.StatusCode = 200;
+        ctx.Response.ContentType = ContentType(file);
+        ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+        ctx.Response.Close();
+        return true;
+    }
+
+    private static void ServeIcon(HttpListenerContext ctx)
+    {
+        try
+        {
+            string p = Path.Combine(AppContext.BaseDirectory, "assets", "icons", "icon-256.png");
+            if (!File.Exists(p)) { ctx.Response.StatusCode = 404; ctx.Response.Close(); return; }
+            var bytes = File.ReadAllBytes(p);
+            ctx.Response.StatusCode = 200; ctx.Response.ContentType = "image/png";
+            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length); ctx.Response.Close();
+        }
+        catch { try { ctx.Response.Abort(); } catch { } }
+    }
+
+    private static string ContentType(string file) => file.EndsWith(".html") ? "text/html; charset=utf-8"
+        : file.EndsWith(".js") ? "application/javascript; charset=utf-8"
+        : file.EndsWith(".css") ? "text/css; charset=utf-8"
+        : file.EndsWith(".webmanifest") ? "application/manifest+json; charset=utf-8"
+        : "application/octet-stream";
 
     // ---------------- one connected client ----------------
     private sealed class Client

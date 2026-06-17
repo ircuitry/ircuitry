@@ -14,6 +14,8 @@
   <ItemGroup>
     <!-- MonoGame DesktopGL sets the window/taskbar icon from an embedded "{AssemblyName}.Icon.bmp" -->
     <EmbeddedResource Include="Icon.bmp" />
+    <!-- the served web cockpit (Phase 3): embedded so it ships in a single binary -->
+    <EmbeddedResource Include="web/**/*" />
   </ItemGroup>
 
   <ItemGroup>
