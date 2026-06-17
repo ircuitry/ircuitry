@@ -13,8 +13,13 @@ namespace Ircuitry.Net;
 /// </summary>
 public static class CodeRunner
 {
+    /// <summary>When true (set by <c>ircuitry --server --no-code</c>), code nodes refuse to run - so a shared/hosted
+    /// instance never executes untrusted Python/JS from a workflow. Full container isolation is the next step.</summary>
+    public static volatile bool Disabled;
+
     public static (string output, string? error) Run(string language, string code, Dictionary<string, string> ctx, int timeoutSec)
     {
+        if (Disabled) return ("", "code execution is disabled on this server (--no-code)");
         bool py = language.StartsWith("py", StringComparison.OrdinalIgnoreCase);
         string exe = py ? "python3" : "node";
         string ext = py ? ".py" : ".js";

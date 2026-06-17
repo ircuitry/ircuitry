@@ -37,6 +37,7 @@ public static class ControlServer
         string bind = Arg(args, "--bind") ?? "127.0.0.1";
         int port = int.TryParse(Arg(args, "--port"), out var p) ? p : 48700;
         _web = Array.IndexOf(args, "--web") >= 0;
+        if (Array.IndexOf(args, "--no-code") >= 0) Ircuitry.Net.CodeRunner.Disabled = true;   // refuse untrusted code on a shared host
         string? data = Arg(args, "--data");
         if (!string.IsNullOrWhiteSpace(data)) Environment.SetEnvironmentVariable("IRCUITRY_HOME", data);
 
