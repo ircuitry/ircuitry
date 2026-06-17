@@ -117,6 +117,36 @@ public sealed class Ui
         return value;
     }
 
+    /// <summary>A vertical slider (top = max, bottom = min). Drag the knob or click the track.</summary>
+    public float SliderV(string id, RectF rect, float value, float min, float max)
+    {
+        _seen.Add(id);
+        bool hover = Over(rect);
+        float t = max > min ? Math.Clamp((value - min) / (max - min), 0f, 1f) : 0f;
+        var track = new RectF(rect.Center.X - 3f, rect.Y, 6f, rect.H);
+        R.RoundFill(track, Theme.PanelLo, 3f);
+        float knobY = rect.Y + (1f - t) * rect.H;
+        R.RoundFill(new RectF(track.X, knobY, 6f, rect.Bottom - knobY), Theme.WithAlpha(Theme.Cyan, 0.55f), 3f);   // filled toward fast (bottom)
+        R.RoundOutline(track, Theme.Hairline, 3f);
+
+        bool active = Focus == id;
+        if (Enabled && hover && In.LeftPressed) { Focus = id; active = true; }
+        if (active && In.LeftDown)
+        {
+            float nt = Math.Clamp(1f - (In.Mouse.Y - rect.Y) / Math.Max(1f, rect.H), 0f, 1f);
+            value = min + nt * (max - min);
+            knobY = rect.Y + (1f - nt) * rect.H;
+        }
+        if (In.LeftReleased && active) Focus = null;
+
+        var kc = hover || active ? Theme.Cyan : Theme.CyanDim;
+        var kp = new Vector2(track.Center.X, Math.Clamp(knobY, rect.Y + 7, rect.Bottom - 7));
+        R.Disc(kp, 9f, Theme.WithAlpha(kc, 0.20f));
+        R.Disc(kp, 7f, Theme.PanelHi);
+        R.Ring(kp, 7f, kc);
+        return value;
+    }
+
     // ---------------------------------------------------------------
     public string TextField(string id, RectF rect, string value, string placeholder, bool numeric = false, bool password = false)
     {

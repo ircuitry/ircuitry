@@ -2046,31 +2046,56 @@ public sealed partial class MainScreen : IScreen
     }
 
     // ===================================================================
-    // the on-canvas slow-motion playback bar (top-left of the canvas): a toggle, a per-node speed slider, and a
-    // live / jump-to-now indicator. Reveals each fired node Playback.Delay apart so a run can be followed.
-    private RectF PlaybackBarRect() => new RectF(_l.Canvas.X + 14, _l.Canvas.Y + 14, 400, 36);
+    // The on-canvas slow-motion playback control: a compact pill BELOW the graph-title card (so it never covers
+    // it) holding the toggle, a collapsed "speed" button, and a live / jump-to-now indicator. Clicking the speed
+    // button drops a vertical slider; clicking away from it collapses again.
+    private bool _pbSliderOpen;
+
+    private void PlaybackLayout(out RectF pill, out RectF iconP, out RectF toggleR, out RectF delayBtn, out RectF slot, out RectF panel)
+    {
+        var c = _l.Canvas;
+        bool on = Ircuitry.Core.Playback.SlowMo;
+        float slotW = on ? (_app.ActiveBot.Runtime.PlaybackPending >= 4 ? 116f : 56f) : 0f;
+        const float h = 30, iconW = 22, toggleW = 100, delayW = 66, gap = 8;
+        float w = 12 + iconW + toggleW + gap + delayW + (on ? gap + slotW : 0) + 12;
+        float by = c.Y + 12 + 26 + 8;   // just below the title card
+        pill = new RectF(c.X + 12, by, w, h);
+        float x = c.X + 12 + 12;
+        iconP = new RectF(x, by, iconW, h); x += iconW;
+        toggleR = new RectF(x, by, toggleW, h); x += toggleW + gap;
+        delayBtn = new RectF(x, by + 3, delayW, h - 6); x += delayW + gap;
+        slot = new RectF(x, by + 4, slotW, h - 8);
+        panel = new RectF(delayBtn.X - 1, pill.Bottom + 6, 60, 160);
+    }
+
+    private RectF PlaybackBarRect()
+    {
+        PlaybackLayout(out var pill, out _, out _, out _, out _, out var panel);
+        if (!_pbSliderOpen) return pill;
+        float minX = Math.Min(pill.X, panel.X), minY = Math.Min(pill.Y, panel.Y);
+        return new RectF(minX, minY, Math.Max(pill.Right, panel.Right) - minX, Math.Max(pill.Bottom, panel.Bottom) - minY);
+    }
 
     private void DrawPlaybackBar(Renderer r)
     {
-        var bar = PlaybackBarRect();
+        PlaybackLayout(out var pill, out var iconP, out var toggleR, out var delayBtn, out var slot, out var panel);
         r.Begin();
-        r.RoundFill(new RectF(bar.X, bar.Y + 2, bar.W, bar.H), Theme.WithAlpha(Color.Black, 0.10f), 12f);
-        r.RoundFill(bar, Theme.WithAlpha(Theme.PanelHi, 0.94f), 12f);
-        r.RoundOutline(bar, Theme.Edge, 12f);
+        r.RoundFill(new RectF(pill.X, pill.Y + 2, pill.W, pill.H), Theme.WithAlpha(Color.Black, 0.10f), 12f);
+        r.RoundFill(pill, Theme.WithAlpha(Theme.PanelHi, 0.94f), 12f);
+        r.RoundOutline(pill, Theme.Edge, 12f);
+        float cy = pill.Center.Y;
+        r.Text(r.Fonts.Get(FontKind.Display, 14), Ircuitry.Core.Icons.Glyph("film-strip"), new Vector2(iconP.X, cy - 10), Theme.Berry);
 
-        float cy = bar.Center.Y, x = bar.X + 12;
-        r.Text(r.Fonts.Get(FontKind.Display, 14), Ircuitry.Core.Icons.Glyph("film-strip"), new Vector2(x, cy - 10), Theme.Berry);
-        x += 24;
+        Ircuitry.Core.Playback.SlowMo = _ui.Toggle("pb.slow", toggleR, Ircuitry.Core.Playback.SlowMo, "Slow-mo");
 
-        Ircuitry.Core.Playback.SlowMo = _ui.Toggle("pb.slow", new RectF(x, bar.Y, 98, bar.H), Ircuitry.Core.Playback.SlowMo, "Slow-mo");
-        x += 102;
+        // collapsed speed control: a button showing the current delay + a caret; click to drop the vertical slider
+        bool dh = _ui.Enabled && delayBtn.Contains(In.Mouse);
+        r.RoundFill(delayBtn, dh || _pbSliderOpen ? Theme.Mix(Theme.PanelHi, Theme.Cyan, 0.18f) : Theme.PanelLo, 8f);
+        r.RoundOutline(delayBtn, _pbSliderOpen ? Theme.Cyan : Theme.Hairline, 8f);
+        r.Text(r.Fonts.Get(FontKind.Mono, 12), Ircuitry.Core.Playback.Delay.ToString("0.00") + "s", new Vector2(delayBtn.X + 8, cy - 7), Theme.Text);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), Ircuitry.Core.Icons.Glyph(_pbSliderOpen ? "caret-up" : "caret-down"), new Vector2(delayBtn.Right - 15, cy - 7), Theme.TextDim);
+        if (dh && In.LeftPressed) _pbSliderOpen = !_pbSliderOpen;
 
-        Ircuitry.Core.Playback.Delay = _ui.Slider("pb.delay", new RectF(x, cy - 11, 88, 22), Ircuitry.Core.Playback.Delay, Ircuitry.Core.Playback.MinDelay, Ircuitry.Core.Playback.MaxDelay);
-        x += 92;
-        r.Text(r.Fonts.Get(FontKind.Mono, 11), Ircuitry.Core.Playback.Delay.ToString("0.00") + "s", new Vector2(x, cy - 7), Theme.TextDim);
-
-        // right slot: a calm "live" dot when caught up, a jump-to-now button once a backlog builds
-        var slot = new RectF(bar.Right - 12 - 112, bar.Y + 4, 112, bar.H - 8);
         if (Ircuitry.Core.Playback.SlowMo)
         {
             int pend = _app.ActiveBot.Runtime.PlaybackPending;
@@ -2081,11 +2106,27 @@ public sealed partial class MainScreen : IScreen
             }
             else
             {
-                Hud.SoftDot(r, new Vector2(slot.Right - 14, cy), 4f, Theme.Ok);
-                r.TextRight(r.Fonts.Get(FontKind.SansBold, 12), "live", slot.Right - 24, cy - 7, Theme.Mix(Theme.Text, Theme.Ok, 0.35f));
+                Hud.SoftDot(r, new Vector2(slot.Right - 12, cy), 4f, Theme.Ok);
+                r.TextRight(r.Fonts.Get(FontKind.SansBold, 12), "live", slot.Right - 22, cy - 7, Theme.Mix(Theme.Text, Theme.Ok, 0.35f));
             }
         }
         r.End();
+
+        if (_pbSliderOpen)
+        {
+            r.Begin();
+            r.RoundFill(new RectF(panel.X, panel.Y + 2, panel.W, panel.H), Theme.WithAlpha(Color.Black, 0.12f), 11f);
+            r.RoundFill(panel, Theme.WithAlpha(Theme.PanelHi, 0.97f), 11f);
+            r.RoundOutline(panel, Theme.Edge, 11f);
+            r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 10), "slow", panel.Center.X, panel.Y + 8, Theme.TextFaint);
+            var sl = new RectF(panel.X, panel.Y + 24, panel.W, panel.H - 56);
+            Ircuitry.Core.Playback.Delay = _ui.SliderV("pb.delayv", sl, Ircuitry.Core.Playback.Delay, Ircuitry.Core.Playback.MinDelay, Ircuitry.Core.Playback.MaxDelay);
+            r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 10), "fast", panel.Center.X, panel.Bottom - 28, Theme.TextFaint);
+            r.TextCenteredX(r.Fonts.Get(FontKind.MonoBold, 11), Ircuitry.Core.Playback.Delay.ToString("0.00") + "s", panel.Center.X, panel.Bottom - 15, Theme.Text);
+            r.End();
+            // click anywhere outside the pill + panel collapses it
+            if (In.LeftPressed && !pill.Contains(In.Mouse) && !panel.Contains(In.Mouse)) _pbSliderOpen = false;
+        }
     }
 
     private void DrawInspector(Renderer r)
