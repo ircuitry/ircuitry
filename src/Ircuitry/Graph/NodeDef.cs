@@ -44,8 +44,10 @@ public sealed class NodeDef
     public string TypeId = "";
     public string Title = "";
     public string Subtitle = "";        // shown faint under the title
-    public string Icon = "●";           // cute emoji badge shown on the node + palette
-    public string? IconImage;           // optional base64 PNG icon (overrides the emoji glyph when set)
+    public string Icon = "circle";      // Phosphor icon NAME shown on the node + palette (data keeps the name)
+    public string? IconImage;           // optional base64 PNG icon (overrides the glyph when set)
+    /// <summary>The Icon name resolved to its renderable Phosphor glyph (falls back to the raw string).</summary>
+    public string IconGlyph => Ircuitry.Core.Icons.Glyph(Icon);
     public NodeCategory Category;
     public string Description = "";
     public PinDef[] Inputs = System.Array.Empty<PinDef>();

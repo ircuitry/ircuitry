@@ -80,7 +80,7 @@ public sealed partial class MainScreen : IScreen
         _l = Layout.Compute(_vw, _vh, _consoleH);
         _editor.Selection.Clear();
         foreach (var n in _app.ActiveBot.Graph.Nodes.Where(n => !n.Def.IsTrigger).Take(2)) _editor.Selection.Add(n.Id);
-        _saveNodeName = "Greeting Macro"; _saveNodeIcon = "🧩"; _saveNodeCat = "Action"; _saveNodeDesc = "";
+        _saveNodeName = "Greeting Macro"; _saveNodeIcon = "puzzle-piece"; _saveNodeCat = "Action"; _saveNodeDesc = "";
         _saveNodeOpen = true; _saveNodeJustOpened = true;
     }
 
@@ -145,7 +145,7 @@ public sealed partial class MainScreen : IScreen
     // save-selection-as-reusable-node
     private bool _saveNodeOpen, _saveNodeJustOpened, _saveNodeAsTool;
     private string _saveNodeName = "My Node";
-    private string _saveNodeIcon = "🧩", _saveNodeCat = "Logic", _saveNodeDesc = "";
+    private string _saveNodeIcon = "puzzle-piece", _saveNodeCat = "Logic", _saveNodeDesc = "";
     private static readonly string[] _bakeCats = { "Action", "Data", "Logic", "Ai", "Filter", "Storage" };
 
     // confirm installing a dropped community .ircnode (it runs code) before it's installed
@@ -922,7 +922,7 @@ public sealed partial class MainScreen : IScreen
         r.Text(r.Fonts.Get(FontKind.SansBold, 10), "CATEGORY", new Vector2(x + nameW + gap + iconW + gap, y), Theme.TextDim);
         y += 15;
         _saveNodeName = _ui.TextField("savenode.name", new RectF(x, y, nameW, 28), _saveNodeName, "My Node");
-        _saveNodeIcon = _ui.TextField("savenode.icon", new RectF(x + nameW + gap, y, iconW, 28), _saveNodeIcon, "🧩");
+        _saveNodeIcon = _ui.TextField("savenode.icon", new RectF(x + nameW + gap, y, iconW, 28), _saveNodeIcon, "puzzle-piece");
         _saveNodeCat = _ui.Choice("savenode.cat", new RectF(x + nameW + gap + iconW + gap, y, catW, 28), _bakeCats, _saveNodeCat);
         y += 28 + 12;
         r.Text(r.Fonts.Get(FontKind.SansBold, 10), "DESCRIPTION", new Vector2(x, y), Theme.TextDim); y += 15;
@@ -972,7 +972,7 @@ public sealed partial class MainScreen : IScreen
         var d = _installDef;
         if (d != null)
         {
-            r.Text(r.Fonts.Get(FontKind.SansBold, 15), d.Icon + "  " + d.Title, new Vector2(x, y), Theme.Text); y += 24;
+            r.Text(r.Fonts.Get(FontKind.SansBold, 15), Ircuitry.Core.Icons.Glyph(d.Icon) + "  " + d.Title, new Vector2(x, y), Theme.Text); y += 24;
             r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{d.TypeId} · {d.Category} · {d.Inputs.Length}in/{d.Outputs.Length}out", new Vector2(x, y), Theme.TextDim); y += 22;
         }
         r.Text(r.Fonts.Get(FontKind.Sans, 12), "⚠  This runs code on your machine. Review before installing:", new Vector2(x, y), Theme.Alert); y += 22;
@@ -1176,7 +1176,7 @@ public sealed partial class MainScreen : IScreen
         bool hasNodes = Bot.Graph.Nodes.Count > 0;
         Item("🔑", "Secret keys…", "", true, () => { _secretsOpen = true; _secretsJustOpened = true; });
         Item("🏆", "Achievements", "", true, () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
-        Item("🧩", "Community nodes…", "", true, OpenNodeManager);
+        Item("puzzle-piece", "Community nodes…", "", true, OpenNodeManager);
         Sep();
         Item("📐", "Tidy layout", "Ctrl+L", hasNodes, () => { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); });
         Item("🔍", "Fit to view", "", hasNodes, () => _editor.FocusContent(_l.Canvas));
@@ -1213,7 +1213,7 @@ public sealed partial class MainScreen : IScreen
         NodeCategory.Code => "💻",
         NodeCategory.Action => "💬",
         NodeCategory.Ircv3 => "📡",
-        _ => "🧩",
+        _ => "puzzle-piece",
     };
 
     private void DrawPalette(Renderer r)
@@ -1392,7 +1392,7 @@ public sealed partial class MainScreen : IScreen
         else
         {
             var iconF = r.Fonts.Get(FontKind.Display, 17);
-            r.Text(iconF, def.Icon, new Vector2(chip.X + 13, chip.Center.Y - iconF.MeasureString(def.Icon).Y / 2f), col);
+            r.Text(iconF, Ircuitry.Core.Icons.Glyph(def.Icon), new Vector2(chip.X + 13, chip.Center.Y - iconF.MeasureString(Ircuitry.Core.Icons.Glyph(def.Icon)).Y / 2f), col);
         }
         r.Text(r.Fonts.Get(FontKind.SansBold, 13), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 13), def.Title, chip.W - 70), new Vector2(chip.X + 42, chip.Y + 6), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.Sans, 10), def.Subtitle, new Vector2(chip.X + 42, chip.Y + 23), Theme.TextFaint);
@@ -1422,7 +1422,7 @@ public sealed partial class MainScreen : IScreen
         float x = panel.X + 22, y = panel.Y + Hud.HeaderH + 18;
         if (d != null)
         {
-            r.Text(r.Fonts.Get(FontKind.SansBold, 15), d.Icon + "  " + d.Title, new Vector2(x, y), Theme.Text); y += 24;
+            r.Text(r.Fonts.Get(FontKind.SansBold, 15), Ircuitry.Core.Icons.Glyph(d.Icon) + "  " + d.Title, new Vector2(x, y), Theme.Text); y += 24;
             r.Text(r.Fonts.Get(FontKind.Mono, 11), d.TypeId, new Vector2(x, y), Theme.TextDim); y += 24;
         }
         r.Text(r.Fonts.Get(FontKind.Sans, 12), "Removes it from your Node Library. You can re-add it any time.", new Vector2(x, y), Theme.TextDim);
@@ -1636,7 +1636,7 @@ public sealed partial class MainScreen : IScreen
 
                 var iconImg = def.IconImage != null ? r.IconTexture(def.TypeId, def.IconImage) : null;
                 if (iconImg != null) r.Image(iconImg, new RectF(row.X + 40, row.Center.Y - 11, 22, 22));
-                else r.Text(icf, def.Icon, new Vector2(row.X + 40, row.Center.Y - icf.MeasureString(def.Icon).Y / 2f), col);
+                else r.Text(icf, Ircuitry.Core.Icons.Glyph(def.Icon), new Vector2(row.X + 40, row.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(def.Icon)).Y / 2f), col);
 
                 bool inLib = _nodeMgrInLibrary.ContainsKey(def.TypeId);
                 bool hasUpdate = _nodeMgrUpdates.TryGetValue(def.TypeId, out var note);
@@ -2676,7 +2676,7 @@ public sealed partial class MainScreen : IScreen
         var tile = new RectF(panel.X + 14, panel.Center.Y - 22, 44, 44);
         r.RoundFill(tile, Theme.WithAlpha(Theme.Amber, 0.22f), 11);
         var icf = r.Fonts.Get(FontKind.Display, 24);
-        r.Text(icf, _achCur.Icon, new Vector2(tile.Center.X - icf.MeasureString(_achCur.Icon).X / 2f, tile.Center.Y - icf.MeasureString(_achCur.Icon).Y / 2f), Theme.Text);
+        r.Text(icf, Ircuitry.Core.Icons.Glyph(_achCur.Icon), new Vector2(tile.Center.X - icf.MeasureString(Ircuitry.Core.Icons.Glyph(_achCur.Icon)).X / 2f, tile.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(_achCur.Icon)).Y / 2f), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.SansBold, 11), "🏆 ACHIEVEMENT UNLOCKED", new Vector2(tile.Right + 12, panel.Y + 14), Theme.AmberDim);
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 16), _achCur.Title, pw - 80), new Vector2(tile.Right + 12, panel.Y + 32), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.Sans, 11), _achCur.Category, new Vector2(tile.Right + 12, panel.Y + 54), Theme.TextDim);
@@ -2782,7 +2782,7 @@ public sealed partial class MainScreen : IScreen
         A("🔔", "Notifications", "", () => { _notifOpen = true; _notifJustOpened = true; _notifUnread = 0; });
         A("🏆", "Achievements", "", () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
         A("🔑", "Secret keys", "", () => { _secretsOpen = true; _secretsJustOpened = true; });
-        A("🧩", "Community nodes", "", OpenNodeManager);
+        A("puzzle-piece", "Community nodes", "", OpenNodeManager);
         A("📡", "Saved servers", "", () => { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; });
         A("🗺", "Network map", "", () => { _networkOpen = true; _networkJustOpened = true; });
         A("📸", "Save a snapshot", "", () => { _app.SaveSnapshot(); Notify("📸 Snapshot saved"); });
@@ -2796,7 +2796,7 @@ public sealed partial class MainScreen : IScreen
         foreach (var def in NodeCatalog.All)
         {
             var d = def;
-            A(d.Icon, "Add: " + d.Title, d.Category.ToString().ToLowerInvariant(), () =>
+            A(Ircuitry.Core.Icons.Glyph(d.Icon), "Add: " + d.Title, d.Category.ToString().ToLowerInvariant(), () =>
             {
                 var world = _editor.Cam.ScreenToWorld(new Vector2(_l.Canvas.Center.X, _l.Canvas.Center.Y));
                 var n = SpawnNode(d, world);
@@ -2890,7 +2890,7 @@ public sealed partial class MainScreen : IScreen
                 bool hover = row.Contains(In.Mouse) && listRect.Contains(In.Mouse);
                 if (hover) _cmdkSel = i;
                 if (i == _cmdkSel) { r.RoundFill(row, Theme.PanelHi, 7); r.Fill(new RectF(row.X, row.Y + 5, 3, row.H - 10), Theme.Violet); }
-                r.Text(icf, c.Icon, new Vector2(row.X + 8, row.Y + 6), Theme.Text);
+                r.Text(icf, Ircuitry.Core.Icons.Glyph(c.Icon), new Vector2(row.X + 8, row.Y + 6), Theme.Text);
                 r.Text(tf, r.Ellipsize(tf, c.Label, row.W - 130), new Vector2(row.X + 34, row.Y + 8), Theme.Text);
                 if (c.Hint.Length > 0) r.TextRight(hf, c.Hint, row.Right - 10, row.Y + 10, Theme.TextFaint);
                 if (hover && In.LeftPressed) { _cmdkOpen = false; c.Do(); break; }
@@ -2939,7 +2939,7 @@ public sealed partial class MainScreen : IScreen
                 var tile = new RectF(row.X + 8, row.Center.Y - 17, 34, 34);
                 r.RoundFill(tile, d.Unlocked ? Theme.WithAlpha(Theme.Amber, 0.25f) : Theme.PanelLo, 9);
                 var icf = r.Fonts.Get(FontKind.Display, 18);
-                r.Text(icf, d.Icon, new Vector2(tile.Center.X - icf.MeasureString(d.Icon).X / 2f, tile.Center.Y - icf.MeasureString(d.Icon).Y / 2f), d.Unlocked ? Theme.Text : Theme.TextFaint);
+                r.Text(icf, Ircuitry.Core.Icons.Glyph(d.Icon), new Vector2(tile.Center.X - icf.MeasureString(Ircuitry.Core.Icons.Glyph(d.Icon)).X / 2f, tile.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(d.Icon)).Y / 2f), d.Unlocked ? Theme.Text : Theme.TextFaint);
                 r.Text(bf, d.Title, new Vector2(row.X + 50, row.Y + 6), d.Unlocked ? Theme.Text : Theme.TextDim);
                 r.Text(r.Fonts.Get(FontKind.Sans, 10), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 10), d.Desc, row.W - 150), new Vector2(row.X + 50, row.Y + 26), Theme.TextFaint);
                 // progress / status on the right
@@ -3106,7 +3106,7 @@ public sealed partial class MainScreen : IScreen
                 bool hover = row.Contains(In.Mouse) && rect.Contains(In.Mouse);
                 r.RoundFill(row, seld ? Theme.Mix(Theme.Panel, Theme.Amber, 0.28f) : hover ? Theme.PanelHi : Theme.Panel, 6);
                 if (seld) r.RoundOutline(row, Theme.WithAlpha(Theme.Amber, 0.8f), 6);
-                r.Text(icf, run.Icon, new Vector2(row.X + 8, row.Y + 6), Theme.Amber);
+                r.Text(icf, Ircuitry.Core.Icons.Glyph(run.Icon), new Vector2(row.X + 8, row.Y + 6), Theme.Amber);
                 r.Text(tf, r.Ellipsize(tf, run.Trigger, row.W - 90), new Vector2(row.X + 34, row.Y + 6), Theme.Text);
                 string sum = run.Summary.Length == 0 ? "-" : run.Summary.Replace("\n", " ");
                 r.Text(sf, r.Ellipsize(sf, sum, row.W - 44), new Vector2(row.X + 34, row.Y + 26), Theme.TextDim);
@@ -3136,7 +3136,7 @@ public sealed partial class MainScreen : IScreen
         var lf = r.Fonts.Get(FontKind.Mono, 12);
         var nf = r.Fonts.Get(FontKind.SansBold, 13);
 
-        r.Text(r.Fonts.Get(FontKind.Display, 20), run.Icon, new Vector2(x, y), Theme.Amber);
+        r.Text(r.Fonts.Get(FontKind.Display, 20), Ircuitry.Core.Icons.Glyph(run.Icon), new Vector2(x, y), Theme.Amber);
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), run.Trigger, new Vector2(x + 30, y + 2), Theme.Text);
         if (run.Summary.Length > 0)
             r.Text(lf, r.Ellipsize(lf, run.Summary.Replace("\n", " "), w - 30), new Vector2(x + 30, y + 24), Theme.TextDim);
@@ -3152,7 +3152,7 @@ public sealed partial class MainScreen : IScreen
             {
                 r.RoundFill(card, Theme.PanelLo, 7);
                 float cy = y + 6;
-                r.Text(r.Fonts.Get(FontKind.Display, 14), nt.Icon, new Vector2(x + 8, cy), Theme.Cyan);
+                r.Text(r.Fonts.Get(FontKind.Display, 14), Ircuitry.Core.Icons.Glyph(nt.Icon), new Vector2(x + 8, cy), Theme.Cyan);
                 r.Text(nf, nt.Title, new Vector2(x + 30, cy + 1), Theme.Text);
                 cy += 22;
                 if (nt.Pulsed.Count > 0) { r.Text(lf, "▸ " + string.Join(", ", nt.Pulsed), new Vector2(x + 12, cy), Theme.WithAlpha(Theme.Ok, 0.95f)); cy += 18; }
@@ -3215,7 +3215,7 @@ public sealed partial class MainScreen : IScreen
                 bool hover = row.Contains(In.Mouse) && listRect.Contains(In.Mouse);
                 var col = Theme.Category(def.Category);
                 if (hover) r.RoundFill(row, Theme.PanelHi, 6);
-                r.Text(icf, def.Icon, new Vector2(row.X + 6, row.Y + 4), col);
+                r.Text(icf, Ircuitry.Core.Icons.Glyph(def.Icon), new Vector2(row.X + 6, row.Y + 4), col);
                 r.Text(tf, r.Ellipsize(tf, def.Title, row.W - 84), new Vector2(row.X + 30, row.Y + 6), Theme.Text);
                 r.TextRight(cf, def.Category.ToString().ToLowerInvariant(), row.Right - 8, row.Y + 8, Theme.WithAlpha(col, 0.9f));
                 if (hover && In.LeftPressed) { SpawnNode(def, _quickWorld); _app.MarkDirty(); _quickOpen = false; }
@@ -3404,7 +3404,7 @@ public sealed partial class MainScreen : IScreen
             r.Begin();
             r.RoundFill(row, hover ? Theme.Mix(Theme.Panel, Theme.Cyan, 0.18f) : Theme.PanelLo, 9);
             r.RoundOutline(row, hover ? Theme.WithAlpha(Theme.Cyan, 0.8f) : Theme.Edge, 9);
-            r.Text(icf, t.Icon, new Vector2(row.X + 14, row.Y + 14), Theme.Cyan);
+            r.Text(icf, Ircuitry.Core.Icons.Glyph(t.Icon), new Vector2(row.X + 14, row.Y + 14), Theme.Cyan);
             r.Text(tf, t.Label, new Vector2(row.X + 58, row.Y + 10), Theme.Text);
             r.Text(bf, t.Blurb, new Vector2(row.X + 58, row.Y + 32), Theme.TextDim);
             r.End();

@@ -47,7 +47,7 @@ public sealed partial class MainScreen
             Item("📋", "Copy" + suffix, "Ctrl+C", true, () => _editor.CopySelection());
             Item("📑", "Duplicate" + suffix, "Ctrl+D", true, () => { _editor.DuplicateSelection(); _app.MarkDirty(); });
             Item("📥", "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
-            Item("🧁", "Bake into a node…", "", _editor.SelectionCanBake, () => { _saveNodeName = "My Node"; _saveNodeIcon = "🧩"; _saveNodeCat = "Logic"; _saveNodeDesc = ""; _saveNodeAsTool = false; _saveNodeOpen = true; _saveNodeJustOpened = true; _ui.Focus = "savenode.name"; });
+            Item("🧁", "Bake into a node…", "", _editor.SelectionCanBake, () => { _saveNodeName = "My Node"; _saveNodeIcon = "puzzle-piece"; _saveNodeCat = "Logic"; _saveNodeDesc = ""; _saveNodeAsTool = false; _saveNodeOpen = true; _saveNodeJustOpened = true; _ui.Focus = "savenode.name"; });
             var only = n == 1 ? Bot.Graph.Find(_editor.Selection.First()) : null;
             if (only != null && NodeCatalog.IsCustom(only.TypeId))
                 Item("✏️", "Edit node…", "", true, () => OpenNodeBuilderForEdit(only.TypeId));
@@ -119,7 +119,7 @@ public sealed partial class MainScreen
 
             var textCol = it.Enabled ? Theme.Text : Theme.TextFaint;
             var iconCol = it.Enabled ? Theme.Mix(Theme.Text, Theme.Cyan, 0.35f) : Theme.TextFaint;
-            r.Text(icf, it.Icon, new Vector2(row.X + 11, row.Center.Y - icf.MeasureString(it.Icon).Y / 2f), iconCol);
+            r.Text(icf, Ircuitry.Core.Icons.Glyph(it.Icon), new Vector2(row.X + 11, row.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(it.Icon)).Y / 2f), iconCol);
             r.Text(lf, it.Label, new Vector2(row.X + 38, row.Center.Y - lf.MeasureString(it.Label).Y / 2f - 1), textCol);
             if (!string.IsNullOrEmpty(it.Shortcut))
                 r.TextRight(scf, it.Shortcut, row.Right - 12, row.Center.Y - scf.MeasureString("M").Y / 2f, Theme.TextFaint);

@@ -280,7 +280,7 @@ public static class NodeCatalog
             // ============================ EVENTS ============================
             new()
             {
-                TypeId = "event.connect", Icon = "🔌", Title = "On Connect", Subtitle = "trigger",
+                TypeId = "event.connect", Icon = "plug", Title = "On Connect", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "connect",
                 Description = "Fires once when the bot finishes registering with the server.",
                 Outputs = new[] { Ex("then") },
@@ -288,7 +288,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "event.signal", Icon = "📨", Title = "On Signal", Subtitle = "trigger",
+                TypeId = "event.signal", Icon = "envelope", Title = "On Signal", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "signal",
                 Description = "Fires when another part of your bot emits a matching signal (via Emit Signal). Lets one workflow trigger another, or run a shared flow from several places. Carries optional {data}.",
                 Outputs = new[] { Ex("then"), Tx("data") },
@@ -298,7 +298,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.signal", Icon = "📣", Title = "Emit Signal", Subtitle = "flow",
+                TypeId = "action.signal", Icon = "megaphone", Title = "Emit Signal", Subtitle = "flow",
                 Category = NodeCategory.Logic,
                 Description = "Triggers every On Signal node with the matching name, running their flows now. A way for one workflow to call another. Pass optional data along.",
                 Inputs = new[] { Ex(), Tx("data") },
@@ -309,7 +309,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "event.message", Icon = "💬", Title = "On Message", Subtitle = "trigger",
+                TypeId = "event.message", Icon = "chat-circle", Title = "On Message", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "message",
                 Description = "Fires for every channel/PM message. Optionally limit to one channel.",
                 Outputs = new[] { Ex("then"), Tx("message"), Us("nick"), Ch("channel") },
@@ -327,7 +327,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "event.command", Icon = "⚡", Title = "On Command", Subtitle = "trigger",
+                TypeId = "event.command", Icon = "lightning", Title = "On Command", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "message",
                 Description = "Fires when a message begins with a prefix + command word, e.g. !ping.",
                 Outputs = new[] { Ex("then"), Tx("args"), Us("nick"), Ch("channel") },
@@ -359,7 +359,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "event.join", Icon = "👋", Title = "On Join", Subtitle = "trigger",
+                TypeId = "event.join", Icon = "hand-waving", Title = "On Join", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "join",
                 Description = "Fires when a user joins a channel the bot is in.",
                 Outputs = new[] { Ex("then"), Us("nick"), Ch("channel") },
@@ -372,7 +372,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "event.numeric", Icon = "🔢", Title = "On Numeric", Subtitle = "trigger",
+                TypeId = "event.numeric", Icon = "hash", Title = "On Numeric", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "numeric",
                 Description = "Fires when the server sends a numeric reply you pick from the list (e.g. RPL_WELCOME, ERR_NICKNAMEINUSE, RPL_INVITING). Exposes {numeric} {numname} {message} {channel} and {arg1}, {arg2}, …",
                 Outputs = new[] { Ex("then"), Tx("numeric"), Tx("text"), Ch("channel") },
@@ -399,7 +399,7 @@ public static class NodeCatalog
             // ============================ FILTERS ===========================
             new()
             {
-                TypeId = "filter.contains", Icon = "🔍", Title = "Text Contains", Subtitle = "filter",
+                TypeId = "filter.contains", Icon = "magnifying-glass", Title = "Text Contains", Subtitle = "filter",
                 Category = NodeCategory.Filter,
                 Description = "Branches on whether the text contains a substring.",
                 Inputs = new[] { Ex(), Tx("text") },
@@ -421,7 +421,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "filter.fromUser", Icon = "👤", Title = "From User", Subtitle = "filter",
+                TypeId = "filter.fromUser", Icon = "user", Title = "From User", Subtitle = "filter",
                 Category = NodeCategory.Filter,
                 Description = "Branches on whether the event came from a specific nick.",
                 Inputs = new[] { Ex(), Us("nick") },
@@ -437,7 +437,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "filter.fromAccount", Icon = "🪪", Title = "From Account", Subtitle = "ircv3",
+                TypeId = "filter.fromAccount", Icon = "identification-card", Title = "From Account", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Branches on the sender's authenticated account (IRCv3 account-tag) - a safe allow-list, since accounts can't be faked the way nicks can. Blank = anyone logged in; one account, or a comma-separated allow-list.",
                 Inputs = new[] { Ex() },
@@ -456,7 +456,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "filter.isBot", Icon = "🤖", Title = "Is Bot", Subtitle = "ircv3",
+                TypeId = "filter.isBot", Icon = "robot", Title = "Is Bot", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Branches on whether the sender is flagged as a bot (IRCv3 bot mode/tag).",
                 Inputs = new[] { Ex() },
@@ -465,7 +465,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "logic.chance", Icon = "🍀", Title = "Random Chance", Subtitle = "filter",
+                TypeId = "logic.chance", Icon = "clover", Title = "Random Chance", Subtitle = "filter",
                 Category = NodeCategory.Filter,
                 Description = "Branches randomly: 'hit' with the given percent chance.",
                 Inputs = new[] { Ex() },
@@ -482,7 +482,7 @@ public static class NodeCatalog
             // ============================ DATA ==============================
             new()
             {
-                TypeId = "data.random", Icon = "🎲", Title = "Random Reply", Subtitle = "data",
+                TypeId = "data.random", Icon = "dice-five", Title = "Random Reply", Subtitle = "data",
                 Category = NodeCategory.Data,
                 Description = "Outputs a random line from the list (one option per line).",
                 Outputs = new[] { Tx("text") },
@@ -495,7 +495,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.format", Icon = "🔤", Title = "Format Text", Subtitle = "data",
+                TypeId = "data.format", Icon = "translate", Title = "Format Text", Subtitle = "data",
                 Category = NodeCategory.Data,
                 Description = "Builds a string from a template. {a}/{b} use the inputs; {nick} etc. use the event.",
                 Inputs = new[] { Tx("a"), Tx("b") },
@@ -529,7 +529,7 @@ public static class NodeCatalog
             // ============================ ACTIONS ===========================
             new()
             {
-                TypeId = "action.reply", Icon = "💗", Title = "Send Reply", Subtitle = "action",
+                TypeId = "action.reply", Icon = "heart", Title = "Send Reply", Subtitle = "action",
                 Category = NodeCategory.Action,
                 Description = "Replies in the channel/PM the triggering message came from.",
                 Inputs = new[] { Ex(), Tx("message") },
@@ -545,7 +545,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.say", Icon = "📣", Title = "Send to Channel", Subtitle = "action",
+                TypeId = "action.say", Icon = "megaphone", Title = "Send to Channel", Subtitle = "action",
                 Category = NodeCategory.Action,
                 Description = "Sends a PRIVMSG to a specific channel or nick.",
                 Inputs = new[] { Ex(), Ch("channel"), Tx("message") },
@@ -566,7 +566,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.join", Icon = "🚪", Title = "Join Channel", Subtitle = "action",
+                TypeId = "action.join", Icon = "door", Title = "Join Channel", Subtitle = "action",
                 Category = NodeCategory.Action,
                 Description = "Makes the bot join a channel.",
                 Inputs = new[] { Ex(), Ch("channel") },
@@ -582,7 +582,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.part", Icon = "👋", Title = "Part Channel", Subtitle = "action",
+                TypeId = "action.part", Icon = "hand-waving", Title = "Part Channel", Subtitle = "action",
                 Category = NodeCategory.Action,
                 Description = "Makes the bot leave a channel. Blank channel = the triggering channel.",
                 Inputs = new[] { Ex(), Ch("channel") },
@@ -603,7 +603,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.raw", Icon = "📡", Title = "Raw IRC", Subtitle = "ircv3",
+                TypeId = "irc.raw", Icon = "broadcast", Title = "Raw IRC", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Sends a raw IRC line, with up to 4 IRCv3 client-tags composed for you. Tag keys may omit the leading '+'. The line is the rest of the protocol, e.g. PRIVMSG #lobby :lmao",
                 Inputs = new[] { Ex(), Tx("line") },
@@ -635,7 +635,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.typing.start", Icon = "✍️", Title = "Start Typing", Subtitle = "ircv3",
+                TypeId = "irc.typing.start", Icon = "pencil-line", Title = "Start Typing", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Shows an IRCv3 typing indicator (+typing=active) on the target, refreshed every few seconds until Stop Typing or the workflow ends. Great before a slow AI reply. Needs a server with message-tags.",
                 Inputs = new[] { Ex(), Tx("target") },
@@ -654,7 +654,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.typing.stop", Icon = "🛑", Title = "Stop Typing", Subtitle = "ircv3",
+                TypeId = "irc.typing.stop", Icon = "octagon", Title = "Stop Typing", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Stops the IRCv3 typing indicator (+typing=done) on the target.",
                 Inputs = new[] { Ex(), Tx("target") },
@@ -673,7 +673,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.react", Icon = "💜", Title = "Add Reaction", Subtitle = "ircv3",
+                TypeId = "action.react", Icon = "heart", Title = "Add Reaction", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Reacts to the triggering message with an emoji (IRCv3 +draft/react). Needs a server that supports message tags.",
                 Inputs = new[] { Ex(), Tx("emoji") },
@@ -684,7 +684,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.replythread", Icon = "🧵", Title = "Reply (threaded)", Subtitle = "ircv3",
+                TypeId = "action.replythread", Icon = "needle", Title = "Reply (threaded)", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Replies threaded to the triggering message (IRCv3 +draft/reply), so clients show it as a reply.",
                 Inputs = new[] { Ex(), Tx("message") },
@@ -695,7 +695,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.setname", Icon = "✏️", Title = "Set Name", Subtitle = "ircv3",
+                TypeId = "action.setname", Icon = "pencil", Title = "Set Name", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Changes the bot's realname live (IRCv3 setname). No reconnect needed on servers that support it.",
                 Inputs = new[] { Ex(), Tx("name") },
@@ -706,7 +706,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.away", Icon = "🌙", Title = "Set Away", Subtitle = "ircv3",
+                TypeId = "action.away", Icon = "moon", Title = "Set Away", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Sets or clears the bot's away status (away-notify / pre-away). Blank message = back.",
                 Inputs = new[] { Ex(), Tx("message") },
@@ -717,7 +717,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.tagmsg", Icon = "🏷️", Title = "Send TAGMSG", Subtitle = "ircv3",
+                TypeId = "action.tagmsg", Icon = "tag", Title = "Send TAGMSG", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Sends a tags-only message (IRCv3 TAGMSG) - client tags with no text, e.g. a reaction or typing hint.",
                 Inputs = new[] { Ex(), Ch("target") },
@@ -739,7 +739,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.redact", Icon = "🩹", Title = "Redact Message", Subtitle = "draft",
+                TypeId = "action.redact", Icon = "bandaids", Title = "Redact Message", Subtitle = "draft",
                 Category = NodeCategory.Ircv3,
                 Description = "Deletes/hides a message by id (draft/message-redaction REDACT). Needs the target message's id (msgid).",
                 Inputs = new[] { Ex(), Ch("target"), Tx("msgid") },
@@ -757,7 +757,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.monitor", Icon = "👀", Title = "Monitor User", Subtitle = "ircv3",
+                TypeId = "action.monitor", Icon = "eyes", Title = "Monitor User", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Watches nicks for online/offline (IRCv3 MONITOR). Add or remove a comma-separated list.",
                 Inputs = new[] { Ex(), Us("nicks") },
@@ -773,7 +773,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.chathistory", Icon = "📜", Title = "Request History", Subtitle = "ircv3",
+                TypeId = "action.chathistory", Icon = "scroll", Title = "Request History", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Fetches a target's recent server history (IRCv3 CHATHISTORY), INCLUDING messages from before the bot joined. The history batch never triggers your message/join nodes - it just hands the messages back as JSON on 'messages'. Wire that into For Each, or into Ask AI as a tool. Each item has nick, channel, text and id.",
                 Inputs = new[] { Ex(), Ch("target") },
@@ -803,7 +803,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.me", Icon = "🪪", Title = "My Info", Subtitle = "ircv3",
+                TypeId = "irc.me", Icon = "identification-card", Title = "My Info", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Reads the bot's own live, tracked state: its nick, the network it's connected to, the channels it's in (comma-separated), or its enabled IRCv3 caps. Wire 'value' anywhere.",
                 Outputs = new[] { Tx("value") },
@@ -813,7 +813,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.channel", Icon = "📋", Title = "Channel Info", Subtitle = "ircv3",
+                TypeId = "irc.channel", Icon = "clipboard", Title = "Channel Info", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Reads live, tracked state about a channel the bot is in: its topic, member list (comma-separated, with @/+ prefixes), member count, or whether the bot is in it. Wire 'value' anywhere.",
                 Inputs = new[] { Ch("channel") },
@@ -833,7 +833,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.rename", Icon = "🔤", Title = "Rename Channel", Subtitle = "draft",
+                TypeId = "action.rename", Icon = "translate", Title = "Rename Channel", Subtitle = "draft",
                 Category = NodeCategory.Ircv3,
                 Description = "Renames a channel in place (draft/channel-rename RENAME), keeping members. Needs the right privileges.",
                 Inputs = new[] { Ex(), Ch("channel") },
@@ -850,7 +850,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.metadata", Icon = "🗂️", Title = "Set Metadata", Subtitle = "draft",
+                TypeId = "action.metadata", Icon = "folders", Title = "Set Metadata", Subtitle = "draft",
                 Category = NodeCategory.Ircv3,
                 Description = "Sets a metadata key on a target (draft/metadata METADATA SET), e.g. an avatar or status URL.",
                 Inputs = new[] { Ex(), Tx("value") },
@@ -868,7 +868,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.multiline", Icon = "📃", Title = "Send Multiline", Subtitle = "draft",
+                TypeId = "action.multiline", Icon = "file-text", Title = "Send Multiline", Subtitle = "draft",
                 Category = NodeCategory.Ircv3,
                 Description = "Sends several lines as one logical message (draft/multiline batch). One line per row in the text.",
                 Inputs = new[] { Ex(), Ch("target"), Tx("text") },
@@ -890,7 +890,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.log", Icon = "📋", Title = "Console Log", Subtitle = "action",
+                TypeId = "action.log", Icon = "clipboard", Title = "Console Log", Subtitle = "action",
                 Category = NodeCategory.Action,
                 Description = "Writes a line to the ircuitry event console.",
                 Inputs = new[] { Ex(), Tx("text") },
@@ -908,7 +908,7 @@ public static class NodeCatalog
             // ============================ AI + WEB =========================
             new()
             {
-                TypeId = "ai.reply", Icon = "🤖", Title = "Ask AI", Subtitle = "ai",
+                TypeId = "ai.reply", Icon = "robot", Title = "Ask AI", Subtitle = "ai",
                 Category = NodeCategory.Action,
                 Description = "Generates a reply via any OpenAI-compatible API (OpenAI, Ollama, LM Studio, OpenRouter, Groq, vLLM…). Wire AI Tool nodes into 'tools' to let the model fetch data / act. Wire 'reply' into a Send Reply.",
                 Inputs = new[] { Ex(), Tx("prompt"), To("tools", multi: true) },
@@ -1034,7 +1034,7 @@ public static class NodeCatalog
             // these rather than from a built-in - drop SuperAI into nodes/ and right-click to edit/rewire it.
             new()
             {
-                TypeId = "ircv3.recent", Icon = "🕗", Title = "Recent Messages", Subtitle = "ircv3",
+                TypeId = "ircv3.recent", Icon = "clock", Title = "Recent Messages", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Lists the messages the bot has recently seen, as JSON [{nick,channel,text,id}]. As an AI tool it lets the model find a message to act on.",
                 Inputs = new[] { Ex(), Tx("count") },
@@ -1055,7 +1055,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.reactid", Icon = "💜", Title = "React to Message", Subtitle = "ircv3",
+                TypeId = "action.reactid", Icon = "heart", Title = "React to Message", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Adds an emoji reaction to a specific message by its id (from Recent Messages / Request History). As an AI tool the model passes the id + emoji it chose.",
                 Inputs = new[] { Ex(), Tx("msgid"), Tx("emoji"), Ch("target") },
@@ -1079,7 +1079,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "ai.tool", Icon = "🧰", Title = "AI Tool", Subtitle = "ai",
+                TypeId = "ai.tool", Icon = "toolbox", Title = "AI Tool", Subtitle = "ai",
                 Category = NodeCategory.Logic,
                 Description = "Defines a tool the AI may call, with ANY number of arguments (Add argument). Wire 'tool' into Ask AI; wire 'call' to a sub-flow that ends in a Tool Reply. Read an argument anywhere with {arg.NAME} - the first three are also on the arg pins.",
                 Outputs = new[] { To("tool"), Ex("call"), Tx("arg 1"), Tx("arg 2"), Tx("arg 3") },
@@ -1103,7 +1103,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "tool.reply", Icon = "🎁", Title = "Tool Reply", Subtitle = "ai",
+                TypeId = "tool.reply", Icon = "gift", Title = "Tool Reply", Subtitle = "ai",
                 Category = NodeCategory.Logic,
                 Description = "Ends an AI Tool's sub-flow: whatever you feed it is the result the model gets back.",
                 Inputs = new[] { Ex(), Tx("result") },
@@ -1114,7 +1114,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "ai.editor", Icon = "📝", Title = "Workflow Editor", Subtitle = "ai",
+                TypeId = "ai.editor", Icon = "note-pencil", Title = "Workflow Editor", Subtitle = "ai",
                 Category = NodeCategory.Ai,
                 Description = "Gives an Ask AI node the inward MCP tools to read and EDIT bot workflows in this " +
                               "workspace - its own or another bot's: add/remove nodes, wire pins, set params, replace " +
@@ -1131,7 +1131,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "ai.programmer", Icon = "🛠️", Title = "Programmer AI", Subtitle = "ai",
+                TypeId = "ai.programmer", Icon = "wrench", Title = "Programmer AI", Subtitle = "ai",
                 Category = NodeCategory.Ai,
                 Description = "An AI software engineer that reads and edits a whole codebase (read/write/edit/search/move files, run build & test commands) and delivers the finished result. It is sandboxed to the codebase folder you give it and CANNOT touch anything outside. Set a 'task' and wire 'reply' into Send Reply. Wire extra AI Tool nodes into 'tools' to give it more abilities.",
                 Inputs = new[] { Ex(), Tx("task"), To("tools", multi: true) },
@@ -1268,7 +1268,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "human.alert", Icon = "🔔", Title = "Alert Human", Subtitle = "notify",
+                TypeId = "human.alert", Icon = "bell", Title = "Alert Human", Subtitle = "notify",
                 Category = NodeCategory.Action,
                 Description = "Pops a native desktop notification on the machine running ircuitry, so a human notices something even when they aren't watching chat. notify-send on Linux, osascript on macOS, a toast on Windows (best effort).",
                 Inputs = new[] { Ex(), Tx("message") },
@@ -1291,7 +1291,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "human.loop", Icon = "🙋", Title = "Human in the Loop", Subtitle = "approval",
+                TypeId = "human.loop", Icon = "hand-palm", Title = "Human in the Loop", Subtitle = "approval",
                 Category = NodeCategory.Action,
                 Description = "Pauses the flow and asks a human to approve or deny before it continues (like n8n's Human in the Loop). Posts the question to a channel/PM (and optionally a desktop alert), then resumes on 'approved' or 'denied' when they reply - or 'denied' if it times out. Their reply text comes out on 'response'.",
                 Inputs = new[] { Ex(), Tx("question") },
@@ -1330,7 +1330,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "net.http", Icon = "🌐", Title = "HTTP Request", Subtitle = "web",
+                TypeId = "net.http", Icon = "globe", Title = "HTTP Request", Subtitle = "web",
                 Category = NodeCategory.Action,
                 Description = "Calls a web API. Sends a text/JSON body, or uploads a file as multipart/form-data (the standard way to push an image or any file to a filehost). Outputs the response body and status. Headers are 'Key: value' lines.",
                 Inputs = new[] { Ex(), Tx("url"), Tx("file") },
@@ -1383,7 +1383,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "file.read", Icon = "📂", Title = "Read File", Subtitle = "file",
+                TypeId = "file.read", Icon = "folder-open", Title = "Read File", Subtitle = "file",
                 Category = NodeCategory.Action,
                 Description = "Reads a text file and outputs its contents. Relative paths live under ~/ircuitry/files. Branches to 'missing' if the file isn't there.",
                 Inputs = new[] { Ex(), Tx("path") },
@@ -1405,7 +1405,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "file.write", Icon = "💾", Title = "Write File", Subtitle = "file",
+                TypeId = "file.write", Icon = "floppy-disk", Title = "Write File", Subtitle = "file",
                 Category = NodeCategory.Action,
                 Description = "Writes (or appends) text to a file. Relative paths live under ~/ircuitry/files, which is created if missing.",
                 Inputs = new[] { Ex(), Tx("text"), Tx("path") },
@@ -1435,7 +1435,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "file.ical", Icon = "📅", Title = "Calendar (iCal)", Subtitle = "calendar",
+                TypeId = "file.ical", Icon = "calendar", Title = "Calendar (iCal)", Subtitle = "calendar",
                 Category = NodeCategory.Action,
                 Description = "Reads an iCalendar (.ics) feed - a file path, an http(s) URL, or pasted text - and pulls out events. Modes: next upcoming, today's, a count, or a list. Outputs summary/when/location/description; branches to 'none' when empty.",
                 Inputs = new[] { Ex(), Tx("source") },
@@ -1502,7 +1502,7 @@ public static class NodeCatalog
             // model call it. The 'root' param is the sandbox: CodeTools.Confine() keeps every path inside it.
             new()
             {
-                TypeId = "code.read", Icon = "📖", Title = "Read File", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.read", Icon = "book-open", Title = "Read File", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Reads a text file from the codebase and returns its contents (optionally a line range). Paths are relative to the codebase folder. Branches to 'missing' if the file isn't there.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("then"), Ex("missing"), Tx("content"), To("tool") },
@@ -1529,7 +1529,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.write", Icon = "📝", Title = "Write File", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.write", Icon = "note-pencil", Title = "Write File", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Creates or overwrites a file with the given content (parent folders are made). Use for new files or full rewrites; prefer Edit File for small changes. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path"), Tx("content") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1545,7 +1545,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.edit", Icon = "✍️", Title = "Edit File", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.edit", Icon = "pencil-line", Title = "Edit File", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Replaces an exact piece of text in a file with new text - the precise way to change code. By default 'find' must be unique (one edit); turn on Replace all to change every occurrence. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path"), Tx("find"), Tx("replace") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1568,7 +1568,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.insert", Icon = "➕", Title = "Insert Lines", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.insert", Icon = "plus", Title = "Insert Lines", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Inserts text into a file after a given line number (0 = at the very top). Good for adding imports, functions or config blocks. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path"), Nm("after"), Tx("content") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1591,7 +1591,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.append", Icon = "📎", Title = "Append to File", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.append", Icon = "paperclip", Title = "Append to File", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Appends text to the end of a file (creating it if needed). Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path"), Tx("content") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1607,7 +1607,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.delete", Icon = "🗑️", Title = "Delete Path", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.delete", Icon = "trash", Title = "Delete Path", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Deletes a file or a folder (recursively) inside the codebase. Refuses to delete the codebase root itself. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1622,7 +1622,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.move", Icon = "🚚", Title = "Move / Rename", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.move", Icon = "truck", Title = "Move / Rename", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Moves or renames a file or folder within the codebase. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("from"), Tx("to") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1637,7 +1637,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.copy", Icon = "📑", Title = "Copy Path", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.copy", Icon = "bookmarks", Title = "Copy Path", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Copies a file or folder (recursively) to a new path within the codebase. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("from"), Tx("to") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1652,7 +1652,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.mkdir", Icon = "📁", Title = "Make Directory", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.mkdir", Icon = "folder", Title = "Make Directory", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Creates a directory (and any missing parents) inside the codebase. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1667,7 +1667,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.list", Icon = "📃", Title = "List Directory", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.list", Icon = "file-text", Title = "List Directory", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Lists the files and subfolders directly inside a directory (folders end with /). Paths are relative to the codebase folder; blank lists the root.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1681,7 +1681,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.tree", Icon = "🌳", Title = "Project Tree", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.tree", Icon = "tree", Title = "Project Tree", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Shows a compact directory tree (skipping .git, node_modules, build output, etc.) so an AI can orient itself in the codebase. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1696,7 +1696,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.glob", Icon = "🔍", Title = "Find Files", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.glob", Icon = "magnifying-glass", Title = "Find Files", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Finds files by glob pattern (e.g. **/*.cs, src/*.py, **/test_*.py), newest first. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("pattern") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1711,7 +1711,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.grep", Icon = "🔎", Title = "Search Code", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.grep", Icon = "magnifying-glass", Title = "Search Code", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Searches the codebase for a regular expression and returns matches as path:line: text. Optionally restrict to files matching a glob. The fast way to find where something is defined or used.",
                 Inputs = new[] { Ex(), Tx("pattern"), Tx("glob") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1727,7 +1727,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.replace", Icon = "🔁", Title = "Replace Across Files", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.replace", Icon = "repeat", Title = "Replace Across Files", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Replaces an exact string with another across every matching file (optionally filtered by a glob). Returns the number of files changed. Powerful - keep the find text specific.",
                 Inputs = new[] { Ex(), Tx("find"), Tx("replace"), Tx("glob") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1747,7 +1747,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.stat", Icon = "📊", Title = "File Info", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.stat", Icon = "chart-bar", Title = "File Info", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Reports whether a path is a file or folder, plus size, line count and last-modified time. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1762,7 +1762,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.exists", Icon = "❔", Title = "Path Exists", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.exists", Icon = "question", Title = "Path Exists", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Checks whether a file or folder exists in the codebase. Branches yes/no and returns true/false. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("yes"), Ex("no"), Tx("result"), To("tool") },
@@ -1781,7 +1781,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.diff", Icon = "🔀", Title = "Diff Files", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.diff", Icon = "shuffle", Title = "Diff Files", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Shows the line differences between two files in the codebase (- removed, + added). Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("a"), Tx("b") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1796,7 +1796,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.shell", Icon = "⌨️", Title = "Run Command", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.shell", Icon = "keyboard", Title = "Run Command", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Runs a shell command with its working directory set to the codebase folder (build, test, lint, git, etc.) and returns the combined output. The working directory is confined to the codebase.",
                 Inputs = new[] { Ex(), Tx("command") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1812,7 +1812,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.outline", Icon = "🧭", Title = "Code Outline", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.outline", Icon = "compass", Title = "Code Outline", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Lists the top-level definitions (classes, functions, methods) in a source file as line: signature, so an AI can navigate large files. Paths are relative to the codebase folder.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1827,7 +1827,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.stats", Icon = "📈", Title = "Project Stats", Subtitle = "code", Category = NodeCategory.Code,
+                TypeId = "code.stats", Icon = "chart-line-up", Title = "Project Stats", Subtitle = "code", Category = NodeCategory.Code,
                 Description = "Summarises the codebase: file count, total lines, size, and the most common file types. A quick overview before diving in.",
                 Inputs = new[] { Ex() },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1842,7 +1842,7 @@ public static class NodeCatalog
             // ===================== MEDIA + ARCHIVE (manage media files; zip / unzip) =====================
             new()
             {
-                TypeId = "media.info", Icon = "🖼️", Title = "Image Info", Subtitle = "media", Category = NodeCategory.Storage,
+                TypeId = "media.info", Icon = "image", Title = "Image Info", Subtitle = "media", Category = NodeCategory.Storage,
                 Description = "Reads an image's width, height and format straight from its header (PNG, JPEG, GIF, BMP, WebP) - no decoding, no dependencies. Relative paths live under ~/ircuitry/files. Branches to 'not image' if unrecognised.",
                 Inputs = new[] { Ex(), Tx("path") },
                 Outputs = new[] { Ex("then"), Ex("notimage"), Tx("info"), Nm("width"), Nm("height"), Tx("format"), To("tool") },
@@ -1871,7 +1871,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "media.download", Icon = "📥", Title = "Download File", Subtitle = "media", Category = NodeCategory.Storage,
+                TypeId = "media.download", Icon = "tray", Title = "Download File", Subtitle = "media", Category = NodeCategory.Storage,
                 Description = "Downloads a URL (image, audio, any file) to a local file under ~/ircuitry/files and outputs the saved path. Branches to 'failed' on error.",
                 Inputs = new[] { Ex(), Tx("url"), Tx("filename") },
                 Outputs = new[] { Ex("then"), Ex("failed"), Tx("path"), To("tool") },
@@ -1899,7 +1899,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "media.organize", Icon = "🗂️", Title = "Organize Media", Subtitle = "media", Category = NodeCategory.Storage,
+                TypeId = "media.organize", Icon = "folders", Title = "Organize Media", Subtitle = "media", Category = NodeCategory.Storage,
                 Description = "Moves, copies, renames or deletes a media file under ~/ircuitry/files - handy for sorting downloads into folders.",
                 Inputs = new[] { Ex(), Tx("path"), Tx("to") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1931,7 +1931,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "media.transform", Icon = "✨", Title = "Transform Image", Subtitle = "media", Category = NodeCategory.Storage,
+                TypeId = "media.transform", Icon = "sparkle", Title = "Transform Image", Subtitle = "media", Category = NodeCategory.Storage,
                 Description = "Resizes, converts or rotates an image using ImageMagick or ffmpeg if installed. Outputs the new file's path; branches to 'failed' (with a clear message) when no image tool is available. Relative paths live under ~/ircuitry/files.",
                 Inputs = new[] { Ex(), Tx("path"), Tx("out") },
                 Outputs = new[] { Ex("then"), Ex("failed"), Tx("path"), To("tool") },
@@ -1959,7 +1959,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "archive.zip", Icon = "📦", Title = "Zip", Subtitle = "archive", Category = NodeCategory.Storage,
+                TypeId = "archive.zip", Icon = "package", Title = "Zip", Subtitle = "archive", Category = NodeCategory.Storage,
                 Description = "Compresses a folder (or a single file) into a .zip archive. Relative paths live under ~/ircuitry/files; absolute paths are honoured. As an AI tool, pass a source path and a zip path.",
                 Inputs = new[] { Ex(), Tx("source"), Tx("zip") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -1980,7 +1980,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "archive.unzip", Icon = "📂", Title = "Unzip", Subtitle = "archive", Category = NodeCategory.Storage,
+                TypeId = "archive.unzip", Icon = "folder-open", Title = "Unzip", Subtitle = "archive", Category = NodeCategory.Storage,
                 Description = "Extracts a .zip archive into a folder (created if needed), safely rejecting any entry that would escape the folder (zip-slip). Relative paths live under ~/ircuitry/files.",
                 Inputs = new[] { Ex(), Tx("zip"), Tx("dest") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
@@ -2002,7 +2002,7 @@ public static class NodeCatalog
             // ===================== TEXT / NUMBER / TIME TOOLKIT (building blocks for community recipes) =====================
             new()
             {
-                TypeId = "data.encode", Icon = "🧮", Title = "Encode / Decode", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.encode", Icon = "calculator", Title = "Encode / Decode", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Encodes or decodes text: Base64, Base32, hex, URL, HTML entities, binary, Morse, or ROT13.",
                 Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2015,7 +2015,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.hash", Icon = "🔐", Title = "Hash", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.hash", Icon = "lock-key", Title = "Hash", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Hashes text with MD5, SHA-1, SHA-256, SHA-512, or a CRC32 checksum.",
                 Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
                 Params = new[] { P("op", "Algorithm", ParamType.Choice, "sha256", "", new[] { "md5", "sha1", "sha256", "sha512", "crc32" }) },
@@ -2024,7 +2024,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.case", Icon = "🔤", Title = "Change Case", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.case", Icon = "translate", Title = "Change Case", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Recases text: UPPER, lower, Title, Sentence, camelCase, snake_case, kebab-case, mOcKiNg, l33t, clap👏case, and more.",
                 Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
                 Params = new[] { P("op", "Style", ParamType.Choice, "upper", "", new[] { "upper", "lower", "title", "sentence", "capitalize", "camel", "pascal", "snake", "kebab", "constant", "mock", "leet", "clap", "invert" }) },
@@ -2033,7 +2033,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.shape", Icon = "✂️", Title = "Shape Text", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.shape", Icon = "scissors", Title = "Shape Text", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Reshapes text: reverse, trim, squeeze spaces, length, repeat, truncate, pad, slugify, acronym, disemvowel, number lines, word-wrap.",
                 Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2047,7 +2047,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.regex", Icon = "🔍", Title = "Regex", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.regex", Icon = "magnifying-glass", Title = "Regex", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Runs a regular expression over text: test match, extract the first match / capture group, extract all matches, count, or replace.",
                 Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2062,7 +2062,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.mathx", Icon = "➗", Title = "Math", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.mathx", Icon = "divide", Title = "Math", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Evaluates an arithmetic expression: + - * / % ^, parentheses, and functions (sqrt, abs, round, floor, ceil, sin, cos, log, …). Supports pi and e.",
                 Inputs = new[] { Tx("expr") }, Outputs = new[] { Tx("result") },
                 Params = new[] { P("expr", "Expression", ParamType.Text, "", "2 * (3 + 4)") },
@@ -2071,7 +2071,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.convert", Icon = "📐", Title = "Unit Convert", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.convert", Icon = "ruler", Title = "Unit Convert", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Converts a value between units: temperature (c/f/k), length (mm..mi), mass (mg..lb), speed (m/s, km/h, mph, kn), data (B..TiB).",
                 Inputs = new[] { Nm("value") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2086,7 +2086,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "num.theory", Icon = "🔢", Title = "Number Theory", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "num.theory", Icon = "hash", Title = "Number Theory", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Whole-number math: factorial, nth Fibonacci, GCD, LCM, is-prime, next prime, ordinal (1st/2nd), absolute value, sign.",
                 Inputs = new[] { Nm("a"), Nm("b") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2100,7 +2100,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "num.format", Icon = "💯", Title = "Number Format", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "num.format", Icon = "seal-check", Title = "Number Format", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Formats a number: convert between bases (bin/oct/dec/hex/any), Roman numerals (and back), number-to-words, or thousands separators.",
                 Inputs = new[] { Tx("value") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2114,7 +2114,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.datetime", Icon = "🕰️", Title = "Date / Time", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.datetime", Icon = "clock", Title = "Date / Time", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Works with dates/times: current time (any timezone), format a date, day of week, unix timestamp conversion, countdown until a date, or age in years.",
                 Inputs = new[] { Tx("input") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2129,7 +2129,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "gen.random", Icon = "🎲", Title = "Random Generator", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "gen.random", Icon = "dice-five", Title = "Random Generator", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Generates random things: a coin flip, dice (NdM+K), a UUID, a password, a cute username, a fake name, a hex colour, an integer in a range, or lorem ipsum.",
                 Inputs = new[] { Tx("spec") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2142,7 +2142,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.pick", Icon = "👉", Title = "Pick from List", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.pick", Icon = "hand-pointing", Title = "Pick from List", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Picks from a list: a random item, the first / last / Nth, or counts them. Choose how the list is separated.",
                 Inputs = new[] { Tx("list") }, Outputs = new[] { Tx("result") },
                 Params = new[]
@@ -2156,7 +2156,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.stats", Icon = "📊", Title = "Number Stats", Subtitle = "data", Category = NodeCategory.Data,
+                TypeId = "data.stats", Icon = "chart-bar", Title = "Number Stats", Subtitle = "data", Category = NodeCategory.Data,
                 Description = "Computes a statistic over a list of numbers found in the text: sum, mean, median, min, max, count, range, or standard deviation.",
                 Inputs = new[] { Tx("numbers") }, Outputs = new[] { Tx("result") },
                 Params = new[] { P("op", "Stat", ParamType.Choice, "sum", "", new[] { "sum", "mean", "median", "min", "max", "count", "range", "stdev" }) },
@@ -2165,7 +2165,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.color", Icon = "🌈", Title = "IRC Color", Subtitle = "ircv3", Category = NodeCategory.Ircv3,
+                TypeId = "irc.color", Icon = "rainbow", Title = "IRC Color", Subtitle = "ircv3", Category = NodeCategory.Ircv3,
                 Description = "Adds or removes IRC formatting: rainbow-colour text, strip all colours/formatting, or wrap in bold / italic / underline.",
                 Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
                 Params = new[] { P("op", "Op", ParamType.Choice, "rainbow", "", new[] { "rainbow", "strip", "bold", "italic", "underline" }) },
@@ -2175,7 +2175,7 @@ public static class NodeCatalog
             // ===================== DCC (direct client-to-client file transfer) =====================
             new()
             {
-                TypeId = "event.dcc", Icon = "📡", Title = "On DCC Offer", Subtitle = "trigger",
+                TypeId = "event.dcc", Icon = "broadcast", Title = "On DCC Offer", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "dcc",
                 Description = "Fires when a user offers a DCC transfer over IRC - a direct file SEND, or a CHAT/RESUME/ACCEPT negotiation. Decide what to do with Accept DCC File or Decline DCC. The 'account' pin is the sender's authenticated login (use it to allow-list - nicks can be faked, accounts can't). Also exposes {dcc.file} {dcc.size} {dcc.ip} {dcc.port} {dcc.token} {dcc.type} {account}.",
                 Outputs = new[] { Ex("then"), Tx("filename"), Nm("size"), Us("nick"), Tx("type"), Tx("account") },
@@ -2196,7 +2196,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "dcc.accept", Icon = "📂", Title = "Accept DCC File", Subtitle = "dcc",
+                TypeId = "dcc.accept", Icon = "folder-open", Title = "Accept DCC File", Subtitle = "dcc",
                 Category = NodeCategory.Action,
                 Description = "Accepts the DCC file offer that triggered this flow and downloads it - you choose where it lands. Blank path = ~/ircuitry/files/dcc/. A folder saves it there under the offered name; a full path names the file. The transfer runs in the background and logs when it finishes.",
                 Inputs = new[] { Ex(), Tx("save to") },
@@ -2220,7 +2220,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "dcc.reject", Icon = "🚫", Title = "Decline DCC", Subtitle = "dcc",
+                TypeId = "dcc.reject", Icon = "prohibit", Title = "Decline DCC", Subtitle = "dcc",
                 Category = NodeCategory.Action,
                 Description = "Declines the DCC offer that triggered this flow (DCC has no formal 'no' - we simply don't connect, and optionally send the sender a notice).",
                 Inputs = new[] { Ex() },
@@ -2238,7 +2238,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "dcc.send", Icon = "📤", Title = "Send File (DCC)", Subtitle = "dcc",
+                TypeId = "dcc.send", Icon = "export", Title = "Send File (DCC)", Subtitle = "dcc",
                 Category = NodeCategory.Action,
                 Description = "Offers a file to a user over DCC: the bot listens on a port, sends the DCC SEND, and streams the file when they accept. Relative paths live under ~/ircuitry/files. Note: the receiver connects back to this machine, so a public IP / port-forwarding may be needed across the internet.",
                 Inputs = new[] { Ex(), Us("nick"), Tx("file") },
@@ -2261,7 +2261,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.gettag", Icon = "🔖", Title = "Get Tag", Subtitle = "ircv3",
+                TypeId = "data.gettag", Icon = "bookmark-simple", Title = "Get Tag", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
                 Description = "Reads any IRCv3 message tag from the triggering message (e.g. account, time, msgid).",
                 Outputs = new[] { Tx("value") },
@@ -2271,7 +2271,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.json", Icon = "🧩", Title = "JSON Field", Subtitle = "data",
+                TypeId = "data.json", Icon = "puzzle-piece", Title = "JSON Field", Subtitle = "data",
                 Category = NodeCategory.Data,
                 Description = "Extracts a value from JSON by dotted path, e.g. results.0.title.",
                 Inputs = new[] { Tx("json") },
@@ -2284,7 +2284,7 @@ public static class NodeCatalog
             // ============================ EVENTS (timer) ====================
             new()
             {
-                TypeId = "event.timer", Icon = "⏰", Title = "On Timer", Subtitle = "trigger",
+                TypeId = "event.timer", Icon = "alarm", Title = "On Timer", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "timer",
                 Description = "Fires every N seconds while the bot is connected. Pair with Send to Channel for announcements.",
                 Outputs = new[] { Ex("then") },
@@ -2294,7 +2294,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "event.schedule", Icon = "📅", Title = "On Schedule", Subtitle = "trigger",
+                TypeId = "event.schedule", Icon = "calendar", Title = "On Schedule", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "schedule",
                 Description = "Fires on a schedule: an interval, every day at a time, on chosen weekdays, or once at a date/time. Uses your computer's local time. Outputs {time} and {date}; pair with Send to Channel.",
                 Outputs = new[] { Ex("then"), Tx("time"), Tx("date") },
@@ -2314,7 +2314,7 @@ public static class NodeCatalog
             // ============================ CONDITIONS ========================
             new()
             {
-                TypeId = "logic.if", Icon = "❓", Title = "If / Compare", Subtitle = "condition",
+                TypeId = "logic.if", Icon = "question", Title = "If / Compare", Subtitle = "condition",
                 Category = NodeCategory.Filter,
                 Description = "Compares A to B and branches. A defaults to the message; B uses the input if wired, else the value field.",
                 Inputs = new[] { Ex(), Tx("A"), Tx("B") },
@@ -2349,7 +2349,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "logic.regex", Icon = "🔎", Title = "Regex Match", Subtitle = "condition",
+                TypeId = "logic.regex", Icon = "magnifying-glass", Title = "Regex Match", Subtitle = "condition",
                 Category = NodeCategory.Filter,
                 Description = "Matches text against a pattern; branches and outputs capture groups $1 and $2.",
                 Inputs = new[] { Ex(), Tx("text") },
@@ -2377,7 +2377,7 @@ public static class NodeCatalog
             // ============================ LOGIC ============================
             new()
             {
-                TypeId = "logic.switch", Icon = "🔀", Title = "Switch", Subtitle = "logic",
+                TypeId = "logic.switch", Icon = "shuffle", Title = "Switch", Subtitle = "logic",
                 Category = NodeCategory.Logic,
                 Description = "Routes to the output whose case matches the value, else 'default'. Add as many cases as you like with 'Add case' - each one grows its own output pin. Great for command menus. (The 'default' pin stays on top so adding a case never disturbs your existing wires.)",
                 Inputs = new[] { Ex(), Tx("value") },
@@ -2419,7 +2419,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "logic.cooldown", Icon = "⏳", Title = "Cooldown", Subtitle = "logic",
+                TypeId = "logic.cooldown", Icon = "hourglass", Title = "Cooldown", Subtitle = "logic",
                 Category = NodeCategory.Logic,
                 Description = "Only passes once per N seconds (optionally per-user). Stops spam and rate-limits commands.",
                 Inputs = new[] { Ex(), Us("user") },
@@ -2442,7 +2442,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "logic.forEach", Icon = "🔁", Title = "For Each", Subtitle = "logic",
+                TypeId = "logic.forEach", Icon = "repeat", Title = "For Each", Subtitle = "logic",
                 Category = NodeCategory.Logic,
                 Description = "Runs 'each' once per list item, then 'done'. Splits text by a separator, or set Separator to 'json' to iterate a JSON array. Each item is on the 'item' pin and in a var (default {item}) so {item.field} works for JSON elements.",
                 Inputs = new[] { Ex(), Tx("list") },
@@ -2472,7 +2472,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "logic.repeat", Icon = "🔂", Title = "Repeat", Subtitle = "logic",
+                TypeId = "logic.repeat", Icon = "repeat-once", Title = "Repeat", Subtitle = "logic",
                 Category = NodeCategory.Logic,
                 Description = "Runs 'each' a fixed number of times (the 0-based count on 'i' and as {i}), then 'done'. Bounded so it can never loop forever.",
                 Inputs = new[] { Ex(), Nm("times") },
@@ -2488,7 +2488,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.setvar", Icon = "📥", Title = "Set Variable", Subtitle = "state",
+                TypeId = "data.setvar", Icon = "tray", Title = "Set Variable", Subtitle = "state",
                 Category = NodeCategory.Logic,
                 Description = "Stores a value under a name. Persists across events and saves with the bot.",
                 Inputs = new[] { Ex(), Tx("value") },
@@ -2501,7 +2501,7 @@ public static class NodeCatalog
             // ============================ DATA (more) =======================
             new()
             {
-                TypeId = "data.getvar", Icon = "📤", Title = "Get Variable", Subtitle = "state",
+                TypeId = "data.getvar", Icon = "export", Title = "Get Variable", Subtitle = "state",
                 Category = NodeCategory.Data,
                 Description = "Reads a stored variable (or the default if it isn't set yet).",
                 Outputs = new[] { Tx("value") },
@@ -2511,7 +2511,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.math", Icon = "🧮", Title = "Math", Subtitle = "data",
+                TypeId = "data.math", Icon = "calculator", Title = "Math", Subtitle = "data",
                 Category = NodeCategory.Data,
                 Description = "Computes A (op) B as a number. Pair with variables for counters and scores.",
                 Inputs = new[] { Tx("a"), Tx("b") },
@@ -2527,7 +2527,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.transform", Icon = "🔠", Title = "Text Transform", Subtitle = "data",
+                TypeId = "data.transform", Icon = "text-aa", Title = "Text Transform", Subtitle = "data",
                 Category = NodeCategory.Data,
                 Description = "Transforms text: lower / upper / trim / length / reverse / replace.",
                 Inputs = new[] { Tx("text") },
@@ -2550,7 +2550,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "data.randnum", Icon = "🎯", Title = "Random Number", Subtitle = "data",
+                TypeId = "data.randnum", Icon = "target", Title = "Random Number", Subtitle = "data",
                 Category = NodeCategory.Data,
                 Description = "A random whole number between min and max (inclusive). For !roll, !8ball, etc.",
                 Outputs = new[] { Nm("value") },
@@ -2568,7 +2568,7 @@ public static class NodeCatalog
             // ===================== IRCv3 MODERATION / CHANNEL ===============
             new()
             {
-                TypeId = "irc.topic", Icon = "📌", Title = "Set Topic", Subtitle = "channel",
+                TypeId = "irc.topic", Icon = "push-pin", Title = "Set Topic", Subtitle = "channel",
                 Category = NodeCategory.Action,
                 Description = "Sets a channel's topic (needs the right channel privileges). Blank channel = the triggering channel.",
                 Inputs = new[] { Ex(), Tx("topic") },
@@ -2585,7 +2585,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.kick", Icon = "🥾", Title = "Kick User", Subtitle = "moderation",
+                TypeId = "irc.kick", Icon = "boot", Title = "Kick User", Subtitle = "moderation",
                 Category = NodeCategory.Action,
                 Description = "Kicks a user from a channel (needs operator). Blank channel = the triggering channel.",
                 Inputs = new[] { Ex(), Tx("nick") },
@@ -2603,7 +2603,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.mode", Icon = "🛡️", Title = "Set Mode", Subtitle = "moderation",
+                TypeId = "irc.mode", Icon = "shield", Title = "Set Mode", Subtitle = "moderation",
                 Category = NodeCategory.Action,
                 Description = "Applies a channel mode, e.g. +o/-o (op), +v (voice), +b (ban). Target is a nick or mask; leave blank for channel-wide modes like +m.",
                 Inputs = new[] { Ex(), Tx("target") },
@@ -2626,7 +2626,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "irc.action", Icon = "🎭", Title = "Send Action", Subtitle = "emote",
+                TypeId = "irc.action", Icon = "mask-happy", Title = "Send Action", Subtitle = "emote",
                 Category = NodeCategory.Action,
                 Description = "Sends a CTCP ACTION (a /me emote), e.g. \"waves hello\". Replies to the triggering channel/user.",
                 Inputs = new[] { Ex(), Tx("text") },
@@ -2645,7 +2645,7 @@ public static class NodeCatalog
             // ===================== FLOW =========================
             new()
             {
-                TypeId = "flow.delay", Icon = "⏳", Title = "Delay", Subtitle = "flow",
+                TypeId = "flow.delay", Icon = "hourglass", Title = "Delay", Subtitle = "flow",
                 Category = NodeCategory.Logic,
                 Description = "Waits before continuing. Runs off the connection thread, so it never stalls keepalive or other workflows (capped at 5 min). For long or recurring waits, prefer a Schedule/Timer trigger.",
                 Inputs = new[] { Ex() },
@@ -2663,7 +2663,7 @@ public static class NodeCatalog
             // ----- subflow boundary nodes (used inside a saved "reusable node") -----
             new()
             {
-                TypeId = "flow.in", Icon = "⤵️", Title = "Subflow Start", Subtitle = "subflow",
+                TypeId = "flow.in", Icon = "arrow-bend-down-right", Title = "Subflow Start", Subtitle = "subflow",
                 Category = NodeCategory.Logic,
                 Description = "The entry point of a reusable subflow. Wire its 'then' to the subflow's body. (Only meaningful inside a saved node.)",
                 Outputs = new[] { Ex("then") },
@@ -2671,7 +2671,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "flow.arg", Icon = "📥", Title = "Subflow Input", Subtitle = "subflow",
+                TypeId = "flow.arg", Icon = "tray", Title = "Subflow Input", Subtitle = "subflow",
                 Category = NodeCategory.Logic,
                 Description = "Reads one of the subflow's named inputs. The 'name' becomes an input pin on the saved node.",
                 Outputs = new[] { Tx("value") },
@@ -2681,7 +2681,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "flow.return", Icon = "📤", Title = "Subflow Output", Subtitle = "subflow",
+                TypeId = "flow.return", Icon = "export", Title = "Subflow Output", Subtitle = "subflow",
                 Category = NodeCategory.Logic,
                 Description = "Writes one of the subflow's named outputs. The 'name' becomes an output pin on the saved node.",
                 Inputs = new[] { Ex(), Tx("value") },
@@ -2694,7 +2694,7 @@ public static class NodeCatalog
             // ===================== DATABASE (file-backed KV) ================
             new()
             {
-                TypeId = "db.set", Icon = "🗃️", Title = "DB Set", Subtitle = "database",
+                TypeId = "db.set", Icon = "archive", Title = "DB Set", Subtitle = "database",
                 Category = NodeCategory.Action,
                 Description = "Stores a value in a named table on disk (~/ircuitry/data). Empty value deletes the key. Survives restarts and is shared across bots.",
                 Inputs = new[] { Ex(), Tx("value") },
@@ -2718,7 +2718,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "db.get", Icon = "🔑", Title = "DB Get", Subtitle = "database",
+                TypeId = "db.get", Icon = "key", Title = "DB Get", Subtitle = "database",
                 Category = NodeCategory.Data,
                 Description = "Reads from a named table on disk. Modes: a key's value, the row count, or a substring search across values.",
                 Outputs = new[] { Tx("value"), Nm("count") },
@@ -2753,7 +2753,7 @@ public static class NodeCatalog
             // ===================== AI CONTINUITY ============================
             new()
             {
-                TypeId = "ai.memory", Icon = "🧠", Title = "AI Memory", Subtitle = "ai",
+                TypeId = "ai.memory", Icon = "brain", Title = "AI Memory", Subtitle = "ai",
                 Category = NodeCategory.Action,
                 Description = "Per-conversation memory for Ask AI. 'recall' outputs the running transcript to feed into the prompt; 'remember' appends a turn; 'clear' wipes it. Keyed by session (default the channel), kept to the last N turns, and persisted.",
                 Inputs = new[] { Ex(), Tx("text") },
@@ -2792,7 +2792,7 @@ public static class NodeCatalog
             // ===================== CALENDAR (manage / search) ==============
             new()
             {
-                TypeId = "cal.add", Icon = "🗓️", Title = "Add Calendar Event", Subtitle = "calendar",
+                TypeId = "cal.add", Icon = "calendar", Title = "Add Calendar Event", Subtitle = "calendar",
                 Category = NodeCategory.Action,
                 Description = "Appends an event to an .ics file (created if missing). Start accepts '2026-12-31 09:00' or a date; duration is in minutes.",
                 Inputs = new[] { Ex(), Tx("summary") },
@@ -2831,7 +2831,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "cal.search", Icon = "🔎", Title = "Search Calendar", Subtitle = "calendar",
+                TypeId = "cal.search", Icon = "magnifying-glass", Title = "Search Calendar", Subtitle = "calendar",
                 Category = NodeCategory.Action,
                 Description = "Searches an .ics source (file/URL/text) for events whose title, location or notes contain the query, optionally within a date range. Branches to 'none' if nothing matches.",
                 Inputs = new[] { Ex(), Tx("query") },
@@ -2875,7 +2875,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "db.sql", Icon = "🛢️", Title = "SQL Query", Subtitle = "database",
+                TypeId = "db.sql", Icon = "cylinder", Title = "SQL Query", Subtitle = "database",
                 Category = NodeCategory.Action,
                 Description = "Advanced: runs raw SQL against a SQLite file (created on first use). SELECT returns rows (pipe-separated); INSERT/UPDATE/DDL return the affected count.",
                 Inputs = new[] { Ex(), Tx("sql") },
@@ -2899,7 +2899,7 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "code.run", Icon = "📜", Title = "Code", Subtitle = "js / python",
+                TypeId = "code.run", Icon = "scroll", Title = "Code", Subtitle = "js / python",
                 Category = NodeCategory.Logic,
                 Description = "Runs JavaScript (node) or Python (python3). Reads context from env vars (NICK, CHANNEL, MESSAGE, ARGS, INPUT) or JSON on stdin; whatever it prints to stdout becomes 'output'.",
                 Inputs = new[] { Ex(), Tx("input") },

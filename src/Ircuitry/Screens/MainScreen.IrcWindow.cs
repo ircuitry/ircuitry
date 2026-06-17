@@ -292,7 +292,7 @@ public sealed partial class MainScreen
 
         if (b.Run != null)
         {
-            string label = b.Run.Icon + " ran " + b.Run.Trigger;
+            string label = Ircuitry.Core.Icons.Glyph(b.Run.Icon) + " ran " + b.Run.Trigger;
             var cf = r.Fonts.Get(FontKind.SansBold, 11);
             var chip = new RectF(x + 8, bub.Bottom + 4, MathF.Min(cf.MeasureString(label).X + 18, w - 16), 18);
             bool hot = chip.Contains(In.Mouse);

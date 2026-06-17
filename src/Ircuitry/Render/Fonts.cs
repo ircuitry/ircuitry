@@ -25,21 +25,22 @@ public sealed class Fonts : IDisposable
         FontSystemDefaults.KernelWidth = 2;
         FontSystemDefaults.KernelHeight = 2;
 
-        // monochrome emoji fallback - glyph lookup falls through in add-order,
-        // so every typeface can render 💬 ❤ 🤖 etc. (tinted to the text colour)
+        // fallbacks - glyph lookup falls through in add-order (disjoint codepoint ranges): the Phosphor
+        // icon font renders our named icons (PUA glyphs, tintable), NotoEmoji covers any leftover emoji.
+        var icons = File.ReadAllBytes(Path.Combine(fontDir, "Phosphor.ttf"));
         var emoji = File.ReadAllBytes(Path.Combine(fontDir, "NotoEmoji.ttf"));
-        _sans = Load(fontDir, "Ubuntu-R.ttf", emoji);
-        _sansBold = Load(fontDir, "Ubuntu-B.ttf", emoji);
-        _mono = Load(fontDir, "UbuntuMono-R.ttf", emoji);
-        _monoBold = Load(fontDir, "UbuntuMono-B.ttf", emoji);
-        _display = Load(fontDir, "Fredoka.ttf", emoji);
+        _sans = Load(fontDir, "Ubuntu-R.ttf", icons, emoji);
+        _sansBold = Load(fontDir, "Ubuntu-B.ttf", icons, emoji);
+        _mono = Load(fontDir, "UbuntuMono-R.ttf", icons, emoji);
+        _monoBold = Load(fontDir, "UbuntuMono-B.ttf", icons, emoji);
+        _display = Load(fontDir, "Fredoka.ttf", icons, emoji);
     }
 
-    private static FontSystem Load(string dir, string file, byte[]? fallback = null)
+    private static FontSystem Load(string dir, string file, params byte[][] fallbacks)
     {
         var fs = new FontSystem();
         fs.AddFont(File.ReadAllBytes(Path.Combine(dir, file)));
-        if (fallback != null) fs.AddFont(fallback);
+        foreach (var fb in fallbacks) if (fb != null) fs.AddFont(fb);
         return fs;
     }
 

@@ -20,7 +20,7 @@ public partial class MainScreen
 {
     private bool _nbOpen, _nbJustOpened;
     private string _nbEditId = "";         // typeId being edited (overwrite that file); "" = new node
-    private string _nbTitle = "", _nbIcon = "🧩", _nbCategory = "Action", _nbDesc = "";
+    private string _nbTitle = "", _nbIcon = "puzzle-piece", _nbCategory = "Action", _nbDesc = "";
     private string _nbStatus = "", _nbAdd = "";
     private bool _nbMax;
     private bool _nbAsTool;   // tick: the baked node carries a Tool output so it can be wired into Ask AI
@@ -65,7 +65,7 @@ public partial class MainScreen
                 return;
             }
 
-            _nbTitle = S("title", typeId); _nbIcon = S("icon", "🧩"); _nbCategory = S("category", "Logic"); _nbDesc = S("description");
+            _nbTitle = S("title", typeId); _nbIcon = S("icon", "puzzle-piece"); _nbCategory = S("category", "Logic"); _nbDesc = S("description");
             _nbEditId = typeId; _nbStatus = "";
             _nbAsTool = false;   // re-tick if this node already advertises a Tool output, so re-saving keeps it
             if (rt.TryGetProperty("outputs", out var outs2) && outs2.ValueKind == JsonValueKind.Array)
@@ -120,7 +120,7 @@ public partial class MainScreen
     private string NbBuildManifest()
         => _nbEditor?.SerializeAsComposite(NbTypeId(),
             _nbTitle.Trim().Length > 0 ? _nbTitle.Trim() : "Custom Node",
-            _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "🧩", _nbCategory, _nbDesc.Trim(), _nbExposed, _nbAsTool) ?? "";
+            _nbIcon.Trim().Length > 0 ? _nbIcon.Trim() : "puzzle-piece", _nbCategory, _nbDesc.Trim(), _nbExposed, _nbAsTool) ?? "";
 
     private string NbValidate(string manifest)
     {
@@ -166,7 +166,7 @@ public partial class MainScreen
         Label("TITLE", cx, y); Label("ICON", cx + titleW + gap, y); Label("CATEGORY", cx + titleW + gap + iconW + gap, y);
         float fy = y + 15;
         _nbTitle = _ui.TextField("nb.title", new RectF(cx, fy, titleW, 28), _nbTitle, "My Node");
-        _nbIcon = _ui.TextField("nb.icon", new RectF(cx + titleW + gap, fy, iconW, 28), _nbIcon, "🧩");
+        _nbIcon = _ui.TextField("nb.icon", new RectF(cx + titleW + gap, fy, iconW, 28), _nbIcon, "puzzle-piece");
         _nbCategory = _ui.Choice("nb.cat", new RectF(cx + titleW + gap + iconW + gap, fy, catW, 28), NbCategories, _nbCategory);
         y = fy + 28 + 10;
         _nbDesc = _ui.TextField("nb.desc", new RectF(cx, y, cw, 26), _nbDesc, "what this node does (one sentence)");
@@ -265,7 +265,7 @@ public partial class MainScreen
         var node = _nbGraph!.Nodes.FirstOrDefault(n => sel.Contains(n.Id));
         if (node == null) return;
         bool boundary = node.TypeId is "flow.in" or "flow.arg" or "flow.return";
-        r.Text(r.Fonts.Get(FontKind.SansBold, 13), node.Def.Icon + "  " + node.Def.Title, new Vector2(x, y), Theme.Text); y += 24;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 13), Ircuitry.Core.Icons.Glyph(node.Def.Icon) + "  " + node.Def.Title, new Vector2(x, y), Theme.Text); y += 24;
         if (node.Def.Params.Length == 0) { r.Text(sans, "no settings on this node", new Vector2(x, y), Theme.TextFaint); return; }
 
         foreach (var p in node.Def.Params)

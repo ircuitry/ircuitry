@@ -329,7 +329,7 @@ public sealed class GraphEditor
         var slug = new string(title.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
         if (slug.Length == 0) slug = "node";
         string cat = string.IsNullOrWhiteSpace(category) ? "Logic" : category;
-        string ic = string.IsNullOrWhiteSpace(icon) ? "🧩" : icon;
+        string ic = string.IsNullOrWhiteSpace(icon) ? "puzzle-piece" : icon;
         return "{\"typeId\":" + J("subflow." + slug) + ",\"title\":" + J(title)
             + ",\"subtitle\":\"composite\",\"icon\":" + J(ic) + ",\"category\":" + J(cat) + ",\"description\":" + J(description ?? "")
             + ",\"inputs\":[" + string.Join(",", inputs) + "],\"outputs\":[" + string.Join(",", outputs) + "],"
@@ -1243,8 +1243,8 @@ public sealed class GraphEditor
             }
             else
             {
-                var isz = tf.MeasureString(n.Def.Icon);
-                r.Text(tf, n.Def.Icon, new Vector2(ix, card.Y + (hh - isz.Y) / 2f), cat);
+                var isz = tf.MeasureString(Ircuitry.Core.Icons.Glyph(n.Def.Icon));
+                r.Text(tf, Ircuitry.Core.Icons.Glyph(n.Def.Icon), new Vector2(ix, card.Y + (hh - isz.Y) / 2f), cat);
                 tx = ix + isz.X + 6 * z;
             }
             string title = r.Ellipsize(tf, n.DisplayTitle, card.Right - tx - 10 * z);
