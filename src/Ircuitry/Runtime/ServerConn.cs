@@ -95,6 +95,7 @@ public sealed class ServerConn : IRuntimeSink
         _running = false;
         lock (_pendLock) _pending.Clear();   // drop any waiting human-in-the-loop gates
         try { _runQueue?.CompleteAdding(); } catch { /* already completed */ }   // workers drain + exit
+        StopAllTyping();   // send +typing=done for anything still active before we drop the link
         _client.Disconnect();
     }
 
@@ -400,7 +401,9 @@ public sealed class ServerConn : IRuntimeSink
         int before = _owner.TotalActions;
         var stream = new WorkflowStream(this, vars, node.DisplayTitle);
         GraphExecutor.Fire(graph, this, node, vars, rec, stream.OnNode);
-        StopAllTyping();   // a workflow run ends -> drop any typing it started but didn't stop
+        // typing is a persistent state, NOT per-run: a Start Typing keeps refreshing (+typing=active every 4s,
+        // above) and ends only when a Stop Typing node runs, a real message is sent to the target (the message
+        // implicitly ends typing - see Privmsg), or the bot disconnects. Don't auto-send +typing=done here.
         rec.Actions = Math.Max(0, _owner.TotalActions - before);   // approximate under concurrency, never negative
         rec.Fired = rec.Nodes.Count > 0 && rec.Nodes[0].Pulsed.Count > 0;
         if (rec.Fired) _owner.AddHistory(rec);
@@ -594,10 +597,12 @@ public sealed class ServerConn : IRuntimeSink
         return _owner.Route(server) ?? (IRuntimeSink)this;
     }
 
-    public void Privmsg(string target, string text) { _client.Privmsg(target, text); Bump(); }
+    // sending a real message to a target implicitly ends any typing indicator there (per the +typing spec),
+    // so stop refreshing it - but don't send an explicit +typing=done, the message itself ended it.
+    public void Privmsg(string target, string text) { _client.Privmsg(target, text); _typing.TryRemove(target, out _); Bump(); }
     public void Notice(string target, string text) { _client.Notice(target, text); Bump(); }
     public void React(string target, string msgid, string emoji) { _client.React(target, msgid, emoji); Bump(); }
-    public void PrivmsgTagged(string target, string text, string tags) { _client.PrivmsgTagged(target, text, tags); Bump(); }
+    public void PrivmsgTagged(string target, string text, string tags) { _client.PrivmsgTagged(target, text, tags); _typing.TryRemove(target, out _); Bump(); }
     public void NoticeTagged(string target, string text, string tags) { _client.NoticeTagged(target, text, tags); Bump(); }
     public void Join(string channel) => _client.Join(channel);
     public void Part(string channel, string reason) => _client.Part(channel, reason);
