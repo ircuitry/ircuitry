@@ -30,6 +30,7 @@ public static class ControlServer
     private static AppModel _app = null!;
     private static List<McpTool> _tools = null!;
     private static readonly Dictionary<string, (string User, string Role)> _tokens = new();   // token -> account
+    private static readonly ConcurrentDictionary<Client, byte> _clients = new();   // everyone connected (for collab broadcast + presence)
     private static bool _web;
 
     public static int Run(string[] args)
@@ -199,6 +200,8 @@ public static class ControlServer
                 c.User = acct.User; c.Role = acct.Role;
             }
             await Send(c, new { evt = "hello", ok = true, server = new { name = "ircuitry", version = AppInfo.Version }, user = c.User, role = c.Role });
+            _clients[c] = 0;
+            BroadcastPresence();
 
             var pump = Task.Run(() => Pump(c));
             string? raw;
@@ -210,9 +213,21 @@ public static class ControlServer
         finally
         {
             c.Closed = true;
+            _clients.TryRemove(c, out _);
+            BroadcastPresence();
             foreach (var (bot, h) in c.FireHooks) try { bot.Runtime.OnFired -= h; } catch { }
             try { if (ws.State == WebSocketState.Open) await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None); } catch { }
         }
+    }
+
+    // ---------------- collab broadcast + presence ----------------
+    private static void Broadcast(string topic, object o)
+    { foreach (var c in _clients.Keys) if (!c.Closed && c.Topics.Contains(topic)) _ = Send(c, o); }
+
+    private static void BroadcastPresence()
+    {
+        var users = _clients.Keys.Where(c => !c.Closed).Select(c => c.User).ToArray();
+        foreach (var c in _clients.Keys) if (!c.Closed) _ = Send(c, new { evt = "presence", users });
     }
 
     // ---------------- request ops ----------------
@@ -234,6 +249,7 @@ public static class ControlServer
                         foreach (var t in ts.EnumerateArray()) if (t.ValueKind == JsonValueKind.String) c.Topics.Add(t.GetString()!);
                     if (c.Topics.Contains("nodes")) HookFires(c);
                     await Reply(c, id, new { topics = c.Topics.ToArray() });
+                    if (c.Topics.Contains("presence")) await Send(c, new { evt = "presence", users = _clients.Keys.Where(x => !x.Closed).Select(x => x.User).ToArray() });
                     break;
                 case "start": case "stop":
                     if (!c.CanEdit) { await ReplyErr(c, id, "this token is read-only (viewer)"); break; }
@@ -248,6 +264,7 @@ public static class ControlServer
                     object result;
                     lock (Gate) { result = t.Run(args, _app); if (t.Mutates) _app.Save(announce: false); }
                     await Reply(c, id, new { tool, result });
+                    if (t.Mutates) Broadcast("workspace", new { evt = "workspace", tool, by = c.User });   // other editors re-sync
                     break;
                 }
                 default: await ReplyErr(c, id, "unknown op: " + op); break;

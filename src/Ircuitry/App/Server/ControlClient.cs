@@ -42,7 +42,10 @@ public sealed class ControlClient : IDisposable
     /// <summary>(bot, nodeId) when a remote node fires - for canvas glow. Invoked on the UI thread (Pump).</summary>
     public Action<string, string>? OnNode;
 
+    private string[] _peers = Array.Empty<string>();
     public IReadOnlyList<RemoteBot> Bots { get { lock (_gate) return _bots.ToArray(); } }
+    public string[] Peers { get { lock (_gate) return _peers; } }
+    public Action? OnWorkspaceChanged;   // remote edit by another client - invoked on the UI thread (Pump)
     public bool Connected => State == Conn.Connected;
 
     public string[] RecentLog(int n)
@@ -109,7 +112,7 @@ public sealed class ControlClient : IDisposable
                 if (r.TryGetProperty("user", out var u)) User = u.GetString() ?? "";
             }
             State = Conn.Connected;
-            Call("subscribe", new { topics = new[] { "logs", "status", "runs", "nodes" } });
+            Call("subscribe", new { topics = new[] { "logs", "status", "runs", "nodes", "workspace", "presence" } });
             Snapshot();
 
             string? raw;
@@ -155,6 +158,14 @@ public sealed class ControlClient : IDisposable
                 break;
             case "run":
                 AppendLog($"[{Get(m, "bot")}] ran {Get(m, "trigger")} - {Get(m, "summary")}");
+                break;
+            case "workspace":
+                Snapshot();                                          // another editor changed the graph/bots - re-sync
+                if (OnWorkspaceChanged != null) _ui.Enqueue(() => OnWorkspaceChanged?.Invoke());
+                break;
+            case "presence":
+                if (m.TryGetProperty("users", out var us) && us.ValueKind == JsonValueKind.Array)
+                { var p = new List<string>(); foreach (var u in us.EnumerateArray()) if (u.ValueKind == JsonValueKind.String) p.Add(u.GetString()!); lock (_gate) _peers = p.ToArray(); }
                 break;
         }
     }
