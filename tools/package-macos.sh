@@ -35,6 +35,14 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>10.15</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>io.github.ircuitry.install</string>
+      <key>CFBundleURLSchemes</key>
+      <array><string>ircuitry</string><string>ircbot</string></array>
+    </dict>
+  </array>
   $ICNS
 </dict></plist>
 EOF

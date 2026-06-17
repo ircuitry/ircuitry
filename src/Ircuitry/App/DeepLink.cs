@@ -114,13 +114,24 @@ public static class DeepLink
     }
 
     /// <summary>
-    /// Register the scheme so the OS routes links to this app. Linux only here (a self-installing
-    /// .desktop handler that also covers the AppImage and portable zip); the .deb ships one too, and
-    /// Windows/macOS register via their installer/bundle. Best-effort and idempotent.
+    /// Register the scheme so the OS routes ircuitry:// links to this app. Linux installs a self-contained
+    /// .desktop handler; Windows writes a per-user HKCU\Software\Classes entry (via reg.exe); macOS declares
+    /// the scheme in its .app Info.plist (see tools/package-macos.sh) and we nudge LaunchServices. Best-effort
+    /// and idempotent on every platform.
     /// </summary>
     public static void Register()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        try
+        {
+            if (OperatingSystem.IsLinux()) RegisterLinux();
+            else if (OperatingSystem.IsWindows()) RegisterWindows();
+            else if (OperatingSystem.IsMacOS()) RegisterMac();
+        }
+        catch { /* registration is best-effort */ }
+    }
+
+    private static void RegisterLinux()
+    {
         try
         {
             string exec = ResolveExec();
@@ -149,6 +160,43 @@ public static class DeepLink
             RunQuiet("update-desktop-database", appsDir);
         }
         catch { /* registration is best-effort */ }
+    }
+
+    // Windows: a per-user protocol handler under HKCU\Software\Classes (no admin needed), written via reg.exe so
+    // we don't pull in the Microsoft.Win32.Registry package. Points ircuitry:// / ircbot:// at this exe.
+    private static void RegisterWindows()
+    {
+        string exe = Environment.ProcessPath ?? "";
+        if (exe.Length == 0 || Path.GetFileName(exe).Equals("dotnet.exe", StringComparison.OrdinalIgnoreCase)) return;  // skip a dev `dotnet` host
+        foreach (var scheme in new[] { "ircuitry", "ircbot" })
+        {
+            string key = @"HKCU\Software\Classes\" + scheme;
+            Reg("add", key, "/ve", "/d", "URL:" + scheme + " Protocol", "/f");
+            Reg("add", key, "/v", "URL Protocol", "/d", "", "/f");
+            Reg("add", key + @"\shell\open\command", "/ve", "/d", "\"" + exe + "\" \"%1\"", "/f");
+        }
+    }
+
+    private static void Reg(params string[] args)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("reg") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+            foreach (var a in args) psi.ArgumentList.Add(a);   // ArgumentList escapes quotes/spaces for us
+            Process.Start(psi)?.WaitForExit(3000);
+        }
+        catch { /* reg unavailable - best effort */ }
+    }
+
+    // macOS: the .app bundle's Info.plist declares the ircuitry/ircbot URL schemes (tools/package-macos.sh).
+    // LaunchServices registers them when the app is discovered; nudge it to (re)scan this bundle so it works
+    // straight away (e.g. run from Downloads before being moved to /Applications).
+    private static void RegisterMac()
+    {
+        string exe = Environment.ProcessPath ?? "";
+        string? app = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(exe)));   // <app>.app/Contents/MacOS/<exe>
+        if (app == null || !app.EndsWith(".app", StringComparison.OrdinalIgnoreCase)) return;     // not a bundle -> nothing to register
+        RunQuiet("/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister", "-f \"" + app + "\"");
     }
 
     // Build the .desktop Exec line, choosing a launcher that the OS can actually run.
