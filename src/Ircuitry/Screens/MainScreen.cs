@@ -274,20 +274,28 @@ public sealed partial class MainScreen : IScreen
     public void HandleDeepLink(string link)
     {
         if (Ircuitry.App.DeepLink.IsServerLink(link)) { HandleServerLink(link); return; }
-        if (!Ircuitry.App.DeepLink.TryParse(link, out var action, out var url))
+        if (!Ircuitry.App.DeepLink.TryParse(link, out var action, out var url, out var data))
         { Bot.Log.Add(LogLevel.Error, "unrecognised link: " + link); return; }
-        if (!Ircuitry.App.DeepLink.IsAllowedUrl(url))
-        { Bot.Log.Add(LogLevel.Error, "blocked link (only ircuitry community URLs are allowed): " + url); return; }
 
-        Bot.Log.Add(LogLevel.System, "fetching " + url);
         string text;
-        try
+        if (data.Length > 0)   // an inline workflow (e.g. a bot merged in the browser) - no fetch, still confirmed
         {
-            var (status, body) = Ircuitry.Net.Http.Send("GET", url, System.Array.Empty<(string, string)>(), null);
-            if (status < 200 || status >= 300) { Bot.Log.Add(LogLevel.Error, $"download failed (HTTP {status})"); return; }
-            text = body;
+            text = Ircuitry.App.DeepLink.DecodeData(data);
+            if (text.Length == 0) { Bot.Log.Add(LogLevel.Error, "couldn't decode the inline workflow link"); return; }
         }
-        catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "download failed: " + ex.Message); return; }
+        else
+        {
+            if (!Ircuitry.App.DeepLink.IsAllowedUrl(url))
+            { Bot.Log.Add(LogLevel.Error, "blocked link (only ircuitry community URLs are allowed): " + url); return; }
+            Bot.Log.Add(LogLevel.System, "fetching " + url);
+            try
+            {
+                var (status, body) = Ircuitry.Net.Http.Send("GET", url, System.Array.Empty<(string, string)>(), null);
+                if (status < 200 || status >= 300) { Bot.Log.Add(LogLevel.Error, $"download failed (HTTP {status})"); return; }
+                text = body;
+            }
+            catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "download failed: " + ex.Message); return; }
+        }
 
         if (action == "install-bot")
         {

@@ -68,10 +68,11 @@ public static class DeepLink
         catch { return false; }
     }
 
-    /// <summary>Parse <c>scheme://action?url=...</c> into the action (install-node/install-bot) and target url.</summary>
-    public static bool TryParse(string link, out string action, out string url)
+    /// <summary>Parse <c>scheme://action?url=...</c> (a hosted file) or <c>?data=&lt;base64&gt;</c> (an inline
+    /// workflow, e.g. a bot merged in the browser) into the action (install-node/install-bot) and its payload.</summary>
+    public static bool TryParse(string link, out string action, out string url, out string data)
     {
-        action = ""; url = "";
+        action = ""; url = ""; data = "";
         try
         {
             var u = new Uri(link);
@@ -81,11 +82,22 @@ public static class DeepLink
             foreach (var kv in u.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
             {
                 int i = kv.IndexOf('=');
-                if (i > 0 && Uri.UnescapeDataString(kv[..i]) == "url") url = Uri.UnescapeDataString(kv[(i + 1)..]);
+                if (i <= 0) continue;
+                var key = Uri.UnescapeDataString(kv[..i]);
+                if (key == "url") url = Uri.UnescapeDataString(kv[(i + 1)..]);
+                else if (key == "data") data = Uri.UnescapeDataString(kv[(i + 1)..]);
             }
-            return action.Length > 0 && url.Length > 0;
+            return action.Length > 0 && (url.Length > 0 || data.Length > 0);
         }
         catch { return false; }
+    }
+
+    /// <summary>Decode an inline <c>data=</c> payload (standard base64 of the UTF-8 JSON). Returns "" on failure.
+    /// This carries no SSRF risk - nothing is fetched - and the install is still gated by a confirm dialog.</summary>
+    public static string DecodeData(string data)
+    {
+        try { return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(data.Trim())); }
+        catch { return ""; }
     }
 
     /// <summary>Only fetch from the ircuitry community repos over https (no arbitrary SSRF).</summary>
