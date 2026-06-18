@@ -42,6 +42,47 @@ public sealed class AppModel
             Bots.Add(SeedDemoBot());
             ActiveBot.Log.Add(LogLevel.System, "ircuitry online. Build a workflow, set a connection, press RUN BOT.");
         }
+        else SecureCredentials();   // any plaintext left in a password field moves into the encrypted key store
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex _secretRefFull =
+        new(@"^\{\{\s*secret\.[^}\s]+\s*\}\}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Require-a-stored-key enforcement: move any plaintext left in a password field - a secret node
+    /// param, or a connection's SASL/server password - into the encrypted key store and replace it with a
+    /// {{secret.X}} reference, so a credential never persists as plaintext in workspace.ircuitry or a shared flow.</summary>
+    public void SecureCredentials()
+    {
+        int n = 0;
+        foreach (var b in Bots)
+        {
+            foreach (var node in b.Graph.Nodes)
+                foreach (var pd in node.Def.Params)
+                    if (pd.Secret) n += SecureField(pd.Label, node.GetParam(pd.Key), v => node.SetParam(pd.Key, v));
+            foreach (var sv in b.Servers)
+            {
+                n += SecureField("sasl", sv.SaslPass, v => sv.SaslPass = v);
+                n += SecureField("serverpass", sv.ServerPass, v => sv.ServerPass = v);
+            }
+        }
+        if (n > 0)
+        {
+            Save(announce: false);
+            ActiveBot.Log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("key") + $" secured {n} plaintext credential(s) into your key store");
+        }
+    }
+
+    private static int SecureField(string label, string val, Action<string> set)
+    {
+        // already a key reference (or empty) -> leave it. References() also skips mixed "Bearer {{secret.x}}" text.
+        if (string.IsNullOrEmpty(val) || _secretRefFull.IsMatch(val) || Ircuitry.Core.Secrets.References(val)) return 0;
+        var slug = new string((label ?? "key").ToLowerInvariant().Where(char.IsLetterOrDigit).Take(12).ToArray());
+        if (slug.Length == 0) slug = "key";
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(val))).ToLowerInvariant()[..6];
+        string name = slug + "." + hash;   // deterministic -> idempotent across reloads; identical values share one key
+        Ircuitry.Core.Secrets.Set(name, val);
+        set("{{secret." + name + "}}");
+        return 1;
     }
 
     /// <summary>One-time carry-over from the old ~/obbie home to ~/ircuitry: workspace, secrets and the
@@ -231,6 +272,7 @@ public sealed class AppModel
             Bots.Add(bot);
             Active = Bots.Count - 1;
             Dirty = true;
+            SecureCredentials();   // never let an imported flow carry a plaintext credential
             bot.Log.Add(LogLevel.System, $"imported {g.Nodes.Count} node(s) from {Path.GetFileName(path)}");
             if (skipped.Count > 0) bot.Log.Add(LogLevel.Warn, Ircuitry.Core.Icons.Glyph("warning") + " " + GraphSerializer.SkippedWarning(skipped));
             return bot;
