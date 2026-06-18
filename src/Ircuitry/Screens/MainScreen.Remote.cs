@@ -96,12 +96,36 @@ public partial class MainScreen
                 Hud.SoftDot(r, new Vector2(row.X + 14, row.Center.Y), 4f, b.Running ? Theme.Ok : Theme.Idle);
                 r.Text(r.Fonts.Get(FontKind.SansBold, 13), b.Name, new Vector2(row.X + 28, row.Y + 6), Theme.Text);
                 r.Text(r.Fonts.Get(FontKind.Sans, 11), (b.Running ? "running" : "stopped") + "  ·  " + b.Stat + "  ·  " + b.Nodes + " nodes", new Vector2(row.X + 28, row.Y + 23), Theme.TextDim);
-                var act = new RectF(row.Right - 12 - 74, row.Center.Y - 13, 74, 26);
-                if (_ui.Button("rm.ss." + b.Name, act, b.Running ? "Stop" : "Start", b.Running ? Theme.Alert : Theme.Ok, primary: !b.Running))
+                var act = new RectF(row.Right - 12 - 70, row.Center.Y - 13, 70, 26);
+                if (b.CanEdit && _ui.Button("rm.ss." + b.Name, act, b.Running ? "Stop" : "Start", b.Running ? Theme.Alert : Theme.Ok, primary: !b.Running))
                 { if (b.Running) rc.Stop(b.Name); else rc.Start(b.Name); }
-                var ed = new RectF(act.X - 8 - 62, row.Center.Y - 13, 62, 26);
-                if (_ui.Button("rm.ed." + b.Name, ed, "Edit", Theme.Sky))
+                else if (!b.CanEdit) { r.RoundFill(act, Theme.WithAlpha(Theme.Idle, 0.14f), 8f); r.TextCentered(r.Fonts.Get(FontKind.Sans, 10), b.Running ? "running" : "stopped", act, Theme.TextFaint); }
+                var ed = new RectF(act.X - 8 - 58, row.Center.Y - 13, 58, 26);
+                if (_ui.Button("rm.ed." + b.Name, ed, b.CanEdit ? "Edit" : "View", b.CanEdit ? Theme.Sky : Theme.Idle))
                     OpenRemoteBotInEditor(rc, b.Name);
+
+                // sharing chip: lock = private, globe = public (read), globe = shared (public + others can edit).
+                // The owner (or an admin) can click to cycle it; everyone else sees it as a read-only badge.
+                bool canShare = b.Mine || rc.User.Length > 0 && rc.Role == "admin";
+                var (shIco, shLbl, shCol) = b.Private ? ("lock", "Private", Theme.Amber)
+                    : b.Editable ? ("globe", "Shared", Theme.Ok)
+                    : ("globe", "Public", Theme.Sky);
+                var chip = new RectF(ed.X - 8 - 82, row.Center.Y - 13, 82, 26);
+                string chipLbl = Ircuitry.Core.Icons.Glyph(shIco) + " " + shLbl;
+                if (canShare)
+                {
+                    if (_ui.Button("rm.sh." + b.Name, chip, chipLbl, shCol))
+                    {
+                        if (b.Private) rc.SetAcl(b.Name, "public", false);          // private -> public (read only)
+                        else if (!b.Editable) rc.SetAcl(b.Name, "public", true);    // public read -> shared (editable)
+                        else rc.SetAcl(b.Name, "private", false);                   // shared -> private
+                    }
+                }
+                else
+                {
+                    r.RoundFill(chip, Theme.WithAlpha(shCol, 0.16f), 8f);
+                    r.TextCentered(r.Fonts.Get(FontKind.Sans, 11), chipLbl, chip, shCol);
+                }
                 y += 46;
             }
             if (bots.Count == 0) { r.Text(r.Fonts.Get(FontKind.Sans, 12), "No bots in this workspace.", new Vector2(x, y), Theme.TextFaint); y += 24; }

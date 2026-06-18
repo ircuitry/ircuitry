@@ -23,9 +23,17 @@ public sealed class ControlClient : IDisposable
     public string Error = "";
     public string ServerName = "";
     public string User = "";
+    public string Role = "";   // admin / editor / viewer (from the server's hello)
     public string Label = "";   // friendly name for the instance switcher
 
-    public sealed class RemoteBot { public string Name = ""; public bool Running; public string Stat = ""; public int Nodes, Wires; }
+    public sealed class RemoteBot
+    {
+        public string Name = ""; public bool Running; public string Stat = ""; public int Nodes, Wires;
+        // sharing, as this client sees it
+        public string Owner = ""; public string Visibility = "public"; public bool Editable = true;
+        public bool Mine; public bool CanEdit = true;
+        public bool Private => Visibility == "private";
+    }
 
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
@@ -64,6 +72,9 @@ public sealed class ControlClient : IDisposable
         Call("call", new { tool = "get_graph", args = new { bot } }, res => { if (res.TryGetProperty("result", out var g)) onJson(g.GetRawText()); });
 
     public void StartStop(string bot, bool start) => Call(start ? "start" : "stop", new { bot });
+
+    /// <summary>Change a bot's sharing (owner/admin only). visibility is "private" or "public".</summary>
+    public void SetAcl(string bot, string visibility, bool editable) => Call("set_acl", new { bot, visibility, editable });
 
     private string[] _peers = Array.Empty<string>();
     public IReadOnlyList<RemoteBot> Bots { get { lock (_gate) return _bots.ToArray(); } }
@@ -133,6 +144,7 @@ public sealed class ControlClient : IDisposable
                 { Fail(r.TryGetProperty("error", out var e) ? e.GetString() ?? "rejected" : "rejected"); return; }
                 if (r.TryGetProperty("server", out var s) && s.TryGetProperty("name", out var nm)) ServerName = nm.GetString() ?? "";
                 if (r.TryGetProperty("user", out var u)) User = u.GetString() ?? "";
+                if (r.TryGetProperty("role", out var ro)) Role = ro.GetString() ?? "";
             }
             State = Conn.Connected;
             Call("subscribe", new { topics = new[] { "logs", "status", "runs", "nodes", "workspace", "presence" } });
@@ -214,6 +226,21 @@ public sealed class ControlClient : IDisposable
                 Nodes = b.TryGetProperty("nodes", out var n) && n.TryGetInt32(out var ni) ? ni : 0,
                 Wires = b.TryGetProperty("wires", out var w) && w.TryGetInt32(out var wi) ? wi : 0,
             });
+        // fold in each bot's sharing info (acl), when the server sent it
+        int i = 0;
+        foreach (var b in bots.EnumerateArray())
+        {
+            if (i < list.Count && b.TryGetProperty("acl", out var acl) && acl.ValueKind == JsonValueKind.Object)
+            {
+                var rb = list[i];
+                rb.Owner = Get(acl, "owner");
+                rb.Visibility = acl.TryGetProperty("visibility", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "public" : "public";
+                rb.Editable = !acl.TryGetProperty("editable", out var e) || e.ValueKind != JsonValueKind.False;
+                rb.Mine = acl.TryGetProperty("mine", out var mi) && mi.ValueKind == JsonValueKind.True;
+                rb.CanEdit = !acl.TryGetProperty("canEdit", out var ce) || ce.ValueKind != JsonValueKind.False;
+            }
+            i++;
+        }
         lock (_gate) _bots = list;
     }
 

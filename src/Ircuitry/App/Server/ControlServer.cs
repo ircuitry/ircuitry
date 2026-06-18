@@ -21,9 +21,10 @@ namespace Ircuitry.App.Server;
 /// tool registry (the same handlers Claude uses), so the operation surface is shared. Live state - log lines,
 /// node fires, bot status, run history - streams to subscribed clients.
 ///
-/// Auth is a bearer token (first run mints an admin token and prints it). Accounts/roles/sharing layer on later.
+/// Auth is a bearer token (first run mints an admin token and prints it). Global roles (admin/editor/viewer)
+/// set a ceiling; per-bot sharing (owner + private/public + others-can-edit) narrows it - see ControlServer.Acl.cs.
 /// </summary>
-public static class ControlServer
+public static partial class ControlServer
 {
     private static readonly JsonSerializerOptions Json = new() { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
     private static readonly object Gate = new();          // serialises all workspace mutations
@@ -49,6 +50,7 @@ public static class ControlServer
         _app = new AppModel();
         _tools = McpTools.BuildRegistry();
         LoadOrMintTokens();
+        LoadAcl();
 
         // bring up the bots their servers asked to auto-start (matches the GUI); clients can start the rest
         foreach (var bot in _app.Bots)
@@ -255,7 +257,11 @@ public static class ControlServer
             switch (op)
             {
                 case "ping": await Reply(c, id, new { pong = true }); break;
-                case "snapshot": await Reply(c, id, Snapshot()); break;
+                case "snapshot": await Reply(c, id, Snapshot(c)); break;
+                case "set_acl":
+                    await Reply(c, id, SetAcl(c, root));
+                    Broadcast("workspace", new { evt = "workspace", tool = "set_acl", by = c.User });
+                    break;
                 case "subscribe":
                     c.Topics.Clear();
                     if (root.TryGetProperty("topics", out var ts) && ts.ValueKind == JsonValueKind.Array)
@@ -265,8 +271,12 @@ public static class ControlServer
                     if (c.Topics.Contains("presence")) await Send(c, new { evt = "presence", users = _clients.Keys.Where(x => !x.Closed).Select(x => x.User).ToArray() });
                     break;
                 case "start": case "stop":
+                {
                     if (!c.CanEdit) { await ReplyErr(c, id, "this token is read-only (viewer)"); break; }
+                    var sb = ExplicitBotName(root);
+                    if (sb != null && BotExists(sb) && !CanEditBot(c, sb)) { await ReplyErr(c, id, $"you don't have access to '{sb}'"); break; }
                     await Reply(c, id, StartStop(root, op == "start")); break;
+                }
                 case "call":
                 {
                     string tool = Str(root, "tool");
@@ -274,8 +284,17 @@ public static class ControlServer
                     var t = _tools.FirstOrDefault(x => x.Name == tool);
                     if (t == null) { await ReplyErr(c, id, "unknown tool: " + tool); break; }
                     if (t.Mutates && !c.CanEdit) { await ReplyErr(c, id, "this token is read-only (viewer) and cannot edit"); break; }
+                    // per-bot sharing: a request that names a bot is gated by that bot's ACL (read -> see, mutate -> edit)
+                    var target = ExplicitBotName(args);
+                    if (target != null && BotExists(target))
+                    {
+                        if (!CanSee(c, target)) { await ReplyErr(c, id, "no such bot: " + target); break; }   // hide its existence
+                        if (t.Mutates && !CanEditBot(c, target)) { await ReplyErr(c, id, $"you don't have edit access to '{target}'"); break; }
+                    }
+                    var before = tool == "create_bot" ? BotsSnapshot().Select(x => x.Name).ToHashSet() : null;
                     object result;
                     lock (Gate) { result = t.Run(args, _app); if (t.Mutates) _app.Save(announce: false); }
+                    if (before != null) foreach (var nb in BotsSnapshot().Select(x => x.Name)) if (!before.Contains(nb)) ClaimBot(nb, c.User);   // a new bot belongs to its creator
                     await Reply(c, id, new { tool, result });
                     if (t.Mutates) Broadcast("workspace", new { evt = "workspace", tool, by = c.User });   // other editors re-sync
                     break;
@@ -313,14 +332,16 @@ public static class ControlServer
         return _app.Bots.Count > 0 ? _app.ActiveBot : null;
     }
 
-    private static object Snapshot()
+    private static object Snapshot(Client c)
     {
         lock (Gate)
         {
+            var visible = _app.Bots.Where(b => CanSee(c, b.Name)).ToList();   // private bots you don't own are hidden
+            var active = _app.Bots.Count > 0 ? visible.IndexOf(_app.ActiveBot) : -1;
             return new
             {
-                active = _app.Active,
-                bots = _app.Bots.Select(b => new
+                active,
+                bots = visible.Select(b => new
                 {
                     name = b.Name,
                     running = b.Runtime.Running,
@@ -329,6 +350,7 @@ public static class ControlServer
                     wires = b.Graph.Connections.Count,
                     graph = JsonDocument.Parse(Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.Name)).RootElement.Clone(),
                     servers = b.Servers.Select(s => new { s.Label, s.Host, s.Port, tls = s.UseTls, s.Nick, s.Channels, s.ConnectOnStartup }).ToArray(),
+                    acl = AclView(c, b.Name),
                 }).ToArray(),
             };
         }
@@ -340,6 +362,7 @@ public static class ControlServer
         foreach (var bot in BotsSnapshot())
         {
             if (c.FireHooks.Any(h => h.bot == bot)) continue;
+            if (!CanSee(c, bot.Name)) continue;   // don't stream node fires of a bot this client can't see
             var b = bot;
             Action<string> h = nodeId => { if (!c.Closed && c.Topics.Contains("nodes")) _ = Send(c, new { evt = "node", bot = b.Name, id = nodeId }); };
             b.Runtime.OnFired += h;
@@ -357,6 +380,7 @@ public static class ControlServer
             foreach (var b in BotsSnapshot())
             {
                 if (!c.LogRev.ContainsKey(b)) { c.LogRev[b] = b.Log.Revision; c.HistRev[b] = b.Runtime.HistoryRevision; c.Running[b] = b.Runtime.Running; continue; }   // a bot created after connect
+                if (!CanSee(c, b.Name)) continue;   // never stream a private bot's log/status/runs to a client who can't see it
                 if (c.Topics.Contains("logs"))
                 {
                     long rev = b.Log.Revision;
