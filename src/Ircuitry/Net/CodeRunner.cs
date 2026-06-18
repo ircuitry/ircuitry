@@ -14,8 +14,16 @@ namespace Ircuitry.Net;
 public static class CodeRunner
 {
     /// <summary>When true (set by <c>ircuitry --server --no-code</c>), code nodes refuse to run - so a shared/hosted
-    /// instance never executes untrusted Python/JS from a workflow. Full container isolation is the next step.</summary>
+    /// instance never executes untrusted Python/JS from a workflow at all.</summary>
     public static volatile bool Disabled;
+
+    /// <summary>Cut the network off inside the code sandbox. Set on a shared server so a workflow's code can't
+    /// reach the host's network (use the HTTP node for deliberate requests). Left off on a trusted local desktop.</summary>
+    public static volatile bool NoNetwork;
+
+    /// <summary>Confine the code sandbox to a read-only filesystem with only a private temp workdir writable.
+    /// Set on a shared server; off locally so a user's own file-touching scripts keep working.</summary>
+    public static volatile bool ConfineFs;
 
     public static (string output, string? error) Run(string language, string code, Dictionary<string, string> ctx, int timeoutSec)
     {
@@ -23,21 +31,26 @@ public static class CodeRunner
         bool py = language.StartsWith("py", StringComparison.OrdinalIgnoreCase);
         string exe = py ? "python3" : "node";
         string ext = py ? ".py" : ".js";
-        string tmp = Path.Combine(Path.GetTempPath(), "ircuitry-code-" + Guid.NewGuid().ToString("N") + ext);
+        // a private, writable directory per run - the only writable spot when the filesystem is confined
+        string workDir = Path.Combine(Path.GetTempPath(), "ircuitry-code-" + Guid.NewGuid().ToString("N"));
+        string tmp = Path.Combine(workDir, "script" + ext);
 
         try
         {
+            Directory.CreateDirectory(workDir);
             File.WriteAllText(tmp, code);
+            // never launch the interpreter bare: wrap it in the strongest sandbox the host offers
+            var plan = Sandbox.Wrap(exe, tmp, workDir, Math.Clamp(timeoutSec, 1, 20), NoNetwork, ConfineFs);
             var psi = new ProcessStartInfo
             {
-                FileName = exe,
-                ArgumentList = { tmp },
+                FileName = plan.FileName,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+            foreach (var arg in plan.Args) psi.ArgumentList.Add(arg);
             foreach (var kv in ctx) psi.Environment[kv.Key.ToUpperInvariant()] = kv.Value;
 
             using var p = Process.Start(psi);
@@ -73,7 +86,7 @@ public static class CodeRunner
         catch (Exception ex) { return ("", ex.Message); }
         finally
         {
-            try { File.Delete(tmp); }
+            try { Directory.Delete(workDir, recursive: true); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"code temp cleanup failed: {ex.Message}"); }
         }
     }

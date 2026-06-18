@@ -39,6 +39,10 @@ public static class ControlServer
         int port = int.TryParse(Arg(args, "--port"), out var p) ? p : 48700;
         _web = Array.IndexOf(args, "--web") >= 0;
         if (Array.IndexOf(args, "--no-code") >= 0) Ircuitry.Net.CodeRunner.Disabled = true;   // refuse untrusted code on a shared host
+        // a shared server hardens the code sandbox by default: no network, read-only filesystem. Operators who
+        // trust their workflows can loosen each with --code-net / --code-fs.
+        Ircuitry.Net.CodeRunner.NoNetwork = Array.IndexOf(args, "--code-net") < 0;
+        Ircuitry.Net.CodeRunner.ConfineFs = Array.IndexOf(args, "--code-fs") < 0;
         string? data = Arg(args, "--data");
         if (!string.IsNullOrWhiteSpace(data)) Environment.SetEnvironmentVariable("IRCUITRY_HOME", data);
 
@@ -69,6 +73,15 @@ public static class ControlServer
         if (_web) Console.WriteLine($"  cockpit (PWA): http://{(host == "+" ? bind : host)}:{port}/");
         Console.WriteLine($"  admin token: {AdminToken()}");
         Console.WriteLine($"  ({_tokens.Count} token(s); add more with: ircuitry --add-token NAME --role editor|viewer)");
+        // be honest about how well code nodes are contained on THIS host
+        if (Ircuitry.Net.CodeRunner.Disabled)
+            Console.WriteLine("  code nodes: disabled (--no-code)");
+        else if (Ircuitry.Net.Sandbox.StrongIsolation)
+            Console.WriteLine($"  code nodes: sandboxed via {Ircuitry.Net.Sandbox.Mechanism}" + (Ircuitry.Net.CodeRunner.NoNetwork ? ", no network" : "") + (Ircuitry.Net.CodeRunner.ConfineFs ? ", read-only fs" : ""));
+        else
+            Console.WriteLine("  code nodes: WARNING - strong isolation unavailable on this host (no working bubblewrap/userns).\n"
+                + "              code runs resource-capped only, with network + filesystem access. On a shared host\n"
+                + "              install bubblewrap (apt install bubblewrap) for a real sandbox, or pass --no-code.");
 
         using var stop = new ManualResetEventSlim(false);
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Set(); try { listener.Stop(); } catch { } };

@@ -166,6 +166,7 @@ public static class SelfTest
         fails += CapabilityCorsTest();
         fails += ThemeRoundTripTest();
         fails += WebhookTest();
+        fails += CodeSandboxTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -201,6 +202,73 @@ public static class SelfTest
         var sink = new FakeSink();
         GraphExecutor.Fire(g, sink, hook, new System.Collections.Generic.Dictionary<string, string> { ["body"] = "ping", ["channel"] = "#h", ["nick"] = "hook" });
         return Expect("webhook-fire", sink.Sent.Count == 1 && sink.Sent[0] == ("#h", "got ping"), Dump(sink));
+    }
+
+    /// <summary>The code sandbox actually contains the child process: with NoNetwork on, a code node can't reach
+    /// even a loopback listener it connects to fine when the sandbox is relaxed. Self-skips where the host can't
+    /// create a network namespace (no bwrap/unshare or userns disabled) or where node isn't installed, so it
+    /// stays hermetic across CI, containers and dev machines.</summary>
+    private static int CodeSandboxTest()
+    {
+        if (!OperatingSystem.IsLinux()) return Expect("code-sandbox (skipped: non-linux)", true, "");
+        if (!NamespaceIsolationWorks()) return Expect("code-sandbox (skipped: no usable namespace isolation)", true, "");
+
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("code-sandbox (skipped: " + ex.Message + ")", true, ""); }
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var accepter = new Thread(() => { try { while (true) { var c = listener.AcceptTcpClient(); try { c.Close(); } catch { } } } catch { } }) { IsBackground = true };
+        accepter.Start();
+
+        // same script both times: connect to our loopback listener, print whether it got through
+        string js = ("const net=require('net');const s=net.connect({host:'127.0.0.1',port:__P__});let d=false;"
+            + "s.setTimeout(1500);const fin=(m)=>{if(d)return;d=true;console.log(m);try{s.destroy()}catch(e){}process.exit(0)};"
+            + "s.on('connect',()=>fin('CONN_OK'));s.on('error',()=>fin('CONN_FAIL'));s.on('timeout',()=>fin('CONN_FAIL'));")
+            .Replace("__P__", port.ToString());
+        var ctx = new Dictionary<string, string>();
+
+        try
+        {
+            // control: sandbox relaxed -> the loopback connect succeeds
+            Ircuitry.Net.CodeRunner.NoNetwork = false; Ircuitry.Net.CodeRunner.ConfineFs = false;
+            var (okOut, okErr) = Ircuitry.Net.CodeRunner.Run("javascript", js, ctx, 5);
+            if (okOut.Trim() != "CONN_OK")
+                return Expect("code-sandbox (skipped: control did not connect: " + (okOut.Trim().Length > 0 ? okOut.Trim() : okErr) + ")", true, "");
+
+            // blocked: cut the network -> the very same connect is refused
+            Ircuitry.Net.CodeRunner.NoNetwork = true; Ircuitry.Net.CodeRunner.ConfineFs = true;
+            var (blkOut, _) = Ircuitry.Net.CodeRunner.Run("javascript", js, ctx, 5);
+            return Expect("code-sandbox-blocks-network", blkOut.Trim() == "CONN_FAIL", "out=" + blkOut.Trim());
+        }
+        finally
+        {
+            Ircuitry.Net.CodeRunner.NoNetwork = false; Ircuitry.Net.CodeRunner.ConfineFs = false;
+            try { listener.Stop(); } catch { }
+        }
+    }
+
+    // Can this host create a network namespace unprivileged? Probe bwrap then unshare with /bin/true.
+    private static bool NamespaceIsolationWorks()
+    {
+        (string exe, string[] args)[] probes =
+        {
+            ("bwrap", new[] { "--ro-bind", "/", "/", "--unshare-net", "--", "/bin/true" }),
+            ("unshare", new[] { "--user", "--map-root-user", "--net", "/bin/true" }),
+        };
+        foreach (var (exe, args) in probes)
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo { FileName = exe, RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false };
+                foreach (var a in args) psi.ArgumentList.Add(a);
+                using var p = System.Diagnostics.Process.Start(psi);
+                if (p == null) continue;
+                if (!p.WaitForExit(4000)) { try { p.Kill(true); } catch { } continue; }
+                if (p.ExitCode == 0) return true;
+            }
+            catch { }
+        }
+        return false;
     }
 
     /// <summary>DCC: CTCP offer parsing, the 32-bit IP conversion, filename sanitising, and a real loopback
