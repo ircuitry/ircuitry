@@ -199,7 +199,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _staleRemote != null || BakeAnimActive
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -917,6 +917,11 @@ public sealed partial class MainScreen : IScreen
         {
             _ui.Enabled = true;
             DrawStaleModal(r);
+        }
+        else if (_secretCopy.Count > 0)
+        {
+            _ui.Enabled = true;
+            DrawSecretCopyModal(r);
         }
 
         // ---------- gamified tutorial overlay (on top of everything but app modals) ----------

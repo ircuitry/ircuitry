@@ -129,11 +129,29 @@ public partial class MainScreen
         _rmMsg = "";
     }
 
+    private enum RmView { Bots, Vault, Tokens, Info }
+    private RmView _rmView;
+    private string[] _vaultNames = System.Array.Empty<string>();
+    private ControlClient.TokenLine[] _tokenList = System.Array.Empty<ControlClient.TokenLine>();
+    private ControlClient.ServerInfo? _serverInfo;
+    private string _vaultNewName = "", _vaultNewVal = "", _tokUser = "", _tokRole = "editor", _botMenu = "", _newBotName = "";
+    private string _renameRemote = "", _renameVal = "";
+    private string _lastMint = "";
+
+    private void SwitchRmView(RmView v)
+    {
+        _rmView = v; _botMenu = "";
+        var rc = _remote; if (rc == null) return;
+        if (v == RmView.Vault) rc.ListSecrets(n => _vaultNames = n);
+        else if (v == RmView.Tokens) rc.Tokens(t => _tokenList = t);
+        else if (v == RmView.Info) rc.Info(i => _serverInfo = i);
+    }
+
     private void DrawRemoteModal(Renderer r)
     {
         r.Begin();
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
-        float pw = 560, ph = 564;
+        float pw = 580, ph = 588;
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, "Remote server", Theme.Sky);
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
@@ -145,65 +163,30 @@ public partial class MainScreen
         {
             Hud.SoftDot(r, new Vector2(x + 5, y + 7), 4.5f, Theme.Ok);
             r.Text(r.Fonts.Get(FontKind.Display, 15), rc!.ServerName, new Vector2(x + 18, y - 1), Theme.Text);
-            r.Text(r.Fonts.Get(FontKind.Sans, 12), rc.User + "  ·  " + (rc.Peers.Length > 1 ? rc.Peers.Length + " online" : "just you"), new Vector2(x + 18, y + 16), Theme.TextDim);
+            r.Text(r.Fonts.Get(FontKind.Sans, 12), rc.User + "  ·  " + rc.Role + "  ·  " + (rc.Peers.Length > 1 ? rc.Peers.Length + " online" : "just you"), new Vector2(x + 18, y + 16), Theme.TextDim);
             if (_ui.Button("rm.disc", new RectF(panel.Right - 22 - 110, y - 2, 110, 28), "Disconnect", Theme.Alert))
                 DisconnectRemote();
             y += 40;
 
-            r.Text(r.Fonts.Get(FontKind.SansBold, 12), "BOTS", new Vector2(x, y), Theme.TextDim); y += 20;
-            var bots = rc.Bots;
-            int shown = 0;
-            foreach (var b in bots)
+            // view tabs
+            string[] tabs = { "Bots", "Vault", "Info" };
+            bool admin = rc.Role == "admin";
+            var tabList = admin ? new[] { "Bots", "Vault", "Tokens", "Info" } : tabs;
+            float tx = x;
+            foreach (var t in tabList)
             {
-                if (shown++ >= 6) break;
-                var row = new RectF(x, y, w, 40);
-                r.RoundFill(row, Theme.PanelHi, 10f); r.RoundOutline(row, Theme.Hairline, 10f);
-                Hud.SoftDot(r, new Vector2(row.X + 14, row.Center.Y), 4f, b.Running ? Theme.Ok : Theme.Idle);
-                r.Text(r.Fonts.Get(FontKind.SansBold, 13), b.Name, new Vector2(row.X + 28, row.Y + 6), Theme.Text);
-                r.Text(r.Fonts.Get(FontKind.Sans, 11), (b.Running ? "running" : "stopped") + "  ·  " + b.Stat + "  ·  " + b.Nodes + " nodes", new Vector2(row.X + 28, row.Y + 23), Theme.TextDim);
-                var act = new RectF(row.Right - 12 - 70, row.Center.Y - 13, 70, 26);
-                if (b.CanEdit && _ui.Button("rm.ss." + b.Name, act, b.Running ? "Stop" : "Start", b.Running ? Theme.Alert : Theme.Ok, primary: !b.Running))
-                { if (b.Running) rc.Stop(b.Name); else rc.Start(b.Name); }
-                else if (!b.CanEdit) { r.RoundFill(act, Theme.WithAlpha(Theme.Idle, 0.14f), 8f); r.TextCentered(r.Fonts.Get(FontKind.Sans, 10), b.Running ? "running" : "stopped", act, Theme.TextFaint); }
-                var ed = new RectF(act.X - 8 - 58, row.Center.Y - 13, 58, 26);
-                if (_ui.Button("rm.ed." + b.Name, ed, b.CanEdit ? "Edit" : "View", b.CanEdit ? Theme.Sky : Theme.Idle))
-                    OpenRemoteBotInEditor(rc, b.Name);
-
-                // sharing chip: lock = private, globe = public (read), globe = shared (public + others can edit).
-                // The owner (or an admin) can click to cycle it; everyone else sees it as a read-only badge.
-                bool canShare = b.Mine || rc.User.Length > 0 && rc.Role == "admin";
-                var (shIco, shLbl, shCol) = b.Private ? ("lock", "Private", Theme.Amber)
-                    : b.Editable ? ("globe", "Shared", Theme.Ok)
-                    : ("globe", "Public", Theme.Sky);
-                var chip = new RectF(ed.X - 8 - 82, row.Center.Y - 13, 82, 26);
-                string chipLbl = Ircuitry.Core.Icons.Glyph(shIco) + " " + shLbl;
-                if (canShare)
-                {
-                    if (_ui.Button("rm.sh." + b.Name, chip, chipLbl, shCol))
-                    {
-                        if (b.Private) rc.SetAcl(b.Name, "public", false);          // private -> public (read only)
-                        else if (!b.Editable) rc.SetAcl(b.Name, "public", true);    // public read -> shared (editable)
-                        else rc.SetAcl(b.Name, "private", false);                   // shared -> private
-                    }
-                }
-                else
-                {
-                    r.RoundFill(chip, Theme.WithAlpha(shCol, 0.16f), 8f);
-                    r.TextCentered(r.Fonts.Get(FontKind.Sans, 11), chipLbl, chip, shCol);
-                }
-                y += 46;
+                var tv = System.Enum.Parse<RmView>(t);
+                bool sel = _rmView == tv;
+                var tr = new RectF(tx, y, 78, 28);
+                if (_ui.Button("rm.tab." + t, tr, t, sel ? Theme.Sky : Theme.Idle, primary: sel)) SwitchRmView(tv);
+                tx += 84;
             }
-            if (bots.Count == 0) { r.Text(r.Fonts.Get(FontKind.Sans, 12), "No bots in this workspace.", new Vector2(x, y), Theme.TextFaint); y += 24; }
+            y += 38;
 
-            y += 6;
-            r.Text(r.Fonts.Get(FontKind.SansBold, 12), "CONSOLE", new Vector2(x, y), Theme.TextDim); y += 18;
-            var box = new RectF(x, y, w, panel.Bottom - 58 - y);
-            r.RoundFill(box, new Color(42, 36, 25), 10f);
-            var lines = rc.RecentLog(12);
-            float ly = box.Y + 8;
-            var lf = r.Fonts.Get(FontKind.Mono, 11);
-            for (int i = 0; i < lines.Length && ly < box.Bottom - 14; i++)
-            { r.Text(lf, r.Ellipsize(lf, lines[i], w - 18), new Vector2(box.X + 10, ly), new Color(225, 215, 190)); ly += 16; }
+            if (_rmView == RmView.Vault) DrawVaultView(r, panel, x, w, ref y, rc);
+            else if (_rmView == RmView.Tokens && admin) DrawTokensView(r, panel, x, w, ref y, rc);
+            else if (_rmView == RmView.Info) DrawInfoView(r, panel, x, w, ref y, rc);
+            else DrawBotsView(r, panel, x, w, ref y, rc);
         }
         else
         {
@@ -262,6 +245,258 @@ public partial class MainScreen
 
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_remoteJustOpened) _remoteOpen = false;
         _remoteJustOpened = false;
+    }
+
+    // ---------------- Bots view: list, create, edit, pull, rename, delete, push-local ----------------
+    private void DrawBotsView(Renderer r, RectF panel, float x, float w, ref float y, ControlClient rc)
+    {
+        bool canCreate = rc.Role is "admin" or "editor";
+        _newBotName = _ui.TextField("rm.newbot", new RectF(x, y, w - 92, 30), _newBotName, "new bot name");
+        if (_ui.Button("rm.newbtn", new RectF(panel.Right - 22 - 82, y, 82, 30), Ircuitry.Core.Icons.Glyph("plus") + " New", Theme.Ok, primary: true, enabled: canCreate && _newBotName.Trim().Length > 0))
+        { var nm = _newBotName.Trim(); _newBotName = ""; rc.CreateBot(nm, _ => { rc.Snapshot(); OpenRemoteBotInEditor(rc, nm); }); }
+        y += 40;
+
+        var bf = r.Fonts.Get(FontKind.SansBold, 12);
+        r.Text(bf, "SERVER BOTS", new Vector2(x, y), Theme.TextDim); y += 18;
+        var bots = rc.Bots; int shown = 0;
+        foreach (var b in bots)
+        {
+            if (shown++ >= 5) break;
+            var row = new RectF(x, y, w, 40);
+            r.RoundFill(row, Theme.PanelHi, 10f); r.RoundOutline(row, Theme.Hairline, 10f);
+            if (_renameRemote == b.Name)
+            {
+                _renameVal = _ui.TextField("rm.rn", new RectF(row.X + 10, row.Center.Y - 13, w - 10 - 150, 26), _renameVal, "name");
+                if (_ui.Button("rm.rn.ok", new RectF(row.Right - 12 - 70, row.Center.Y - 13, 70, 26), "Save", Theme.Ok, primary: true) && _renameVal.Trim().Length > 0)
+                { rc.RenameBot(b.Name, _renameVal.Trim(), () => rc.Snapshot()); _renameRemote = ""; }
+                if (_ui.Button("rm.rn.x", new RectF(row.Right - 12 - 70 - 8 - 60, row.Center.Y - 13, 60, 26), "Cancel", Theme.Idle)) _renameRemote = "";
+                y += 46; continue;
+            }
+            Hud.SoftDot(r, new Vector2(row.X + 14, row.Center.Y), 4f, b.Running ? Theme.Ok : Theme.Idle);
+            r.Text(r.Fonts.Get(FontKind.SansBold, 13), b.Name, new Vector2(row.X + 28, row.Y + 6), Theme.Text);
+            string tag = b.Private ? Ircuitry.Core.Icons.Glyph("lock") + " private" : b.Editable ? "shared" : "public";
+            r.Text(r.Fonts.Get(FontKind.Sans, 11), (b.Running ? "running" : "stopped") + "  ·  " + b.Nodes + " nodes  ·  " + tag, new Vector2(row.X + 28, row.Y + 23), Theme.TextDim);
+
+            if (_botMenu == b.Name)   // ... action strip: pull / rename / delete
+            {
+                bool owns = b.Mine || rc.Role == "admin";
+                var del = new RectF(row.Right - 12 - 58, row.Center.Y - 13, 58, 26);
+                if (owns && _ui.Button("rm.del." + b.Name, del, "Delete", Theme.Alert)) { rc.DeleteBot(b.Name, () => rc.Snapshot()); _botMenu = ""; }
+                var ren = new RectF(del.X - 8 - 62, row.Center.Y - 13, 62, 26);
+                if (b.CanEdit && _ui.Button("rm.ren." + b.Name, ren, "Rename", Theme.Sky)) { _renameRemote = b.Name; _renameVal = b.Name; _botMenu = ""; }
+                var pull = new RectF(ren.X - 8 - 52, row.Center.Y - 13, 52, 26);
+                if (_ui.Button("rm.pull." + b.Name, pull, "Pull", Theme.Idle)) { PullRemoteBot(rc, b.Name); _botMenu = ""; }
+                var close = new RectF(pull.X - 6 - 24, row.Center.Y - 13, 24, 26);
+                if (_ui.Button("rm.menux." + b.Name, close, "×", Theme.Idle)) _botMenu = "";
+            }
+            else
+            {
+                var act = new RectF(row.Right - 12 - 62, row.Center.Y - 13, 62, 26);
+                if (b.CanEdit && _ui.Button("rm.ss." + b.Name, act, b.Running ? "Stop" : "Start", b.Running ? Theme.Alert : Theme.Ok, primary: !b.Running))
+                { if (b.Running) rc.Stop(b.Name); else rc.Start(b.Name); }
+                else if (!b.CanEdit) { r.RoundFill(act, Theme.WithAlpha(Theme.Idle, 0.14f), 8f); r.TextCentered(r.Fonts.Get(FontKind.Sans, 10), b.Running ? "run" : "idle", act, Theme.TextFaint); }
+                var ed = new RectF(act.X - 8 - 54, row.Center.Y - 13, 54, 26);
+                if (_ui.Button("rm.ed." + b.Name, ed, b.CanEdit ? "Edit" : "View", b.CanEdit ? Theme.Sky : Theme.Idle)) OpenRemoteBotInEditor(rc, b.Name);
+                var more = new RectF(ed.X - 6 - 26, row.Center.Y - 13, 26, 26);
+                if (_ui.Button("rm.more." + b.Name, more, Ircuitry.Core.Icons.Glyph("dots-three"), Theme.Idle)) _botMenu = b.Name;
+            }
+            y += 46;
+        }
+        if (bots.Count == 0) { r.Text(r.Fonts.Get(FontKind.Sans, 12), "No bots you can see here.", new Vector2(x, y), Theme.TextFaint); y += 22; }
+
+        // push a local workflow up to the server
+        var locals = _app.Bots.Where(lb => !lb.IsRemote).ToList();
+        if (canCreate && locals.Count > 0)
+        {
+            y += 4; r.Text(bf, Ircuitry.Core.Icons.Glyph("upload-simple") + " PUSH A LOCAL BOT TO THE SERVER", new Vector2(x, y), Theme.TextDim); y += 18;
+            float px = x;
+            int ls = 0;
+            foreach (var lb in locals)
+            {
+                if (ls++ >= 4) break;
+                var sz = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(lb.Name).X + 30;
+                if (px + sz > x + w) { px = x; y += 32; }
+                if (_ui.Button("rm.push." + lb.Name, new RectF(px, y, sz, 28), Ircuitry.Core.Icons.Glyph("upload-simple") + " " + lb.Name, Theme.Sky))
+                    PushLocalBot(lb, rc);
+                px += sz + 8;
+            }
+            y += 34;
+        }
+    }
+
+    /// <summary>Copy a server bot down into this workspace as an ordinary local bot.</summary>
+    private void PullRemoteBot(ControlClient session, string remoteName)
+    {
+        session.GetGraph(remoteName, json =>
+        {
+            try
+            {
+                var (graph, _) = Ircuitry.Graph.GraphSerializer.Load(json);
+                string nm = remoteName; for (int k = 2; _app.Bots.Any(x => x.Name == nm); k++) nm = remoteName + " " + k;
+                var bot = new Bot(nm) { Graph = graph };
+                var rb = session.Bots.FirstOrDefault(x => x.Name == remoteName);
+                if (rb != null)
+                {
+                    if (rb.Servers.Count > 0) { bot.Servers.Clear(); foreach (var s in rb.Servers) bot.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = s.Label, Host = s.Host, Port = s.Port, UseTls = s.Tls, Nick = s.Nick, Channels = s.Channels, RealName = s.RealName, ConnectOnStartup = s.ConnectOnStartup }); }
+                    foreach (var kv in rb.Vars) bot.State[kv.Key] = kv.Value;
+                }
+                _app.Bots.Add(bot); _app.Active = _app.Bots.Count - 1; _app.MarkDirty();
+                Notify(Ircuitry.Core.Icons.Glyph("download-simple") + " pulled " + remoteName + " into your workspace");
+            }
+            catch (System.Exception ex) { Bot.Log.Add(LogLevel.Error, "pull failed: " + ex.Message); }
+        });
+    }
+
+    /// <summary>Publish a local bot to the connected server (create or overwrite same-name), then offer to copy
+    /// any {{secret.X}} it needs that the server's vault is missing.</summary>
+    private void PushLocalBot(Bot local, ControlClient rc)
+    {
+        string nm = local.Name;
+        var existing = rc.Bots.FirstOrDefault(b => b.Name == nm);
+        long baseRev = existing?.Rev ?? 0;
+        void Push()
+        {
+            rc.PushGraph(nm, Ircuitry.Graph.GraphSerializer.Save(local.Graph, nm), baseRev, (rev, stale) => { if (stale) Notify("server already has a newer " + nm + " - open it to merge"); });
+            rc.PushServers(nm, local.Servers);
+            rc.PushState(nm, new Dictionary<string, string>(local.State));
+            OfferSecretCopy(rc, local);
+            rc.Snapshot();
+            Notify(Ircuitry.Core.Icons.Glyph("upload-simple") + " pushed " + nm + " to the server");
+        }
+        if (existing == null) rc.CreateBot(nm, _ => Push());
+        else Push();
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex _secretRef = new(@"\{\{\s*secret\.([^}\s]+)\s*\}\}", System.Text.RegularExpressions.RegexOptions.Compiled);
+    private List<string> _secretCopy = new(); private ControlClient? _secretCopySession;
+
+    /// <summary>After a push, find the {{secret.X}} keys the bot needs that the server lacks but we have, and
+    /// offer to copy their values up.</summary>
+    private void OfferSecretCopy(ControlClient rc, Bot local)
+    {
+        var refs = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        void Scan(string v) { foreach (System.Text.RegularExpressions.Match m in _secretRef.Matches(v ?? "")) refs.Add(m.Groups[1].Value); }
+        foreach (var n in local.Graph.Nodes) foreach (var p in n.Params) Scan(p.Value);
+        foreach (var s in local.Servers) { Scan(s.SaslUser); Scan(s.SaslPass); Scan(s.ServerPass); }
+        var mine = refs.Where(Ircuitry.Core.Secrets.Has).ToList();   // only ones we can actually supply
+        if (mine.Count == 0) return;
+        rc.ListSecrets(serverNames =>
+        {
+            var have = new HashSet<string>(serverNames, System.StringComparer.OrdinalIgnoreCase);
+            var missing = mine.Where(n => !have.Contains(n)).ToList();
+            if (missing.Count > 0) { _secretCopy = missing; _secretCopySession = rc; }
+        });
+    }
+
+    private void DrawSecretCopyModal(Renderer r)
+    {
+        var rc = _secretCopySession; if (rc == null || _secretCopy.Count == 0) { _secretCopy.Clear(); return; }
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = 460, ph = 130 + Math.Min(6, _secretCopy.Count) * 20 + 60;
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Copy keys to the server?", Theme.Violet);
+        float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 14;
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), "This bot uses keys the server's vault doesn't have. Copy their values up (over the encrypted connection) so it can run there?", w))
+        { r.Text(r.Fonts.Get(FontKind.Sans, 13), line, new Vector2(x, y), Theme.TextDim); y += 18; }
+        y += 4;
+        for (int i = 0; i < _secretCopy.Count && i < 6; i++) { r.Text(r.Fonts.Get(FontKind.SansBold, 12), Ircuitry.Core.Icons.Glyph("key") + "  " + _secretCopy[i], new Vector2(x + 6, y), Theme.Lime); y += 20; }
+        var copy = new RectF(x, panel.Bottom - 50, 150, 34);
+        var skip = new RectF(panel.Right - 22 - 90, panel.Bottom - 50, 90, 34);
+        if (_ui.Button("sc.copy", copy, "Copy " + _secretCopy.Count + " key(s)", Theme.Lime, primary: true))
+        { foreach (var n in _secretCopy) rc.SetSecret(n, Ircuitry.Core.Secrets.Get(n)); Notify("copied " + _secretCopy.Count + " key(s) to the server vault"); _secretCopy.Clear(); _secretCopySession = null; }
+        if (_ui.Button("sc.skip", skip, "Skip", Theme.Idle)) { _secretCopy.Clear(); _secretCopySession = null; }
+        r.End();
+    }
+
+    // ---------------- Vault view: the server's stored credentials ----------------
+    private void DrawVaultView(Renderer r, RectF panel, float x, float w, ref float y, ControlClient rc)
+    {
+        bool canEdit = rc.Role is "admin" or "editor";
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), "The server's stored keys, referenced as {{secret.NAME}} by its bots. Values are write-only - they're never sent back.", w))
+        { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 16; }
+        y += 6;
+        if (canEdit)
+        {
+            _vaultNewName = _ui.TextField("rm.vname", new RectF(x, y, 150, 30), _vaultNewName, "name e.g. openai");
+            _vaultNewVal = _ui.TextField("rm.vval", new RectF(x + 158, y, w - 158 - 78, 30), _vaultNewVal, "value", password: true);
+            if (_ui.Button("rm.vadd", new RectF(panel.Right - 22 - 70, y, 70, 30), "Add", Theme.Ok, primary: true) && _vaultNewName.Trim().Length > 0)
+            { rc.SetSecret(_vaultNewName.Trim(), _vaultNewVal, () => rc.ListSecrets(n => _vaultNames = n)); _vaultNewName = ""; _vaultNewVal = ""; }
+            y += 40;
+        }
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), _vaultNames.Length + " KEY(S)", new Vector2(x, y), Theme.TextDim); y += 20;
+        int shown = 0;
+        foreach (var name in _vaultNames)
+        {
+            if (shown++ >= 9) break;
+            var row = new RectF(x, y, w, 32);
+            r.RoundFill(row, Theme.PanelHi, 8f);
+            r.Text(r.Fonts.Get(FontKind.SansBold, 12), Ircuitry.Core.Icons.Glyph("key") + "  " + name, new Vector2(row.X + 10, row.Center.Y - 8), Theme.Text);
+            if (canEdit && _ui.Button("rm.vdel." + name, new RectF(row.Right - 8 - 62, row.Center.Y - 12, 62, 24), "Delete", Theme.Alert))
+                rc.DeleteSecret(name, () => rc.ListSecrets(n => _vaultNames = n));
+            y += 36;
+        }
+        if (_vaultNames.Length == 0) { r.Text(r.Fonts.Get(FontKind.Sans, 12), "No keys on the server yet.", new Vector2(x, y), Theme.TextFaint); y += 20; }
+    }
+
+    // ---------------- Tokens view (admin): access tokens ----------------
+    private void DrawTokensView(Renderer r, RectF panel, float x, float w, ref float y, ControlClient rc)
+    {
+        _tokUser = _ui.TextField("rm.tu", new RectF(x, y, 150, 30), _tokUser, "user name");
+        if (_ui.Button("rm.trole", new RectF(x + 158, y, 90, 30), _tokRole, Theme.Idle))
+            _tokRole = _tokRole == "viewer" ? "editor" : _tokRole == "editor" ? "admin" : "viewer";
+        if (_ui.Button("rm.tmint", new RectF(panel.Right - 22 - 80, y, 80, 30), "Mint", Theme.Ok, primary: true) && _tokUser.Trim().Length > 0)
+        { rc.MintToken(_tokUser.Trim(), _tokRole, tk => { _lastMint = tk; rc.Tokens(t => _tokenList = t); }); _tokUser = ""; }
+        y += 38;
+        if (_lastMint.Length > 0)
+        {
+            var box = new RectF(x, y, w, 34); r.RoundFill(box, Theme.WithAlpha(Theme.Ok, 0.16f), 8f);
+            r.Text(r.Fonts.Get(FontKind.Mono, 12), r.Ellipsize(r.Fonts.Get(FontKind.Mono, 12), _lastMint, w - 150), new Vector2(box.X + 10, box.Center.Y - 8), Theme.Text);
+            if (_ui.Button("rm.tmcopy", new RectF(box.Right - 8 - 120, box.Y + 5, 120, 24), "Copy & dismiss", Theme.Ok))
+            { try { Ircuitry.Core.Clipboard.SetText(_lastMint); } catch { } _lastMint = ""; }
+            y += 42;
+        }
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), _tokenList.Length + " TOKEN(S)", new Vector2(x, y), Theme.TextDim); y += 20;
+        int shown = 0;
+        foreach (var t in _tokenList)
+        {
+            if (shown++ >= 8) break;
+            var row = new RectF(x, y, w, 32); r.RoundFill(row, Theme.PanelHi, 8f);
+            r.Text(r.Fonts.Get(FontKind.SansBold, 12), t.User, new Vector2(row.X + 10, row.Center.Y - 8), Theme.Text);
+            r.Text(r.Fonts.Get(FontKind.Mono, 11), t.Id + "  ·  " + t.Role, new Vector2(row.X + 120, row.Center.Y - 7), Theme.TextDim);
+            if (_ui.Button("rm.trev." + t.Id, new RectF(row.Right - 8 - 64, row.Center.Y - 12, 64, 24), "Revoke", Theme.Alert))
+                rc.RevokeToken(t.Id, () => rc.Tokens(tk => _tokenList = tk));
+            y += 36;
+        }
+    }
+
+    // ---------------- Info view: server overview ----------------
+    private void DrawInfoView(Renderer r, RectF panel, float x, float w, ref float y, ControlClient rc)
+    {
+        if (_ui.Button("rm.inforef", new RectF(panel.Right - 22 - 80, y - 2, 80, 26), "Refresh", Theme.Idle)) rc.Info(i => _serverInfo = i);
+        var info = _serverInfo;
+        if (info == null) { r.Text(r.Fonts.Get(FontKind.Sans, 13), "loading…", new Vector2(x, y), Theme.TextFaint); return; }
+        var up = System.TimeSpan.FromSeconds(info.UptimeSec);
+        var rows = new (string k, string v)[]
+        {
+            ("version", "ircuitry " + info.Version),
+            ("uptime", up.Days > 0 ? $"{up.Days}d {up.Hours}h" : up.Hours > 0 ? $"{up.Hours}h {up.Minutes}m" : $"{up.Minutes}m {up.Seconds}s"),
+            ("bots", info.Bots.ToString()),
+            ("code nodes", info.Code),
+        };
+        foreach (var (k, v) in rows)
+        { r.Text(r.Fonts.Get(FontKind.Sans, 13), k, new Vector2(x, y), Theme.TextDim); r.Text(r.Fonts.Get(FontKind.SansBold, 13), v, new Vector2(x + 130, y), Theme.Text); y += 24; }
+        y += 6;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), info.Clients.Length + " CONNECTED", new Vector2(x, y), Theme.TextDim); y += 20;
+        foreach (var c in info.Clients)
+        {
+            var row = new RectF(x, y, w, 30); r.RoundFill(row, Theme.PanelHi, 8f);
+            var (cr, cg, cb) = ControlClient.PeerColor(c.user);
+            Hud.SoftDot(r, new Vector2(row.X + 13, row.Center.Y), 4f, new Color(cr, cg, cb));
+            r.Text(r.Fonts.Get(FontKind.SansBold, 12), c.user, new Vector2(row.X + 26, row.Center.Y - 8), Theme.Text);
+            r.Text(r.Fonts.Get(FontKind.Sans, 11), c.role + (c.editing.Length > 0 ? "  ·  editing " + c.editing : ""), new Vector2(row.X + 120, row.Center.Y - 7), Theme.TextDim);
+            y += 34;
+        }
     }
 
     // ---------------- remote editing: open a remote bot as a tab, push edits, mirror its log ----------------
