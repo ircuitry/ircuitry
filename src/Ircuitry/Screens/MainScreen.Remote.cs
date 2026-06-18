@@ -34,37 +34,47 @@ public partial class MainScreen
     /// <summary>Keep the remote session live every frame (drains its reply/event callbacks).</summary>
     private void RemotePump() => _remote?.Pump();
 
-    private string ServersFile => Path.Combine(AppModel.WorkspaceDir, "servers.json");
+    // remote control-plane servers - kept in their OWN file. (servers.json belongs to the IRC server-profile
+    // store, Core/Servers.cs; an older build wrongly shared it, which clobbered users' saved IRC servers.)
+    private string ServersFile => Path.Combine(AppModel.WorkspaceDir, "remote-servers.json");
+    private string LegacyServersFile => Path.Combine(AppModel.WorkspaceDir, "servers.json");
     private static string ServerTokenKey(string url) => "server:" + url.Trim();
     private string SavedKeyFor(string url) { foreach (var s in _rmSaved) if (s.url == url.Trim()) return s.tokenKey ?? ""; return ""; }
 
     private void LoadServers()
     {
         _rmSaved.Clear();
-        bool migrated = false;
+        bool dirty = false;
         try
         {
-            if (!File.Exists(ServersFile)) return;
-            using var d = JsonDocument.Parse(File.ReadAllText(ServersFile));
+            string path = ServersFile;
+            if (!File.Exists(path))
+            {
+                if (!File.Exists(LegacyServersFile)) return;
+                path = LegacyServersFile; dirty = true;   // one-time rescue of remote entries from the old shared file
+            }
+            using var d = JsonDocument.Parse(File.ReadAllText(path));
+            if (d.RootElement.ValueKind != JsonValueKind.Array) return;
             foreach (var e in d.RootElement.EnumerateArray())
             {
+                // only remote-shaped (url-bearing) entries are ours; IRC server profiles in the legacy file are ignored
+                if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty("url", out var u)) continue;
+                string url = u.GetString() ?? "";
+                if (string.IsNullOrWhiteSpace(url)) { dirty = true; continue; }
                 string label = e.TryGetProperty("label", out var l) ? l.GetString() ?? "" : "";
-                string url = e.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
                 string key = e.TryGetProperty("tokenKey", out var k) ? k.GetString() ?? "" : "";
-                if (string.IsNullOrWhiteSpace(url)) { migrated = true; continue; }   // drop blank/junk entries and re-persist clean
-                // legacy: a raw token was stored in servers.json - move it into the key store and scrub the file
-                if (key.Length == 0 && e.TryGetProperty("token", out var t))
+                if (key.Length == 0 && e.TryGetProperty("token", out var t))   // legacy raw token -> move into the key store
                 {
                     string raw = t.GetString() ?? "";
                     key = ServerTokenKey(url);
                     if (raw.Length > 0) Ircuitry.Core.Secrets.Set(key, raw);
-                    migrated = true;
+                    dirty = true;
                 }
                 _rmSaved.Add((label, url, key));
             }
         }
         catch { }
-        if (migrated) PersistServers();   // rewrite servers.json with key references only
+        if (dirty) PersistServers();   // writes remote-servers.json only - never touches servers.json
     }
 
     private void PersistServers()
