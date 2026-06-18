@@ -195,7 +195,10 @@ public sealed class AppModel
             Directory.CreateDirectory(WorkspaceDir);
             // keep one backup of the previous save as a safety net
             if (File.Exists(WorkspacePath)) { try { File.Copy(WorkspacePath, WorkspacePath + ".bak", true); } catch { } }
-            var json = WorkspaceSerializer.Save(Bots, Active);
+            // remote tabs are live session state, not workspace content - never write them to disk
+            var local = Bots.Where(b => !b.IsRemote).ToList();
+            int localActive = (Active >= 0 && Active < Bots.Count && !Bots[Active].IsRemote) ? local.IndexOf(Bots[Active]) : 0;
+            var json = WorkspaceSerializer.Save(local, Math.Max(0, localActive));
             File.WriteAllText(WorkspacePath, json);
             _lastPersisted = json;        // remember our own write so the file-watcher ignores it
             Dirty = false;
@@ -286,8 +289,11 @@ public sealed class AppModel
             int keptLive = 0;
             var merged = new List<Bot>();
             var consumed = new HashSet<Bot>();
+            var activeBot = (Active >= 0 && Active < Bots.Count) ? Bots[Active] : null;
             foreach (var cur in Bots)
             {
+                // remote tabs are session-only and never appear on disk - carry them through untouched
+                if (cur.IsRemote) { merged.Add(cur); continue; }
                 if (!cur.Runtime.Running) { try { cur.Runtime.Stop(); } catch { } continue; }
                 var match = bots.FirstOrDefault(nb => nb.Name == cur.Name && !consumed.Contains(nb));
                 if (match != null) { consumed.Add(match); try { cur.Graph.ReplaceWith(match.Graph); } catch { } }
@@ -298,7 +304,8 @@ public sealed class AppModel
 
             Bots.Clear();
             Bots.AddRange(merged);
-            Active = Math.Clamp(active, 0, Bots.Count - 1);
+            // keep the same tab focused if it survived; otherwise fall back to the disk's active index
+            Active = activeBot != null && merged.Contains(activeBot) ? merged.IndexOf(activeBot) : Math.Clamp(active, 0, Bots.Count - 1);
             _lastPersisted = text;
             Dirty = false;
             ActiveBot.Log.Add(LogLevel.System, keptLive > 0

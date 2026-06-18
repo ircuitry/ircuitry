@@ -41,6 +41,29 @@ public sealed class ControlClient : IDisposable
 
     /// <summary>(bot, nodeId) when a remote node fires - for canvas glow. Invoked on the UI thread (Pump).</summary>
     public Action<string, string>? OnNode;
+    /// <summary>(bot, level, text) for each remote log line - so an open remote tab can mirror it into its console.</summary>
+    public Action<string, string, string>? OnLog;
+
+    private readonly ConcurrentDictionary<string, DateTime> _fired = new();   // "botnode" -> last fire (for glow)
+
+    /// <summary>0..1 glow for a remote node that recently fired (fades over ~0.9s) - mirrors BotRuntime.FireGlow.</summary>
+    public float FireGlow(string bot, string node)
+    {
+        if (!_fired.TryGetValue(bot + "\u001f" + node, out var t)) return 0f;
+        float e = (float)(DateTime.UtcNow - t).TotalSeconds;
+        return e < 0 || e > 0.9f ? 0f : 1f - e / 0.9f;
+    }
+
+    public bool BotRunning(string name) { lock (_gate) return _bots.Exists(b => b.Name == name && b.Running); }
+
+    /// <summary>Push a full graph (.ircbot JSON) to a remote bot (set_graph). The server applies, persists and broadcasts.</summary>
+    public void PushGraph(string bot, string json) => Call("call", new { tool = "set_graph", args = new { bot, json } });
+
+    /// <summary>Fetch a remote bot's graph (.ircbot JSON string) and hand it back on the UI thread.</summary>
+    public void GetGraph(string bot, Action<string> onJson) =>
+        Call("call", new { tool = "get_graph", args = new { bot } }, res => { if (res.TryGetProperty("result", out var g)) onJson(g.GetRawText()); });
+
+    public void StartStop(string bot, bool start) => Call(start ? "start" : "stop", new { bot });
 
     private string[] _peers = Array.Empty<string>();
     public IReadOnlyList<RemoteBot> Bots { get { lock (_gate) return _bots.ToArray(); } }
@@ -148,14 +171,22 @@ public sealed class ControlClient : IDisposable
         switch (evt)
         {
             case "log":
-                AppendLog($"[{Get(m, "bot")}] {Get(m, "time")} {Get(m, "level"),-6} {Get(m, "text")}");
+            {
+                string bot = Get(m, "bot"), lvl = Get(m, "level"), txt = Get(m, "text");
+                AppendLog($"[{bot}] {Get(m, "time")} {lvl,-6} {txt}");
+                if (OnLog != null) _ui.Enqueue(() => OnLog?.Invoke(bot, lvl, txt));
                 break;
+            }
             case "status":
                 Snapshot();   // refresh the bot list's running/state
                 break;
             case "node":
-                if (OnNode != null) { string bot = Get(m, "bot"), id = Get(m, "id"); _ui.Enqueue(() => OnNode?.Invoke(bot, id)); }
+            {
+                string bot = Get(m, "bot"), id = Get(m, "id");
+                _fired[bot + "\u001f" + id] = DateTime.UtcNow;                       // drive remote canvas glow
+                if (OnNode != null) _ui.Enqueue(() => OnNode?.Invoke(bot, id));
                 break;
+            }
             case "run":
                 AppendLog($"[{Get(m, "bot")}] ran {Get(m, "trigger")} - {Get(m, "summary")}");
                 break;

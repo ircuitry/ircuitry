@@ -96,9 +96,12 @@ public partial class MainScreen
                 Hud.SoftDot(r, new Vector2(row.X + 14, row.Center.Y), 4f, b.Running ? Theme.Ok : Theme.Idle);
                 r.Text(r.Fonts.Get(FontKind.SansBold, 13), b.Name, new Vector2(row.X + 28, row.Y + 6), Theme.Text);
                 r.Text(r.Fonts.Get(FontKind.Sans, 11), (b.Running ? "running" : "stopped") + "  ·  " + b.Stat + "  ·  " + b.Nodes + " nodes", new Vector2(row.X + 28, row.Y + 23), Theme.TextDim);
-                var act = new RectF(row.Right - 12 - 84, row.Center.Y - 13, 84, 26);
+                var act = new RectF(row.Right - 12 - 74, row.Center.Y - 13, 74, 26);
                 if (_ui.Button("rm.ss." + b.Name, act, b.Running ? "Stop" : "Start", b.Running ? Theme.Alert : Theme.Ok, primary: !b.Running))
                 { if (b.Running) rc.Stop(b.Name); else rc.Start(b.Name); }
+                var ed = new RectF(act.X - 8 - 62, row.Center.Y - 13, 62, 26);
+                if (_ui.Button("rm.ed." + b.Name, ed, "Edit", Theme.Sky))
+                    OpenRemoteBotInEditor(rc, b.Name);
                 y += 46;
             }
             if (bots.Count == 0) { r.Text(r.Fonts.Get(FontKind.Sans, 12), "No bots in this workspace.", new Vector2(x, y), Theme.TextFaint); y += 24; }
@@ -154,6 +157,67 @@ public partial class MainScreen
 
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_remoteJustOpened) _remoteOpen = false;
         _remoteJustOpened = false;
+    }
+
+    // ---------------- remote editing: open a remote bot as a tab, push edits, mirror its log ----------------
+    private long _remoteSig;
+    private double _remotePushAt = -1;
+    private Bot? _remoteLastBot;
+
+    /// <summary>Open a bot living on a connected server as an editable tab. Edits push back to the server; its
+    /// console + glow stream from the session. The tab bar doubles as your local/remote switcher.</summary>
+    public void OpenRemoteBotInEditor(ControlClient session, string remoteName)
+    {
+        session.GetGraph(remoteName, json =>   // runs on the UI thread (Pump)
+        {
+            try
+            {
+                var (graph, _) = Ircuitry.Graph.GraphSerializer.Load(json);
+                int existing = _app.Bots.FindIndex(b => b.IsRemote && b.Remote == session && b.RemoteName == remoteName);
+                if (existing >= 0) { _app.Bots[existing].Graph.ReplaceWith(graph); _app.Active = existing; }
+                else
+                {
+                    var bot = new Bot(remoteName + " @ " + session.Label) { Graph = graph, Remote = session, RemoteName = remoteName };
+                    _app.Bots.Add(bot); _app.Active = _app.Bots.Count - 1;
+                }
+                HookRemoteLog(session);
+                _remoteLastBot = null;     // force a fresh push baseline on the next tick (no spurious re-push)
+                _remoteOpen = false;       // drop the modal, show the canvas
+            }
+            catch (System.Exception ex) { _rmMsg = "open failed: " + ex.Message; }
+        });
+    }
+
+    private void HookRemoteLog(ControlClient session)
+    {
+        session.OnLog = (botName, level, text) =>   // UI thread
+        {
+            var b = _app.Bots.Find(x => x.IsRemote && x.Remote == session && x.RemoteName == botName);
+            if (b != null) b.Log.Add(System.Enum.TryParse<LogLevel>(level, out var lv) ? lv : LogLevel.System, text);
+        };
+    }
+
+    // cheap change signature including node positions, so moves/edits all trigger a debounced push
+    private static long RemoteSig(Graph.NodeGraph g)
+    {
+        long h = g.BehaviorSignature();
+        foreach (var n in g.Nodes) h = unchecked(h * 31 + (long)n.Pos.X * 92821 + (long)n.Pos.Y * 53 + n.Id.GetHashCode());
+        return h;
+    }
+
+    /// <summary>Each frame: if the active tab is a connected remote bot, debounce-push its graph to the server.</summary>
+    private void RemoteEditTick(Clock clock)
+    {
+        var b = Bot;
+        if (b != _remoteLastBot) { _remoteLastBot = b; _remoteSig = b.IsRemote ? RemoteSig(b.Graph) : 0; _remotePushAt = -1; }
+        if (!b.IsRemote || b.Remote?.Connected != true) return;
+        long sig = RemoteSig(b.Graph);
+        if (sig != _remoteSig) { _remoteSig = sig; _remotePushAt = clock.Time + 0.8; }   // settle 0.8s after the last edit
+        if (_remotePushAt >= 0 && clock.Time >= _remotePushAt)
+        {
+            _remotePushAt = -1;
+            try { b.Remote!.PushGraph(b.RemoteName, Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.RemoteName)); } catch { }
+        }
     }
 
     public void DebugOpenRemote()

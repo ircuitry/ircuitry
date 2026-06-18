@@ -180,7 +180,7 @@ public sealed partial class MainScreen
     // flat, chunky look as the inspector's RUN BOT, not a glossy candy pill.
     private void DrawPlayStop(Renderer r, RectF rect)
     {
-        bool running = Bot.Runtime.Running;
+        bool running = RunningOf(Bot);
         bool hot = !Modal && rect.Contains(In.Mouse);
         Color baseCol = running ? Theme.Mix(Theme.Alert, Color.White, 0.10f) : Theme.Mix(Theme.Ok, Color.White, 0.28f);
         Color fill = hot ? Theme.Mix(baseCol, Color.White, 0.12f) : baseCol;
@@ -320,7 +320,14 @@ public sealed partial class MainScreen
             r.RoundOutline(tab, Theme.Edge, 9f);
         }
         r.RoundFill(new RectF(tab.X + 6, tab.Y + 4, tab.W - 12, 4), Theme.WithAlpha(col, active ? 0.95f : 0.7f), 2f);
-        if (active) Hud.SoftDot(r, new Vector2(tab.X + 16, tab.Center.Y + 3), 3.4f, col);
+        if (bot.IsRemote)   // a little cloud where the status dot would be: this bot lives on a server
+        {
+            var cf = r.Fonts.Get(FontKind.Sans, 13);
+            string cg = Ircuitry.Core.Icons.Glyph("cloud");
+            var cm = cf.MeasureString(cg);
+            r.Text(cf, cg, new Vector2(tab.X + 16 - cm.X / 2f, tab.Center.Y + 3 - cm.Y / 2f), Theme.WithAlpha(col, active ? 0.95f : 0.75f));
+        }
+        else if (active) Hud.SoftDot(r, new Vector2(tab.X + 16, tab.Center.Y + 3), 3.4f, col);
         else r.Disc(new Vector2(tab.X + 16, tab.Center.Y + 3), 3f, col);
 
         if (renaming)

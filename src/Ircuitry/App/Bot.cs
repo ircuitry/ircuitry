@@ -32,6 +32,12 @@ public sealed class Bot
     public readonly ConcurrentDictionary<string, string> State = new();   // bot variables (persisted)
     public readonly BotRuntime Runtime;
 
+    // ---- remote link: when set, this tab edits a bot living on a remote ircuitry --server. The local runtime
+    // is idle; edits push to the server, and run/glow/console come from the session. (Local bots leave these null.)
+    public Ircuitry.App.Server.ControlClient? Remote;
+    public string RemoteName = "";
+    public bool IsRemote => Remote != null;
+
     public Bot(string name)
     {
         Runtime = new BotRuntime(Log, State);   // assign before Name so the setter can sync OwnerName

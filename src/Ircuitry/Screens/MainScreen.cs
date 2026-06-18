@@ -207,7 +207,7 @@ public sealed partial class MainScreen : IScreen
         _app = app;
         _editor = new GraphEditor(_app.ActiveBot.Graph)
         {
-            FireGlow = id => _app.ActiveBot.Runtime.FireGlow(id),
+            FireGlow = id => { var b = _app.ActiveBot; return b.IsRemote ? b.Remote!.FireGlow(b.RemoteName, id) : b.Runtime.FireGlow(id); },
             FireCount = id => _app.ActiveBot.Runtime.FireCount(id),
             Notify = PushToast,
         };
@@ -615,7 +615,8 @@ public sealed partial class MainScreen : IScreen
         _l = Layout.Compute(_vw, _vh, _consoleH);
         ClipboardPoll(clock);
         AchievementsTick(clock);
-        RemotePump();   // keep any remote-server session live (drains its callbacks/events)
+        RemotePump();        // keep any remote-server session live (drains its callbacks/events)
+        RemoteEditTick(clock);   // debounce-push edits of a remote bot tab to its server
         foreach (var b in _app.Bots) b.Runtime.PlaybackStep(clock.Time);   // reveal queued node glows (slow-mo); instant + drains when off
 
         if (DebugAutoHistory && Bot.Runtime.HistoryCount > 0 && (!_historyOpen || _historyRuns.Count != Bot.Runtime.HistoryCount)) OpenHistory();
@@ -702,7 +703,7 @@ public sealed partial class MainScreen : IScreen
         _l = Layout.Compute(_vw, _vh, _consoleH);
         if (_demoShotFit && _vw > 0) { _demoShotFit = false; _editor.FocusContent(_l.Canvas); }   // frame the demo graph for screenshots
         _editor.Graph = Bot.Graph;
-        _editor.Running = Bot.Runtime.Running;
+        _editor.Running = RunningOf(Bot);
         if (!ReferenceEquals(_lastGraph, Bot.Graph)) { _editor.Selection.Clear(); _lastGraph = Bot.Graph; }
         _ui.Begin(r, In, clock);
         _ui.Enabled = !Modal;   // a modal blocks the widgets underneath it
@@ -2461,9 +2462,10 @@ public sealed partial class MainScreen : IScreen
             y += 38;
         }
 
+        bool runningNow = RunningOf(Bot);
         if (_ui.Button("c.run", new RectF(x, y, w, 34),
-                Bot.Runtime.Running ? Ircuitry.Core.Icons.Glyph("square") + "  STOP BOT" : (Bot.Servers.Count > 1 ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ALL SERVERS" : Ircuitry.Core.Icons.Glyph("play") + "  RUN BOT"),
-                Bot.Runtime.Running ? Theme.Alert : Theme.Cyan, primary: true))
+                runningNow ? Ircuitry.Core.Icons.Glyph("square") + "  STOP BOT" : (Bot.IsRemote ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ON SERVER" : Bot.Servers.Count > 1 ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ALL SERVERS" : Ircuitry.Core.Icons.Glyph("play") + "  RUN BOT"),
+                runningNow ? Theme.Alert : Theme.Cyan, primary: true))
             ToggleRun();
         return y + 42;
     }
@@ -3215,9 +3217,14 @@ public sealed partial class MainScreen : IScreen
 
     private void ToggleRun()
     {
-        if (Bot.Runtime.Running) Bot.Runtime.Stop();
-        else Bot.Runtime.Start(Bot.Graph, Bot.Servers);
+        var b = Bot;
+        if (b.IsRemote) { b.Remote!.StartStop(b.RemoteName, !b.Remote.BotRunning(b.RemoteName)); return; }   // run/stop on the server
+        if (b.Runtime.Running) b.Runtime.Stop();
+        else b.Runtime.Start(b.Graph, b.Servers);
     }
+
+    /// <summary>Is this bot running? For a remote-linked tab that's the server's state, else the local runtime.</summary>
+    private static bool RunningOf(Bot b) => b.IsRemote ? (b.Remote?.BotRunning(b.RemoteName) ?? false) : b.Runtime.Running;
 
     private static List<string> Wrap(DynamicSpriteFont f, string text, float maxW)
     {
