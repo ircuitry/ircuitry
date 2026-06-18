@@ -166,6 +166,7 @@ public static class SelfTest
         fails += CapabilityCorsTest();
         fails += ThemeRoundTripTest();
         fails += WebhookTest();
+        fails += ModeTemplateTest();
         fails += CodeSandboxTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -189,6 +190,33 @@ public static class SelfTest
 
         fails += Expect("theme-hex", Ircuitry.Core.ThemeData.TryHex("#7ED6E4", out var hc) && hc == new Microsoft.Xna.Framework.Color(126, 214, 228)
             && !Ircuitry.Core.ThemeData.TryHex("nope", out _) && Ircuitry.Core.ThemeData.TryHex("#abc", out _), "");
+        return fails;
+    }
+
+    /// <summary>Set Mode resolves {tokens} in every field - {me} for a self user-mode, {channel} for the
+    /// channel, {arg1} for a target - which regressed when channel/modes were read raw instead of resolved.</summary>
+    private static int ModeTemplateTest()
+    {
+        int fails = 0;
+        // self user-mode: the first field = {me} -> the bot's own nick, target blank -> MODE <me> +B
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "secure");
+            var mode = N(g, "irc.mode", 200, 0); mode.SetParam("channel", "{me}"); mode.SetParam("modes", "+B"); mode.SetParam("target", "");
+            g.Connect(cmd.Id, 0, mode.Id, 0);
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, Vars("!secure", "alice", "#c"));
+            fails += Expect("mode-me-selfmode", s.Logs.Contains("RAW MODE ircuitry +B"), "logs=[" + string.Join(",", s.Logs) + "]");
+        }
+        // {channel} as the channel and {arg1} as the target word
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "op");
+            var mode = N(g, "irc.mode", 200, 0); mode.SetParam("channel", "{channel}"); mode.SetParam("modes", "+o"); mode.SetParam("target", "{arg1}");
+            g.Connect(cmd.Id, 0, mode.Id, 0);
+            var v = Vars("!op bob", "alice", "#c"); v["args"] = "bob";
+            var s = new FakeSink(); GraphExecutor.Fire(g, s, cmd, v);
+            fails += Expect("mode-arg1-target", s.Logs.Contains("RAW MODE #c +o bob"), "logs=[" + string.Join(",", s.Logs) + "]");
+        }
         return fails;
     }
 

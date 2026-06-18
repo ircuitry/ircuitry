@@ -2587,7 +2587,7 @@ public static class NodeCatalog
                 SummaryParam = "topic",
                 Exec = c =>
                 {
-                    var chan = c.Param("channel"); if (chan.Length == 0) chan = c.Var("channel");
+                    var chan = c.Resolve(c.Param("channel")); if (chan.Length == 0) chan = c.Var("channel");
                     var topic = OneLine(c.InOr(1, c.Resolve(c.Param("topic"))));
                     if (chan.Length > 0) c.Raw($"TOPIC {chan} :{topic}");
                     c.Pulse(0);
@@ -2604,7 +2604,7 @@ public static class NodeCatalog
                 SummaryParam = "nick",
                 Exec = c =>
                 {
-                    var chan = c.Param("channel"); if (chan.Length == 0) chan = c.Var("channel");
+                    var chan = c.Resolve(c.Param("channel")); if (chan.Length == 0) chan = c.Var("channel");
                     var nick = OneLine(c.InOr(1, c.Resolve(c.Param("nick"))));
                     var reason = OneLine(c.Resolve(c.Param("reason")));
                     if (chan.Length > 0 && nick.Length > 0) c.Raw($"KICK {chan} {nick} :{reason}");
@@ -2615,20 +2615,20 @@ public static class NodeCatalog
             {
                 TypeId = "irc.mode", Icon = "shield", Title = "Set Mode", Subtitle = "moderation",
                 Category = NodeCategory.Action,
-                Description = "Applies a channel mode, e.g. +o/-o (op), +v (voice), +b (ban). Target is a nick or mask; leave blank for channel-wide modes like +m.",
+                Description = "Applies a mode, e.g. +o/-o (op), +v (voice), +b (ban). All fields take {tokens} like {nick}, {arg1} or {me}. Put a channel (or {me} / a nick) in the first field; for a user mode on the bot itself use {me} there and leave Target blank, e.g. {me} +B.",
                 Inputs = new[] { Ex(), Tx("target") },
                 Outputs = new[] { Ex("then") },
                 Params = new[]
                 {
-                    P("channel", "Channel", ParamType.Text, "", "blank = current"),
-                    P("modes", "Modes", ParamType.Text, "+o", "+o · +v · +b · -o"),
-                    P("target", "Target (nick/mask)", ParamType.Text, "", "{nick}"),
+                    P("channel", "Channel / nick", ParamType.Text, "", "blank = current · {me} = the bot"),
+                    P("modes", "Modes", ParamType.Text, "+o", "+o · +v · +b · {arg1}"),
+                    P("target", "Target (nick/mask)", ParamType.Text, "", "{nick} · {arg1}"),
                 },
                 SummaryParam = "modes",
                 Exec = c =>
                 {
-                    var chan = c.Param("channel"); if (chan.Length == 0) chan = c.Var("channel");
-                    var modes = OneLine(c.Param("modes"));
+                    var chan = c.Resolve(c.Param("channel")); if (chan.Length == 0) chan = c.Var("channel");
+                    var modes = OneLine(c.Resolve(c.Param("modes")));
                     var target = OneLine(c.InOr(1, c.Resolve(c.Param("target"))));
                     if (chan.Length > 0 && modes.Length > 0) c.Raw($"MODE {chan} {modes}{(target.Length > 0 ? " " + target : "")}");
                     c.Pulse(0);
