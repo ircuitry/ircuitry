@@ -375,7 +375,7 @@ public static partial class ControlServer
                     nodes = b.Graph.Nodes.Count,
                     wires = b.Graph.Connections.Count,
                     graph = JsonDocument.Parse(Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.Name)).RootElement.Clone(),
-                    servers = b.Servers.Select(s => new { s.Label, s.Host, s.Port, tls = s.UseTls, s.Nick, s.Channels, s.ConnectOnStartup }).ToArray(),
+                    servers = b.Servers.Select(s => new { s.Label, s.Host, s.Port, tls = s.UseTls, s.Nick, s.Channels, s.RealName, s.ConnectOnStartup }).ToArray(),
                     acl = AclView(c, b.Name),
                 }).ToArray(),
             };

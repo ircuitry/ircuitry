@@ -83,7 +83,7 @@ public partial class MainScreen
             r.Text(r.Fonts.Get(FontKind.Display, 15), rc!.ServerName, new Vector2(x + 18, y - 1), Theme.Text);
             r.Text(r.Fonts.Get(FontKind.Sans, 12), rc.User + "  ·  " + (rc.Peers.Length > 1 ? rc.Peers.Length + " online" : "just you"), new Vector2(x + 18, y + 16), Theme.TextDim);
             if (_ui.Button("rm.disc", new RectF(panel.Right - 22 - 110, y - 2, 110, 28), "Disconnect", Theme.Alert))
-            { _remote?.Disconnect(); _remote?.Dispose(); _remote = null; _rmMsg = "disconnected"; }
+                DisconnectRemote();
             y += 40;
 
             r.Text(r.Fonts.Get(FontKind.SansBold, 12), "BOTS", new Vector2(x, y), Theme.TextDim); y += 20;
@@ -199,11 +199,21 @@ public partial class MainScreen
             {
                 var (graph, _) = Ircuitry.Graph.GraphSerializer.Load(json);
                 int existing = _app.Bots.FindIndex(b => b.IsRemote && b.Remote == session && b.RemoteName == remoteName);
-                if (existing >= 0) { _app.Bots[existing].Graph.ReplaceWith(graph); _app.Active = existing; }
+                Bot bot;
+                if (existing >= 0) { bot = _app.Bots[existing]; bot.Graph.ReplaceWith(graph); _app.Active = existing; }
                 else
                 {
-                    var bot = new Bot(remoteName + " @ " + session.Label) { Graph = graph, Remote = session, RemoteName = remoteName };
+                    bot = new Bot(remoteName + " @ " + session.Label) { Graph = graph, Remote = session, RemoteName = remoteName };
                     _app.Bots.Add(bot); _app.Active = _app.Bots.Count - 1;
+                }
+                // mirror the server's connection rows so the inspector shows (and can edit) the real settings
+                var rb = session.Bots.FirstOrDefault(x => x.Name == remoteName);
+                if (rb != null && rb.Servers.Count > 0)
+                {
+                    bot.Servers.Clear();
+                    foreach (var s in rb.Servers)
+                        bot.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = s.Label, Host = s.Host, Port = s.Port, UseTls = s.Tls, Nick = s.Nick, Channels = s.Channels, RealName = s.RealName, ConnectOnStartup = s.ConnectOnStartup });
+                    bot.SelectedServer = 0;
                 }
                 HookRemoteLog(session);
                 _remoteLastBot = null;     // force a fresh push baseline on the next tick (no spurious re-push)
@@ -211,6 +221,19 @@ public partial class MainScreen
             }
             catch (System.Exception ex) { _rmMsg = "open failed: " + ex.Message; }
         });
+    }
+
+    /// <summary>Drop the remote session and close any tabs that were viewing its bots (they stay on the server).</summary>
+    private void DisconnectRemote()
+    {
+        var s = _remote;
+        if (s != null)
+        {
+            for (int i = _app.Bots.Count - 1; i >= 0; i--)
+                if (_app.Bots[i].IsRemote && _app.Bots[i].Remote == s && _app.Bots.Count > 1) _app.RemoveBot(i);
+            try { s.Disconnect(); s.Dispose(); } catch { }
+        }
+        _remote = null; _remoteLastBot = null; _rmMsg = "disconnected";
     }
 
     private void HookRemoteLog(ControlClient session)
@@ -230,22 +253,46 @@ public partial class MainScreen
         return h;
     }
 
-    private bool _autoOpenRemote;   // debug/--showremoteedit: open the first remote bot once the session is up
+    // signature of the selected server's connection settings, so editing host/port/nick/etc. triggers a push too
+    private static long RemoteConnSig(Bot b)
+    {
+        var s = b.Settings;
+        long h = 17;
+        foreach (var v in new object[] { s.Host, s.Port, s.UseTls, s.Nick, s.Channels, s.RealName, s.SaslUser, s.SaslPass, s.ServerPass })
+            h = unchecked(h * 31 + (v?.GetHashCode() ?? 0));
+        return h;
+    }
 
-    /// <summary>Each frame: if the active tab is a connected remote bot, debounce-push its graph to the server.</summary>
+    private bool _autoOpenRemote;   // debug/--showremoteedit: open the first remote bot once the session is up
+    private long _remoteConnSig;
+    private bool _remoteGraphDirty, _remoteConnDirty;
+
+    /// <summary>Each frame: if the active tab is a connected remote bot, debounce-push its graph AND its
+    /// connection settings to the server.</summary>
     private void RemoteEditTick(Clock clock)
     {
         if (_autoOpenRemote && _remote?.Connected == true && _remote.Bots.Count > 0 && !Bot.IsRemote)
         { _autoOpenRemote = false; OpenRemoteBotInEditor(_remote, _remote.Bots[0].Name); }
         var b = Bot;
-        if (b != _remoteLastBot) { _remoteLastBot = b; _remoteSig = b.IsRemote ? RemoteSig(b.Graph) : 0; _remotePushAt = -1; }
+        if (b != _remoteLastBot)   // switched tabs: re-baseline, nothing dirty yet
+        {
+            _remoteLastBot = b; _remotePushAt = -1; _remoteGraphDirty = _remoteConnDirty = false;
+            _remoteSig = b.IsRemote ? RemoteSig(b.Graph) : 0;
+            _remoteConnSig = b.IsRemote ? RemoteConnSig(b) : 0;
+        }
         if (!b.IsRemote || b.Remote?.Connected != true) return;
-        long sig = RemoteSig(b.Graph);
-        if (sig != _remoteSig) { _remoteSig = sig; _remotePushAt = clock.Time + 0.8; }   // settle 0.8s after the last edit
+        long sig = RemoteSig(b.Graph), csig = RemoteConnSig(b);
+        if (sig != _remoteSig) { _remoteSig = sig; _remoteGraphDirty = true; _remotePushAt = clock.Time + 0.8; }    // settle 0.8s after the last edit
+        if (csig != _remoteConnSig) { _remoteConnSig = csig; _remoteConnDirty = true; _remotePushAt = clock.Time + 0.8; }
         if (_remotePushAt >= 0 && clock.Time >= _remotePushAt)
         {
             _remotePushAt = -1;
-            try { b.Remote!.PushGraph(b.RemoteName, Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.RemoteName)); } catch { }
+            try
+            {
+                if (_remoteGraphDirty) { _remoteGraphDirty = false; b.Remote!.PushGraph(b.RemoteName, Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.RemoteName)); }
+                if (_remoteConnDirty) { _remoteConnDirty = false; b.Remote!.PushConnection(b.RemoteName, b.Settings); }
+            }
+            catch { }
         }
     }
 

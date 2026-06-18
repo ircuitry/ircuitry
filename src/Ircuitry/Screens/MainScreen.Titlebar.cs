@@ -353,7 +353,10 @@ public sealed partial class MainScreen
 
         if (!Modal && In.LeftPressed && tab.Contains(In.Mouse) && gutter.Contains(In.Mouse))
         {
-            if (xHover) { _confirmDeleteBot = bot; _confirmJustOpened = true; }
+            // a remote tab is just a live view of a server bot - closing it detaches the view, deletes nothing,
+            // so skip the destructive confirm. Local bots still prompt (their data is only here).
+            if (xHover && bot.IsRemote) { int bi = _app.Bots.IndexOf(bot); if (bi >= 0) { _app.RemoveBot(bi); _editor.Selection.Clear(); } }
+            else if (xHover) { _confirmDeleteBot = bot; _confirmJustOpened = true; }
             else
             {
                 bool dbl = _tabClickBot == bot && clock.Time - _tabClickTime < 0.35f;
