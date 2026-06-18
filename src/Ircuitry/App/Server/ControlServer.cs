@@ -33,6 +33,14 @@ public static partial class ControlServer
     private static readonly Dictionary<string, (string User, string Role)> _tokens = new();   // token -> account
     private static readonly ConcurrentDictionary<Client, byte> _clients = new();   // everyone connected (for collab broadcast + presence)
     private static bool _web;
+    private static DateTime _started;
+    // per-bot graph revision: bumped on every graph-changing edit; a set_graph push carries the base it loaded
+    // from, so a stale push (someone else edited first) is rejected instead of silently clobbering.
+    private static readonly Dictionary<string, long> _botRev = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> _graphTools = new() { "set_graph", "add_node", "set_param", "connect", "disconnect", "remove_node", "auto_layout" };
+    private static long BotRev(string name) { lock (Gate) return _botRev.TryGetValue(name, out var r) ? r : 0; }
+    private static long BumpRev(string name) { lock (Gate) { var r = (_botRev.TryGetValue(name, out var x) ? x : 0) + 1; _botRev[name] = r; return r; } }
+    private static string Mask(string token) => token.Length > 12 ? token[..6] + "…" + token[^4..] : token;
 
     public static int Run(string[] args)
     {
@@ -47,6 +55,7 @@ public static partial class ControlServer
         string? data = Arg(args, "--data");
         if (!string.IsNullOrWhiteSpace(data)) Environment.SetEnvironmentVariable("IRCUITRY_HOME", data);
 
+        _started = DateTime.UtcNow;
         _app = new AppModel();
         _tools = McpTools.BuildRegistry();
         LoadOrMintTokens();
@@ -288,6 +297,60 @@ public static partial class ControlServer
                     BroadcastCursor(c, false);
                     break;
                 }
+                case "info":   // server overview: version, uptime, who's connected, sandbox/code state
+                    await Reply(c, id, new
+                    {
+                        name = "ircuitry", version = AppInfo.Version,
+                        uptimeSec = (long)(DateTime.UtcNow - _started).TotalSeconds,
+                        bots = BotsSnapshot().Length,
+                        clients = _clients.Keys.Where(x => !x.Closed).Select(x => new { user = x.User, role = x.Role, editing = x.CurBot }).ToArray(),
+                        web = _web,
+                        code = Ircuitry.Net.CodeRunner.Disabled ? "disabled" : (Ircuitry.Net.Sandbox.StrongIsolation ? "sandboxed (" + Ircuitry.Net.Sandbox.Mechanism + ")" : "unconfined"),
+                    });
+                    break;
+                case "history":   // a bot's recent run records (the server's own runtime, not the desktop's idle one)
+                {
+                    var bn = ExplicitBotName(root) ?? "";
+                    var b = BotsSnapshot().FirstOrDefault(x => x.Name.Equals(bn, StringComparison.OrdinalIgnoreCase));
+                    if (b == null || !CanSee(c, b.Name)) { await ReplyErr(c, id, "no such bot: " + bn); break; }
+                    var runs = b.Runtime.History();
+                    await Reply(c, id, new
+                    {
+                        bot = b.Name,
+                        runs = runs.Select(r => new { time = r.Time.ToString("HH:mm:ss"), trigger = r.Trigger, summary = r.Summary, actions = r.Actions, fired = r.Fired }).ToArray(),
+                    });
+                    break;
+                }
+                case "tokens":   // admin: list access tokens (masked)
+                    if (!IsAdmin(c)) { await ReplyErr(c, id, "admin only"); break; }
+                    await Reply(c, id, new { tokens = _tokens.Select(kv => new { id = Mask(kv.Key), user = kv.Value.User, role = kv.Value.Role }).ToArray() });
+                    break;
+                case "mint_token":   // admin: create a new token
+                {
+                    if (!IsAdmin(c)) { await ReplyErr(c, id, "admin only"); break; }
+                    string user = Str(root, "user"); string role = Str(root, "role").ToLowerInvariant();
+                    if (role is not ("admin" or "editor" or "viewer")) role = "viewer";
+                    var tk = NewToken();
+                    lock (Gate) { _tokens[tk] = (user.Length > 0 ? user : "user", role); SaveTokens(); }
+                    await Reply(c, id, new { token = tk, id = Mask(tk), user = _tokens[tk].User, role });
+                    break;
+                }
+                case "revoke_token":   // admin: revoke a token by its masked id (or full value)
+                {
+                    if (!IsAdmin(c)) { await ReplyErr(c, id, "admin only"); break; }
+                    string tid = Str(root, "tokenId");   // NOT "id" - that's the message envelope's request id
+                    string? match;
+                    lock (Gate)
+                    {
+                        match = _tokens.Keys.FirstOrDefault(k => k == tid || Mask(k) == tid);
+                        if (match != null && _tokens[match].Role == "admin" && _tokens.Count(kv => kv.Value.Role == "admin") <= 1) match = "__lastadmin__";
+                        else if (match != null) { _tokens.Remove(match); SaveTokens(); }
+                    }
+                    if (match == null) { await ReplyErr(c, id, "no such token"); break; }
+                    if (match == "__lastadmin__") { await ReplyErr(c, id, "can't revoke the last admin token"); break; }
+                    await Reply(c, id, new { revoked = tid });
+                    break;
+                }
                 case "subscribe":
                     c.Topics.Clear();
                     if (root.TryGetProperty("topics", out var ts) && ts.ValueKind == JsonValueKind.Array)
@@ -317,12 +380,25 @@ public static partial class ControlServer
                         if (!CanSee(c, target)) { await ReplyErr(c, id, "no such bot: " + target); break; }   // hide its existence
                         if (t.Mutates && !CanEditBot(c, target)) { await ReplyErr(c, id, $"you don't have edit access to '{target}'"); break; }
                     }
+                    // optimistic concurrency: a full-graph push carries the rev it loaded from; reject if stale
+                    long? baseRev = tool == "set_graph" && args.ValueKind == JsonValueKind.Object
+                        && args.TryGetProperty("base", out var be) && be.TryGetInt64(out var br) ? br : null;
                     var before = tool == "create_bot" ? BotsSnapshot().Select(x => x.Name).ToHashSet() : null;
-                    object result;
-                    lock (Gate) { result = t.Run(args, _app); if (t.Mutates) _app.Save(announce: false); }
+                    object result = null!; long newRev = 0; bool stale = false;
+                    lock (Gate)
+                    {
+                        if (baseRev.HasValue && target != null && baseRev.Value != BotRev(target))
+                        { stale = true; result = new { error = "stale", rev = BotRev(target) }; }
+                        else
+                        {
+                            result = t.Run(args, _app);
+                            if (t.Mutates) _app.Save(announce: false);
+                            if (target != null && _graphTools.Contains(tool)) newRev = BumpRev(target);
+                        }
+                    }
                     if (before != null) foreach (var nb in BotsSnapshot().Select(x => x.Name)) if (!before.Contains(nb)) ClaimBot(nb, c.User);   // a new bot belongs to its creator
-                    await Reply(c, id, new { tool, result });
-                    if (t.Mutates) Broadcast("workspace", new { evt = "workspace", tool, by = c.User });   // other editors re-sync
+                    await Reply(c, id, new { tool, result, rev = newRev });
+                    if (!stale && t.Mutates) Broadcast("workspace", new { evt = "workspace", tool, by = c.User });   // other editors re-sync
                     break;
                 }
                 default: await ReplyErr(c, id, "unknown op: " + op); break;
@@ -372,6 +448,8 @@ public static partial class ControlServer
                     name = b.Name,
                     running = b.Runtime.Running,
                     state = b.Runtime.State.ToString(),
+                    rev = BotRev(b.Name),
+                    vars = new Dictionary<string, string>(b.State),
                     nodes = b.Graph.Nodes.Count,
                     wires = b.Graph.Connections.Count,
                     graph = JsonDocument.Parse(Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.Name)).RootElement.Clone(),

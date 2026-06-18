@@ -167,6 +167,54 @@ public static class McpTools
         Tool("auto_layout", "Tidy a bot's graph into clean left\u2192right layers.",   // intentional unicode (rightwards arrow)
             Obj(new { bot = BotArg() }), true, (a, app) => { var bot = ResolveBot(a, app); new Ircuitry.Editor.GraphEditor(bot.Graph).AutoLayout(); return new { nodes = bot.Graph.Nodes.Count }; });
 
+        Tool("rename_bot", "Rename a bot.",
+            Obj(new { bot = BotArg(), name = S("new display name") }, "name"),
+            true, (a, app) => { var bot = ResolveBot(a, app); var nm = Str(a, "name").Trim(); if (nm.Length > 0) bot.Name = nm; return new { name = bot.Name }; });
+
+        Tool("set_state", "Set a bot's persistent variables. Pass a 'state' object to replace them all, or key+value for one.",
+            Obj(new { bot = BotArg(), state = new { type = "object", description = "all variables (replaces existing)" }, key = S("one variable name"), value = S("its value") }),
+            true, (a, app) =>
+            {
+                var bot = ResolveBot(a, app);
+                if (Has(a, "state") && a.GetProperty("state").ValueKind == JsonValueKind.Object)
+                {
+                    bot.State.Clear();
+                    foreach (var p in a.GetProperty("state").EnumerateObject())
+                        bot.State[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString();
+                }
+                else if (Has(a, "key")) bot.State[Str(a, "key")] = Str(a, "value");
+                return new { count = bot.State.Count };
+            });
+
+        Tool("set_servers", "Replace a bot's full list of server/connection rows from a JSON array.",
+            Obj(new { bot = BotArg(), servers = new { type = "array", description = "connection rows (host/port/tls/nick/channels/realName/sasl...)" } }, "servers"),
+            true, (a, app) =>
+            {
+                var bot = ResolveBot(a, app);
+                if (!Has(a, "servers") || a.GetProperty("servers").ValueKind != JsonValueKind.Array) throw new Exception("servers array required");
+                var list = new List<Ircuitry.Irc.IrcSettings>();
+                foreach (var e in a.GetProperty("servers").EnumerateArray())
+                {
+                    string GS(string k) => e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+                    int GI(string k, int d) => e.TryGetProperty(k, out var v) && v.TryGetInt32(out var i) ? i : d;
+                    bool GB(string k, bool d) => e.TryGetProperty(k, out var v) ? v.ValueKind == JsonValueKind.True || (v.ValueKind != JsonValueKind.False && d) : d;
+                    list.Add(new Ircuitry.Irc.IrcSettings
+                    {
+                        Label = GS("label"), Host = GS("host"), Port = GI("port", 6697), UseTls = GB("tls", true),
+                        Nick = GS("nick"), Channels = GS("channels"), RealName = GS("realName"),
+                        SaslUser = GS("saslUser"), SaslPass = GS("saslPass"), ServerPass = GS("serverPass"),
+                        ConnectOnStartup = GB("connectOnStartup", false), AcceptInvalidCerts = GB("acceptInvalidCerts", false), AutoReconnect = GB("autoReconnect", true),
+                    });
+                }
+                if (list.Count == 0) list.Add(new Ircuitry.Irc.IrcSettings());
+                bot.Servers.Clear(); bot.Servers.AddRange(list); bot.SelectedServer = 0;
+                return new { servers = bot.Servers.Count };
+            });
+
+        Tool("delete_secret", "Delete a stored credential by name.",
+            Obj(new { name = S("secret name") }, "name"),
+            true, (a, app) => { var nm = Str(a, "name"); Ircuitry.Core.Secrets.Delete(nm); return new { deleted = nm }; });
+
         // ---------------- validate & test ----------------
         Tool("validate_graph", "Check a bot for problems: no trigger, unreachable nodes, undefined {{secret.X}} references, no server set.",
             Obj(new { bot = BotArg() }), false, (a, app) =>
