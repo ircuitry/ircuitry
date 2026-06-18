@@ -3,12 +3,18 @@
 # Run:    docker run -p 48700:48700 -v ircuitry-data:/data ircuitry-server
 # The control port serves the WebSocket API (desktop + cockpit) and, with --web, the cockpit PWA.
 
-# ---- build (self-contained linux-x64) ----
+# ---- build (self-contained, matched to the deploy host's CPU) ----
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+ARG TARGETARCH
 WORKDIR /src
 COPY . .
-RUN dotnet publish src/Ircuitry/Ircuitry.csproj -c Release -r linux-x64 --self-contained true \
-    -p:PublishSingleFile=false -o /app
+# pick the .NET runtime id from the target CPU (BuildKit sets TARGETARCH): amd64->x64, arm64->arm64, arm->arm.
+# hardcoding linux-x64 produced an x86 binary that "Exec format error"-crashlooped on arm64 hosts.
+RUN RID="linux-x64"; \
+    case "$TARGETARCH" in arm64) RID="linux-arm64";; arm) RID="linux-arm";; esac; \
+    echo "publishing self-contained for ${TARGETARCH:-amd64} -> $RID"; \
+    dotnet publish src/Ircuitry/Ircuitry.csproj -c Release -r "$RID" --self-contained true \
+      -p:PublishSingleFile=false -o /app
 
 # ---- run (just the deps a self-contained .NET app needs) ----
 FROM mcr.microsoft.com/dotnet/runtime-deps:8.0
