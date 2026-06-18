@@ -57,6 +57,8 @@ public sealed class ControlClient : IDisposable
     public Action<string, string>? OnNode;
     /// <summary>(bot, level, text) for each remote log line - so an open remote tab can mirror it into its console.</summary>
     public Action<string, string, string>? OnLog;
+    /// <summary>(bot, trigger, summary, actions) for each remote run - mirrored into the remote tab's run history.</summary>
+    public Action<string, string, string, int>? OnRun;
 
     private readonly ConcurrentDictionary<string, DateTime> _fired = new();   // "botnode" -> last fire (for glow)
 
@@ -365,8 +367,13 @@ public sealed class ControlClient : IDisposable
                 break;
             }
             case "run":
-                AppendLog($"[{Get(m, "bot")}] ran {Get(m, "trigger")} - {Get(m, "summary")}");
+            {
+                string bot = Get(m, "bot"), trig = Get(m, "trigger"), sum = Get(m, "summary");
+                int acts = m.TryGetProperty("actions", out var ae) && ae.TryGetInt32(out var ai) ? ai : 0;
+                AppendLog($"[{bot}] ran {trig} - {sum}");
+                if (OnRun != null) _ui.Enqueue(() => OnRun?.Invoke(bot, trig, sum, acts));   // mirror into the remote tab's run history
                 break;
+            }
             case "workspace":
                 Snapshot();                                          // another editor changed the graph/bots - re-sync
                 if (OnWorkspaceChanged != null) _ui.Enqueue(() => OnWorkspaceChanged?.Invoke());

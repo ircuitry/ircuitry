@@ -3446,6 +3446,22 @@ public sealed partial class MainScreen : IScreen
     {
         _testRunSeq++;   // tutorial watches this to know the user actually ran a test
         _testSent.Clear(); _testRec = null; _testScroll = 0;
+        // a remote tab tests on the SERVER (its real state + secrets), not the local copy
+        if (Bot.IsRemote && Bot.Remote?.Connected == true)
+        {
+            var b = Bot;
+            b.Remote!.TestCommand(b.RemoteName, _testMsg, _testNick, _testChan, res =>
+            {
+                _testSent.Clear();
+                if (res.TryGetProperty("sent", out var sa) && sa.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var s in sa.EnumerateArray())
+                        _testSent.Add((s.TryGetProperty("kind", out var k) && k.ValueKind == System.Text.Json.JsonValueKind.String ? k.GetString() ?? "" : "",
+                                       s.TryGetProperty("text", out var tx) ? tx.GetString() ?? "" : ""));
+                bool fired = res.TryGetProperty("fired", out var f) && f.ValueKind == System.Text.Json.JsonValueKind.True;
+                _testRec = new RunRecord { Time = DateTime.Now, Trigger = fired ? "fired on the server" : "no match on the server", Summary = _testMsg, Fired = fired, Actions = _testSent.Count };
+            });
+            return;
+        }
         var graph = Bot.Graph;
         var sink = new TestSink(new Dictionary<string, string>(Bot.State));   // throwaway state copy
         var baseVars = new Dictionary<string, string>

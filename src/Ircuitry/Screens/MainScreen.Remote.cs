@@ -564,6 +564,12 @@ public partial class MainScreen
             var b = _app.Bots.Find(x => x.IsRemote && x.Remote == session && x.RemoteName == botName);
             if (b != null) b.Log.Add(System.Enum.TryParse<LogLevel>(level, out var lv) ? lv : LogLevel.System, text);
         };
+        // mirror server runs into the remote tab's run history, so the History panel shows real server activity
+        session.OnRun = (botName, trigger, summary, actions) =>
+        {
+            var b = _app.Bots.Find(x => x.IsRemote && x.Remote == session && x.RemoteName == botName);
+            b?.Runtime.AddHistory(new Ircuitry.Runtime.RunRecord { Time = System.DateTime.Now, Trigger = trigger, Summary = summary, Actions = actions, Fired = true });
+        };
     }
 
     // cheap change signature including node positions, so moves/edits all trigger a debounced push
