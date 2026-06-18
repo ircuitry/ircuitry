@@ -34,19 +34,80 @@ public static class Secrets
             var fi = new FileInfo(FilePath);
             // serve the cache unless the file changed underneath us (external edit / another process)
             if (_cache != null && (fi.Exists ? fi.LastWriteTimeUtc == _stamp : _stamp == default)) return _cache;
-            var raw = fi.Exists ? JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(FilePath)) : null;
+            Dictionary<string, string>? raw = null;
+            bool migratePlaintext = false;
+            if (fi.Exists)
+            {
+                var bytes = File.ReadAllBytes(FilePath);
+                string json;
+                if (IsEnvelope(bytes)) { try { json = Decrypt(bytes); } catch { _decryptFailed = true; throw; } }   // our encrypted file
+                else { json = System.Text.Encoding.UTF8.GetString(bytes); migratePlaintext = true; }   // legacy plaintext -> upgrade
+                raw = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            }
             _cache = new Dictionary<string, string>(raw ?? new(), StringComparer.OrdinalIgnoreCase);
             _stamp = fi.Exists ? fi.LastWriteTimeUtc : default;
+            if (migratePlaintext) Save(_cache);   // rewrite encrypted-at-rest; keeps the same lock (caller holds Gate)
         }
-        catch { _cache ??= Empty(); }
+        catch { _cache ??= Empty(); }   // unreadable (e.g. local key lost) -> empty in memory, never overwrite the file
         return _cache;
     }
 
     private static void Save(Dictionary<string, string> d)
     {
         Directory.CreateDirectory(Dir);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(d, new JsonSerializerOptions { WriteIndented = true }));
+        // if the existing file couldn't be decrypted this session (local key lost/changed), never silently
+        // clobber it - keep a copy so restoring the key recovers the secrets.
+        if (_decryptFailed) { try { if (File.Exists(FilePath)) File.Copy(FilePath, FilePath + ".locked.bak", true); } catch { } _decryptFailed = false; }
+        var json = JsonSerializer.Serialize(d, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllBytes(FilePath, Encrypt(json));   // encrypted at rest with the local key
         try { _stamp = new FileInfo(FilePath).LastWriteTimeUtc; } catch { }   // keep the cache in sync with what we just wrote
+    }
+
+    // ---- at-rest encryption: AES-256-GCM under a per-machine local key (~/ircuitry/.localkey, 0600) ----
+    private static readonly byte[] Magic = System.Text.Encoding.ASCII.GetBytes("IRCENC1");
+    private static byte[]? _localKey;
+    private static bool _decryptFailed;
+    private static string KeyPath => Path.Combine(Dir, ".localkey");
+
+    private static byte[] LocalKey()
+    {
+        if (_localKey != null) return _localKey;
+        try { if (File.Exists(KeyPath)) { var k = File.ReadAllBytes(KeyPath); if (k.Length == 32) return _localKey = k; } } catch { }
+        var nk = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        try
+        {
+            Directory.CreateDirectory(Dir);
+            File.WriteAllBytes(KeyPath, nk);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(KeyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);   // 0600
+        }
+        catch { }
+        return _localKey = nk;
+    }
+
+    private static bool IsEnvelope(byte[] b) => b.Length >= Magic.Length + 12 + 16 && b.AsSpan(0, Magic.Length).SequenceEqual(Magic);
+
+    private static byte[] Encrypt(string json)
+    {
+        var nonce = System.Security.Cryptography.RandomNumberGenerator.GetBytes(12);
+        var pt = System.Text.Encoding.UTF8.GetBytes(json);
+        var ct = new byte[pt.Length];
+        var tag = new byte[16];
+        using var aes = new System.Security.Cryptography.AesGcm(LocalKey(), 16);
+        aes.Encrypt(nonce, pt, ct, tag);
+        var outp = new byte[Magic.Length + 12 + 16 + ct.Length];
+        Magic.CopyTo(outp, 0); nonce.CopyTo(outp, Magic.Length); tag.CopyTo(outp, Magic.Length + 12); ct.CopyTo(outp, Magic.Length + 12 + 16);
+        return outp;
+    }
+
+    private static string Decrypt(byte[] blob)   // throws if the local key can't authenticate it (lost/changed key)
+    {
+        var nonce = blob.AsSpan(Magic.Length, 12).ToArray();
+        var tag = blob.AsSpan(Magic.Length + 12, 16).ToArray();
+        var ct = blob.AsSpan(Magic.Length + 12 + 16).ToArray();
+        var pt = new byte[ct.Length];
+        using var aes = new System.Security.Cryptography.AesGcm(LocalKey(), 16);
+        aes.Decrypt(nonce, ct, tag, pt);
+        return System.Text.Encoding.UTF8.GetString(pt);
     }
 
     public static string Get(string name) { lock (Gate) return Load().TryGetValue(name, out var v) ? v : ""; }
