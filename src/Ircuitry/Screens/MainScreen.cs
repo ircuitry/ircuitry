@@ -89,6 +89,7 @@ public sealed partial class MainScreen : IScreen
     private Bot? _renamingBot;
     private float _tabClickTime;
     private Bot? _tabClickBot;
+    private Bot? _tabDragBot; private bool _tabDragging; private float _tabDragDownX; private double _titleClickTime = -1;
 
     // run-history viewer
     private bool _historyOpen, _historyJustOpened;

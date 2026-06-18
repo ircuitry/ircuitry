@@ -89,14 +89,20 @@ public sealed partial class MainScreen
         // tabs fill the gutter between the icon and the action cluster (manages its own scissor batches)
         DrawCartridgeTabs(r, bar, new RectF(x, bar.Y, rx - 12 - x, bar.H), clock, NoDrag);
 
-        // right-click the icon or any empty (draggable) part of the bar -> the window menu, like a real title bar
-        if (!Modal && In.RightPressed && bar.Contains(In.Mouse))
+        bool OverNoDrag()
         {
-            bool overBtn = false;
             for (int i = 0; i + 3 < noDrag.Count; i += 4)
                 if (In.Mouse.X >= noDrag[i] && In.Mouse.X < noDrag[i] + noDrag[i + 2] &&
-                    In.Mouse.Y >= noDrag[i + 1] && In.Mouse.Y < noDrag[i + 1] + noDrag[i + 3]) { overBtn = true; break; }
-            if (!overBtn) OpenWindowMenu(In.Mouse);
+                    In.Mouse.Y >= noDrag[i + 1] && In.Mouse.Y < noDrag[i + 1] + noDrag[i + 3]) return true;
+            return false;
+        }
+        // right-click the icon or any empty (draggable) part of the bar -> the window menu, like a real title bar
+        if (!Modal && In.RightPressed && bar.Contains(In.Mouse) && !OverNoDrag()) OpenWindowMenu(In.Mouse);
+        // double-click an empty part of the bar -> maximize/restore, like a real title bar
+        if (!Modal && In.LeftPressed && bar.Contains(In.Mouse) && Sdl.CustomChrome && WindowHandle != IntPtr.Zero && !OverNoDrag() && !_tabDragging)
+        {
+            if (clock.Time - _titleClickTime < 0.35f) { Sdl.ToggleMaximize(WindowHandle); _titleClickTime = -1; }
+            else _titleClickTime = clock.Time;
         }
 
         Sdl.PublishTitlebar((int)bar.Bottom, _vw, _vh, Sdl.IsMaximized(WindowHandle), noDrag.ToArray());
@@ -246,7 +252,8 @@ public sealed partial class MainScreen
         for (int i = 0; i < _app.Bots.Count; i++)
         {
             var b = _app.Bots[i];
-            widths[i] = _renamingBot == b ? 210 : Math.Min(196, tf.MeasureString(b.Name).X + 58);
+            // cap each tab so one long name can't eat the whole gutter; the label is ellipsized to fit
+            widths[i] = _renamingBot == b ? 210 : Math.Clamp(tf.MeasureString(b.Name).X + 58, 86, 150);
             total += widths[i] + pad;
         }
         total += 36;   // the + button
@@ -281,6 +288,31 @@ public sealed partial class MainScreen
             if (ah && In.LeftPressed) { _templateOpen = true; _templateJustOpened = true; }
         }
         r.End();
+
+        // drag a tab to reorder (and persist the new order)
+        if (_tabDragBot != null && !_app.Bots.Contains(_tabDragBot)) { _tabDragBot = null; _tabDragging = false; }
+        if (_tabDragBot != null)
+        {
+            if (!In.LeftDown) { _tabDragBot = null; _tabDragging = false; }
+            else
+            {
+                if (!_tabDragging && MathF.Abs(In.Mouse.X - _tabDragDownX) > 6) _tabDragging = true;
+                if (_tabDragging)
+                {
+                    float sx = gutter.X - _tabScroll; int target = 0;
+                    for (int j = 0; j < _app.Bots.Count; j++) { if (In.Mouse.X > sx + widths[j] / 2f) target = j + 1; sx += widths[j] + pad; }
+                    target = Math.Clamp(target, 0, _app.Bots.Count - 1);
+                    int cur = _app.Bots.IndexOf(_tabDragBot);
+                    if (cur >= 0 && target != cur)
+                    {
+                        var activeBot = _app.ActiveBot;
+                        _app.Bots.RemoveAt(cur); _app.Bots.Insert(target, _tabDragBot);
+                        _app.Active = Math.Max(0, _app.Bots.IndexOf(activeBot));
+                        _app.MarkDirty();
+                    }
+                }
+            }
+        }
 
         // caret scroll button to page the gutter right (wraps back to start at the end)
         if (overflow)
@@ -368,6 +400,7 @@ public sealed partial class MainScreen
                 _tabClickBot = bot; _tabClickTime = clock.Time;
                 if (!active) { _app.SetActive(i); _editor.Selection.Clear(); }
                 if (dbl) { _renamingBot = bot; _ui.Focus = "tab.rename"; }
+                else { _tabDragBot = bot; _tabDragDownX = In.Mouse.X; _tabDragging = false; }   // begin a potential drag-reorder
             }
         }
     }
