@@ -203,6 +203,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showbakeanim") >= 0) ms?.DebugBakeAnim();
         if (Array.IndexOf(_args, "--showappearance") >= 0) ms?.DebugOpenAppearance();
         if (Array.IndexOf(_args, "--showremote") >= 0) ms?.DebugOpenRemote();
+        if (Array.IndexOf(_args, "--showremoteedit") >= 0) ms?.DebugOpenRemoteEdit();
         if (Array.IndexOf(_args, "--showthemeinstall") >= 0) ms?.DebugThemeInstall();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showdeeplink") ms?.HandleDeepLink(_args[i + 1]);

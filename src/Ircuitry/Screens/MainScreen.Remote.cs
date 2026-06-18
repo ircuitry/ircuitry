@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Ircuitry.App;
@@ -229,9 +230,13 @@ public partial class MainScreen
         return h;
     }
 
+    private bool _autoOpenRemote;   // debug/--showremoteedit: open the first remote bot once the session is up
+
     /// <summary>Each frame: if the active tab is a connected remote bot, debounce-push its graph to the server.</summary>
     private void RemoteEditTick(Clock clock)
     {
+        if (_autoOpenRemote && _remote?.Connected == true && _remote.Bots.Count > 0 && !Bot.IsRemote)
+        { _autoOpenRemote = false; OpenRemoteBotInEditor(_remote, _remote.Bots[0].Name); }
         var b = Bot;
         if (b != _remoteLastBot) { _remoteLastBot = b; _remoteSig = b.IsRemote ? RemoteSig(b.Graph) : 0; _remotePushAt = -1; }
         if (!b.IsRemote || b.Remote?.Connected != true) return;
@@ -244,6 +249,58 @@ public partial class MainScreen
         }
     }
 
+    // ---------------- collaborative editing: live cursors + soft node locks ----------------
+
+    /// <summary>While editing a remote bot, tell the server where my cursor is (graph coords) and which node I'm
+    /// holding, so co-editors see my presence and a soft lock on the node I'm working.</summary>
+    private void RemoteCursorTick()
+    {
+        var b = Bot;
+        if (!b.IsRemote || b.Remote?.Connected != true || Modal) return;
+        if (!_l.Canvas.Contains(In.Mouse)) return;   // only while the cursor is over the shared canvas
+        var w = _editor.Cam.ScreenToWorld(In.Mouse);
+        // the node I'm holding: the one I'm dragging, or my single selection (focused for param edits)
+        string held = (_editor.IsGrabbing || _editor.Selection.Count == 1) && _editor.Selection.Count > 0 ? _editor.Selection.First() : "";
+        b.Remote!.SendCursor(b.RemoteName, w.X, w.Y, held);
+    }
+
+    /// <summary>Overlay co-editors' cursors and the soft locks they hold onto the active remote bot's canvas.</summary>
+    private void DrawRemotePeers(Renderer r)
+    {
+        var b = Bot;
+        if (!b.IsRemote || b.Remote == null) return;
+        var peers = b.Remote.PeersOn(b.RemoteName);
+        if (peers.Count == 0) return;
+        r.Begin(BlendMode.Alpha, _l.Canvas.ToRectangle());
+        foreach (var p in peers)
+        {
+            var (cr, cg, cb) = ControlClient.PeerColor(p.User);
+            var col = new Color(cr, cg, cb);
+            // soft lock: ring the node this peer is holding (advisory - you can still edit it)
+            if (p.Node.Length > 0)
+            {
+                var node = b.Graph.Find(p.Node);
+                if (node != null)
+                {
+                    var rect = _editor.NodeScreenRect(node);
+                    r.RoundOutline(rect.Inflate(2.5f, 2.5f), col, 10f);
+                    r.RoundOutline(rect.Inflate(4.5f, 4.5f), Theme.WithAlpha(col, 0.35f), 11f);
+                }
+            }
+            // the cursor + a name pill
+            var sp = _editor.Cam.WorldToScreen(new Vector2(p.X, p.Y));
+            if (!_l.Canvas.Contains(sp)) continue;
+            Hud.SoftDot(r, sp, 5.5f, col);
+            r.Disc(sp, 2.6f, Color.White);
+            var f = r.Fonts.Get(FontKind.SansBold, 11);
+            var m = f.MeasureString(p.User);
+            var pill = new RectF(sp.X + 9, sp.Y + 7, m.X + 12, m.Y + 5);
+            r.RoundFill(pill, col, 6f);
+            r.Text(f, p.User, new Vector2(pill.X + 6, pill.Y + 2), Theme.TextInk);
+        }
+        r.End();
+    }
+
     public void DebugOpenRemote()
     {
         _l = Layout.Compute(_vw, _vh, _consoleH); OpenRemote();
@@ -251,4 +308,8 @@ public partial class MainScreen
         var t = System.Environment.GetEnvironmentVariable("IRCUITRY_REMOTE_TOKEN");
         if (!string.IsNullOrEmpty(u)) { _rmUrl = u; _rmToken = t ?? ""; ConnectRemote(); }   // headless connected-view check
     }
+
+    /// <summary>--showremoteedit: connect (env URL/token) and open the first remote bot straight into the editor,
+    /// so the remote canvas (with co-editor cursors) can be captured headlessly.</summary>
+    public void DebugOpenRemoteEdit() { DebugOpenRemote(); _autoOpenRemote = true; }
 }

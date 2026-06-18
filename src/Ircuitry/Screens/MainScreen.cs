@@ -617,6 +617,7 @@ public sealed partial class MainScreen : IScreen
         AchievementsTick(clock);
         RemotePump();        // keep any remote-server session live (drains its callbacks/events)
         RemoteEditTick(clock);   // debounce-push edits of a remote bot tab to its server
+        RemoteCursorTick();      // report my cursor + soft lock to co-editors of a remote bot
         foreach (var b in _app.Bots) b.Runtime.PlaybackStep(clock.Time);   // reveal queued node glows (slow-mo); instant + drains when off
 
         if (DebugAutoHistory && Bot.Runtime.HistoryCount > 0 && (!_historyOpen || _historyRuns.Count != Bot.Runtime.HistoryCount)) OpenHistory();
@@ -713,6 +714,7 @@ public sealed partial class MainScreen : IScreen
         r.RoundFill(_l.Canvas, Theme.Backdrop, Hud.PanelRadius);
         r.End();
         _editor.Draw(r, _l.Canvas, In, clock);
+        DrawRemotePeers(r);   // co-editors' live cursors + soft locks, over the canvas
         r.Begin();
         if (Bot.Graph.Nodes.Count == 0) EmptyHint(r, _l.Canvas, clock);
         CanvasFrame(r, _l.Canvas);

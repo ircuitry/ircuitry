@@ -191,6 +191,8 @@ public static partial class ControlServer
         public string Role = "viewer";
         public bool CanEdit => Role is "admin" or "editor";
         public readonly HashSet<string> Topics = new();
+        // live cursor / soft-lock: where this client is editing right now
+        public string CurBot = ""; public float CurX, CurY; public string CurNode = "";
         public readonly Dictionary<App.Bot, long> LogRev = new();
         public readonly Dictionary<App.Bot, long> HistRev = new();
         public readonly Dictionary<App.Bot, bool> Running = new();
@@ -230,6 +232,7 @@ public static partial class ControlServer
             c.Closed = true;
             _clients.TryRemove(c, out _);
             BroadcastPresence();
+            BroadcastCursor(c, gone: true);   // pull this editor's cursor from everyone else's canvas
             foreach (var (bot, h) in c.FireHooks) try { bot.Runtime.OnFired -= h; } catch { }
             try { if (ws.State == WebSocketState.Open) await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None); } catch { }
         }
@@ -243,6 +246,19 @@ public static partial class ControlServer
     {
         var users = _clients.Keys.Where(c => !c.Closed).Select(c => c.User).ToArray();
         foreach (var c in _clients.Keys) if (!c.Closed) _ = Send(c, new { evt = "presence", users });
+    }
+
+    // relay a client's cursor (or its departure) to the other people editing a bot they can see
+    private static void BroadcastCursor(Client from, bool gone)
+    {
+        foreach (var c in _clients.Keys)
+        {
+            if (c == from || c.Closed || !c.Topics.Contains("cursors")) continue;
+            if (!gone && !CanSee(c, from.CurBot)) continue;
+            _ = Send(c, gone
+                ? (object)new { evt = "cursor", user = from.User, gone = true }
+                : new { evt = "cursor", user = from.User, bot = from.CurBot, x = from.CurX, y = from.CurY, node = from.CurNode });
+        }
     }
 
     // ---------------- request ops ----------------
@@ -262,6 +278,16 @@ public static partial class ControlServer
                     await Reply(c, id, SetAcl(c, root));
                     Broadcast("workspace", new { evt = "workspace", tool = "set_acl", by = c.User });
                     break;
+                case "cursor":   // fire-and-forget live cursor + soft node lock; relayed to co-editors of the same bot
+                {
+                    string cb = Str(root, "bot");
+                    c.CurBot = cb;
+                    c.CurX = root.TryGetProperty("x", out var xe) && xe.TryGetSingle(out var xf) ? xf : 0;
+                    c.CurY = root.TryGetProperty("y", out var ye) && ye.TryGetSingle(out var yf) ? yf : 0;
+                    c.CurNode = Str(root, "node");
+                    BroadcastCursor(c, false);
+                    break;
+                }
                 case "subscribe":
                     c.Topics.Clear();
                     if (root.TryGetProperty("topics", out var ts) && ts.ValueKind == JsonValueKind.Array)
