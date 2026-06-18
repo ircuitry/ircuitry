@@ -275,6 +275,7 @@ public sealed partial class MainScreen : IScreen
     public void HandleDeepLink(string link)
     {
         if (Ircuitry.App.DeepLink.IsServerLink(link)) { HandleServerLink(link); return; }
+        if (Ircuitry.App.DeepLink.IsConnectLink(link)) { HandleConnectLink(link); return; }   // cockpit "open in app"
         if (!Ircuitry.App.DeepLink.TryParse(link, out var action, out var url, out var data))
         { Bot.Log.Add(LogLevel.Error, "unrecognised link: " + link); return; }
 

@@ -86,6 +86,11 @@
   el("loginBtn").addEventListener("click", function () { token = el("token").value.trim(); el("loginErr").textContent = ""; if (token) connect(); });
   el("token").addEventListener("keydown", function (e) { if (e.key === "Enter") el("loginBtn").click(); });
   el("logout").addEventListener("click", function () { localStorage.removeItem("ircuitry.token"); token = ""; try { ws.close(); } catch (x) {} show("login"); setConn("", "offline"); });
+  // hand this server off to the desktop app: ircuitry://connect?url=<origin>&token=<token>. Uses the full
+  // https origin so the app dials wss; the desktop opens its Remote panel pre-filled and connects.
+  el("openApp").addEventListener("click", function () {
+    window.location.href = "ircuitry://connect?url=" + encodeURIComponent(location.origin) + "&token=" + encodeURIComponent(token);
+  });
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function () {});
   connect();

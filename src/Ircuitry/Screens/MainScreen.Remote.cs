@@ -34,6 +34,30 @@ public partial class MainScreen
     /// <summary>Keep the remote session live every frame (drains its reply/event callbacks).</summary>
     private void RemotePump() => _remote?.Pump();
 
+    /// <summary>Handle an <c>ircuitry://connect</c> deep link (the cockpit's "Open in desktop app" button):
+    /// pop the Remote panel pre-filled with this server and, if a token came along, connect straight away.</summary>
+    private void HandleConnectLink(string link)
+    {
+        if (!Ircuitry.App.DeepLink.TryParseConnect(link, out var url, out var token))
+        { Bot.Log.Add(LogLevel.Error, "unrecognised connect link: " + link); return; }
+        OpenRemoteFromLink(url, token);
+    }
+
+    /// <summary>Open the Remote server panel for a given URL (+ optional token) and connect.</summary>
+    public void OpenRemoteFromLink(string url, string token)
+    {
+        OpenRemote();                       // show the panel + load saved servers
+        _rmUrl = url.Trim(); _rmReplaceToken = false;
+        if (token.Trim().Length > 0)
+        {
+            _rmToken = token.Trim();
+            SaveServer(_rmUrl, _rmToken);   // remember it (token -> key store), then connect
+            ConnectRemote();
+            Notify(Ircuitry.Core.Icons.Glyph("cloud") + " connecting to " + _rmUrl);
+        }
+        else { _rmToken = ""; _rmMsg = "paste the access token to connect"; }
+    }
+
     // remote control-plane servers - kept in their OWN file. (servers.json belongs to the IRC server-profile
     // store, Core/Servers.cs; an older build wrongly shared it, which clobbered users' saved IRC servers.)
     private string ServersFile => Path.Combine(AppModel.WorkspaceDir, "remote-servers.json");

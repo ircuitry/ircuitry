@@ -68,6 +68,38 @@ public static class DeepLink
         catch { return false; }
     }
 
+    private static bool SchemeOk(Uri u) =>
+        u.Scheme.Equals("ircuitry", StringComparison.OrdinalIgnoreCase) || u.Scheme.Equals("ircbot", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True for an <c>ircuitry://connect?url=...</c> link - the cockpit's "open this server in the desktop app".</summary>
+    public static bool IsConnectLink(string arg)
+    {
+        try { var u = new Uri(arg); return SchemeOk(u) && u.Host.Equals("connect", StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    /// <summary>Parse <c>ircuitry://connect?url=&lt;server&gt;&amp;token=&lt;token&gt;</c>. The token is optional
+    /// (no token -> just pre-fill the server, the user enters the token).</summary>
+    public static bool TryParseConnect(string link, out string url, out string token)
+    {
+        url = ""; token = "";
+        try
+        {
+            var u = new Uri(link);
+            if (!SchemeOk(u) || !u.Host.Equals("connect", StringComparison.OrdinalIgnoreCase)) return false;
+            foreach (var kv in u.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int i = kv.IndexOf('=');
+                if (i <= 0) continue;
+                var key = Uri.UnescapeDataString(kv[..i]);
+                if (key == "url") url = Uri.UnescapeDataString(kv[(i + 1)..]);
+                else if (key == "token") token = Uri.UnescapeDataString(kv[(i + 1)..]);
+            }
+            return url.Length > 0;
+        }
+        catch { return false; }
+    }
+
     /// <summary>Parse <c>scheme://action?url=...</c> (a hosted file) or <c>?data=&lt;base64&gt;</c> (an inline
     /// workflow, e.g. a bot merged in the browser) into the action (install-node/install-bot) and its payload.</summary>
     public static bool TryParse(string link, out string action, out string url, out string data)

@@ -1952,6 +1952,13 @@ public static class SelfTest
 
         var noTrail = IrcParser.Parse(":n!u@h JOIN #room");
         fails += Expect("parse-join", noTrail.Command == "JOIN" && noTrail.P(0) == "#room", noTrail.P(0));
+
+        // cockpit "Open in app" deep link: ircuitry://connect?url=<server>&token=<token>
+        fails += Expect("deeplink-connect-is", Ircuitry.App.DeepLink.IsConnectLink("ircuitry://connect?url=x&token=y")
+            && !Ircuitry.App.DeepLink.IsConnectLink("ircuitry://install-node?url=x"), "");
+        bool cok = Ircuitry.App.DeepLink.TryParseConnect(
+            "ircuitry://connect?url=" + System.Uri.EscapeDataString("https://ircuitry.example.com") + "&token=tok123", out var cu, out var ct);
+        fails += Expect("deeplink-connect-parse", cok && cu == "https://ircuitry.example.com" && ct == "tok123", $"{cu} / {ct}");
         return fails;
     }
 
