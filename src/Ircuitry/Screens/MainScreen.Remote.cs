@@ -20,48 +20,76 @@ public partial class MainScreen
     private bool _remoteOpen, _remoteJustOpened;
     private ControlClient? _remote;
     private string _rmUrl = "", _rmToken = "", _rmMsg = "";
-    private readonly List<(string label, string url, string token)> _rmSaved = new();
+    private bool _rmReplaceToken;   // user chose to replace an already-saved token
+    private readonly List<(string label, string url, string tokenKey)> _rmSaved = new();
 
     public void OpenRemote()
     {
-        _remoteOpen = true; _remoteJustOpened = true; _rmMsg = "";
+        _remoteOpen = true; _remoteJustOpened = true; _rmMsg = ""; _rmToken = ""; _rmReplaceToken = false;
         LoadServers();
-        if (_rmUrl.Length == 0 && _rmSaved.Count > 0) { _rmUrl = _rmSaved[0].url; _rmToken = _rmSaved[0].token; }
+        // the token is resolved from the key store at connect time - never pre-filled into the field
+        if (_rmUrl.Length == 0 && _rmSaved.Count > 0) _rmUrl = _rmSaved[0].url;
     }
 
     /// <summary>Keep the remote session live every frame (drains its reply/event callbacks).</summary>
     private void RemotePump() => _remote?.Pump();
 
     private string ServersFile => Path.Combine(AppModel.WorkspaceDir, "servers.json");
+    private static string ServerTokenKey(string url) => "server:" + url.Trim();
+    private string SavedKeyFor(string url) { foreach (var s in _rmSaved) if (s.url == url.Trim()) return s.tokenKey ?? ""; return ""; }
 
     private void LoadServers()
     {
         _rmSaved.Clear();
+        bool migrated = false;
         try
         {
             if (!File.Exists(ServersFile)) return;
             using var d = JsonDocument.Parse(File.ReadAllText(ServersFile));
             foreach (var e in d.RootElement.EnumerateArray())
-                _rmSaved.Add((e.TryGetProperty("label", out var l) ? l.GetString() ?? "" : "",
-                              e.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "",
-                              e.TryGetProperty("token", out var t) ? t.GetString() ?? "" : ""));
+            {
+                string label = e.TryGetProperty("label", out var l) ? l.GetString() ?? "" : "";
+                string url = e.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
+                string key = e.TryGetProperty("tokenKey", out var k) ? k.GetString() ?? "" : "";
+                // legacy: a raw token was stored in servers.json - move it into the key store and scrub the file
+                if (key.Length == 0 && e.TryGetProperty("token", out var t))
+                {
+                    string raw = t.GetString() ?? "";
+                    key = ServerTokenKey(url);
+                    if (raw.Length > 0) Ircuitry.Core.Secrets.Set(key, raw);
+                    migrated = true;
+                }
+                _rmSaved.Add((label, url, key));
+            }
         }
+        catch { }
+        if (migrated) PersistServers();   // rewrite servers.json with key references only
+    }
+
+    private void PersistServers()
+    {
+        try { File.WriteAllText(ServersFile, JsonSerializer.Serialize(_rmSaved.ConvertAll(s => new { label = s.label, url = s.url, tokenKey = s.tokenKey }), new JsonSerializerOptions { WriteIndented = true })); }
         catch { }
     }
 
     private void SaveServer(string url, string token)
     {
+        string key = ServerTokenKey(url);
+        if (token.Length > 0) Ircuitry.Core.Secrets.Set(key, token);   // the credential lives in the key store, never in servers.json
         _rmSaved.RemoveAll(s => s.url == url);
-        _rmSaved.Insert(0, (url, url, token));
-        try { File.WriteAllText(ServersFile, JsonSerializer.Serialize(_rmSaved.ConvertAll(s => new { label = s.label, url = s.url, token = s.token }), new JsonSerializerOptions { WriteIndented = true })); }
-        catch { }
+        _rmSaved.Insert(0, (url, url, key));
+        PersistServers();
     }
 
     private void ConnectRemote()
     {
+        string url = _rmUrl.Trim();
+        string token = _rmToken.Trim();
+        if (token.Length == 0) { var key = SavedKeyFor(url); if (key.Length > 0) token = Ircuitry.Core.Secrets.Get(key); }   // resolve from the stored key
         _remote?.Dispose();
         _remote = new ControlClient();
-        _remote.Connect(_rmUrl.Trim(), _rmToken.Trim(), _rmUrl.Trim());
+        _remote.Connect(url, token, url);
+        _rmToken = ""; _rmReplaceToken = false;   // never retain the raw token in UI state
         _rmMsg = "";
     }
 
@@ -154,7 +182,7 @@ public partial class MainScreen
                     var s = _rmSaved[i];
                     var bw = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(s.url).X + 26;
                     if (_ui.Button("rm.saved" + i, new RectF(cx, y, bw, 28), s.url, Theme.Sky))
-                    { _rmUrl = s.url; _rmToken = s.token; }
+                    { _rmUrl = s.url; _rmToken = ""; _rmReplaceToken = false; }   // token comes from the key store, not here
                     cx += bw + 8;
                 }
                 y += 38;
@@ -163,7 +191,21 @@ public partial class MainScreen
             r.Text(r.Fonts.Get(FontKind.SansBold, 12), "SERVER", new Vector2(x, y), Theme.TextDim); y += 18;
             _rmUrl = _ui.TextField("rm.url", new RectF(x, y, w, 34), _rmUrl, "mita:48700"); y += 44;
             r.Text(r.Fonts.Get(FontKind.SansBold, 12), "ACCESS TOKEN", new Vector2(x, y), Theme.TextDim); y += 18;
-            _rmToken = _ui.TextField("rm.token", new RectF(x, y, w, 34), _rmToken, "token", password: true); y += 46;
+            string savedKey = SavedKeyFor(_rmUrl);
+            bool hasSaved = savedKey.Length > 0 && Ircuitry.Core.Secrets.Has(savedKey);
+            if (hasSaved && !_rmReplaceToken)
+            {
+                // a token is already saved as a stored key - show that, never the value
+                var box = new RectF(x, y, w, 34);
+                r.RoundFill(box, Theme.PanelHi, 8f); r.RoundOutline(box, Theme.Hairline, 8f);
+                r.Text(r.Fonts.Get(FontKind.Sans, 13), Ircuitry.Core.Icons.Glyph("key") + "  token saved as a stored key", new Vector2(x + 12, box.Center.Y - 8), Theme.Ok);
+                if (_ui.Button("rm.repl", new RectF(box.Right - 90, box.Y + 4, 84, 26), "Replace", Theme.Idle)) { _rmReplaceToken = true; _rmToken = ""; }
+                y += 46;
+            }
+            else
+            {
+                _rmToken = _ui.TextField("rm.token", new RectF(x, y, w, 34), _rmToken, "paste access token", password: true); y += 46;
+            }
 
             bool connecting = rc != null && rc.State == ControlClient.Conn.Connecting;
             if (_ui.Button("rm.connect", new RectF(x, y, 150, 36), connecting ? "Connecting…" : "Connect", Theme.Sky, primary: true, enabled: !connecting && _rmUrl.Trim().Length > 0))
