@@ -2,9 +2,10 @@
 #   docker compose up -d      # build + run
 #   docker compose logs        # grab the admin token printed on first start
 #
-# Not required to use ircuitry headless: you can also just run the binary directly on a box
+# Not required to use ircuitry headless: you can also run the binary directly on a box
 #   ./Ircuitry --server --bind 0.0.0.0 --port 48700 --web
-# (e.g. under systemd or tmux on `mita`) and connect your desktop to it.
+# and connect your desktop to it. To run it as a restart-on-reboot systemd service
+# (no Docker), use deploy/install-server.sh - see deploy/ircuitry-server.service.
 
 services:
   ircuitry:

@@ -1,0 +1,24 @@
+[Unit]
+Description=ircuitry headless control server
+Documentation=https://github.com/ircuitry/ircuitry
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__BIN__
+Environment=IRCUITRY_HOME=__DATA__
+Environment=DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+ExecStart=__BIN__/Ircuitry --server --bind __BIND__ --port __PORT__ __FLAGS__
+Restart=on-failure
+RestartSec=3
+# Keep restarts from looping forever if the binary is broken
+StartLimitIntervalSec=60
+StartLimitBurst=5
+# NB: the per-code-node bubblewrap sandbox creates user namespaces. Do NOT add
+# NoNewPrivileges=, RestrictNamespaces=, PrivateUsers= or ProtectSystem=strict
+# here, or code nodes can no longer sandbox themselves.
+
+[Install]
+WantedBy=multi-user.target
