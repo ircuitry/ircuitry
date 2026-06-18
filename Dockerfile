@@ -23,7 +23,8 @@ WORKDIR /app
 COPY --from=build /app .
 RUN chmod +x ./Ircuitry
 
-# the workspace + tokens live in a volume so they survive restarts/upgrades
+# the workspace, tokens, ACLs AND the encrypted key store (secrets.json + .localkey) all live under
+# IRCUITRY_HOME, so the /data volume persists everything across restarts/upgrades/recreation
 ENV IRCUITRY_HOME=/data
 ENV IRCUITRY_PORT=48700
 ENV IRCUITRY_FLAGS=--web

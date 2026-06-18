@@ -19,7 +19,18 @@ public static class Secrets
     private static DateTime _stamp;     // file mtime the cache was built from (for change detection)
     private static readonly Regex Ref = new(@"\{\{\s*secret\.([^}\s]+)\s*\}\}", RegexOptions.Compiled);
 
-    public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry");
+    // Co-locate the key store with the workspace: honour IRCUITRY_HOME (same rule as AppModel.WorkspaceDir) so a
+    // headless server's secrets.json + .localkey live in its --data/volume dir and survive container recreation,
+    // not in $HOME/ircuitry off the volume.
+    public static string Dir
+    {
+        get
+        {
+            var ov = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+            return !string.IsNullOrEmpty(ov) ? ov
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry");
+        }
+    }
     public static string FilePath => Path.Combine(Dir, "secrets.json");
 
     // case-insensitive: {{secret.Pollinations}} must still find a secret named "pollinations".
