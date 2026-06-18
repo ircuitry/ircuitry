@@ -51,6 +51,7 @@ public partial class MainScreen
                 string label = e.TryGetProperty("label", out var l) ? l.GetString() ?? "" : "";
                 string url = e.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
                 string key = e.TryGetProperty("tokenKey", out var k) ? k.GetString() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(url)) { migrated = true; continue; }   // drop blank/junk entries and re-persist clean
                 // legacy: a raw token was stored in servers.json - move it into the key store and scrub the file
                 if (key.Length == 0 && e.TryGetProperty("token", out var t))
                 {
@@ -74,6 +75,7 @@ public partial class MainScreen
 
     private void SaveServer(string url, string token)
     {
+        if (string.IsNullOrWhiteSpace(url)) return;   // never save a blank server
         string key = ServerTokenKey(url);
         if (token.Length > 0) Ircuitry.Core.Secrets.Set(key, token);   // the credential lives in the key store, never in servers.json
         _rmSaved.RemoveAll(s => s.url == url);
@@ -177,13 +179,15 @@ public partial class MainScreen
             {
                 r.Text(r.Fonts.Get(FontKind.SansBold, 12), "SAVED", new Vector2(x, y), Theme.TextDim); y += 20;
                 float cx = x;
-                for (int i = 0; i < _rmSaved.Count && i < 4; i++)
+                int shown = 0;
+                for (int i = 0; i < _rmSaved.Count && shown < 4; i++)
                 {
                     var s = _rmSaved[i];
+                    if (string.IsNullOrWhiteSpace(s.url)) continue;   // never render a blank chip
                     var bw = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(s.url).X + 26;
                     if (_ui.Button("rm.saved" + i, new RectF(cx, y, bw, 28), s.url, Theme.Sky))
                     { _rmUrl = s.url; _rmToken = ""; _rmReplaceToken = false; }   // token comes from the key store, not here
-                    cx += bw + 8;
+                    cx += bw + 8; shown++;
                 }
                 y += 38;
             }
