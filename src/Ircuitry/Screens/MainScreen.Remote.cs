@@ -286,14 +286,20 @@ public partial class MainScreen
                     bot = new Bot(remoteName + " @ " + session.Label) { Graph = graph, Remote = session, RemoteName = remoteName };
                     _app.Bots.Add(bot); _app.Active = _app.Bots.Count - 1;
                 }
-                // mirror the server's connection rows so the inspector shows (and can edit) the real settings
+                // mirror the server's connection rows + variables so the inspector shows (and can edit) the real settings
                 var rb = session.Bots.FirstOrDefault(x => x.Name == remoteName);
-                if (rb != null && rb.Servers.Count > 0)
+                if (rb != null)
                 {
-                    bot.Servers.Clear();
-                    foreach (var s in rb.Servers)
-                        bot.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = s.Label, Host = s.Host, Port = s.Port, UseTls = s.Tls, Nick = s.Nick, Channels = s.Channels, RealName = s.RealName, ConnectOnStartup = s.ConnectOnStartup });
-                    bot.SelectedServer = 0;
+                    bot.RemoteRev = rb.Rev;   // optimistic-concurrency base: what we loaded from
+                    if (rb.Servers.Count > 0)
+                    {
+                        bot.Servers.Clear();
+                        foreach (var s in rb.Servers)
+                            bot.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = s.Label, Host = s.Host, Port = s.Port, UseTls = s.Tls, Nick = s.Nick, Channels = s.Channels, RealName = s.RealName, ConnectOnStartup = s.ConnectOnStartup });
+                        bot.SelectedServer = 0;
+                    }
+                    bot.State.Clear();
+                    foreach (var kv in rb.Vars) bot.State[kv.Key] = kv.Value;
                 }
                 HookRemoteLog(session);
                 _remoteLastBot = null;     // force a fresh push baseline on the next tick (no spurious re-push)
@@ -334,12 +340,14 @@ public partial class MainScreen
     }
 
     // signature of the selected server's connection settings, so editing host/port/nick/etc. triggers a push too
+    // signature of ALL server rows + the bot's variables, so editing any of them triggers a debounced push
     private static long RemoteConnSig(Bot b)
     {
-        var s = b.Settings;
         long h = 17;
-        foreach (var v in new object[] { s.Host, s.Port, s.UseTls, s.Nick, s.Channels, s.RealName, s.SaslUser, s.SaslPass, s.ServerPass })
-            h = unchecked(h * 31 + (v?.GetHashCode() ?? 0));
+        foreach (var s in b.Servers)
+            foreach (var v in new object[] { s.Host, s.Port, s.UseTls, s.Nick, s.Channels, s.RealName, s.SaslUser, s.SaslPass, s.ServerPass, s.ConnectOnStartup })
+                h = unchecked(h * 31 + (v?.GetHashCode() ?? 0));
+        foreach (var kv in b.State) h = unchecked(h * 31 + kv.Key.GetHashCode() * 17 + (kv.Value?.GetHashCode() ?? 0));
         return h;
     }
 
@@ -369,11 +377,50 @@ public partial class MainScreen
             _remotePushAt = -1;
             try
             {
-                if (_remoteGraphDirty) { _remoteGraphDirty = false; b.Remote!.PushGraph(b.RemoteName, Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.RemoteName)); }
-                if (_remoteConnDirty) { _remoteConnDirty = false; b.Remote!.PushConnection(b.RemoteName, b.Settings); }
+                if (_remoteGraphDirty)
+                {
+                    _remoteGraphDirty = false;
+                    var tab = b;   // capture for the async reply
+                    b.Remote!.PushGraph(b.RemoteName, Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.RemoteName), b.RemoteRev, (rev, stale) =>
+                    {
+                        if (stale) { _staleRemote = tab; _staleServerRev = rev; }   // a co-editor pushed first -> prompt
+                        else if (rev > 0) tab.RemoteRev = rev;   // our push landed; advance our base
+                    });
+                }
+                if (_remoteConnDirty) { _remoteConnDirty = false; b.Remote!.PushServers(b.RemoteName, b.Servers); b.Remote!.PushState(b.RemoteName, new Dictionary<string, string>(b.State)); }
             }
             catch { }
         }
+    }
+
+    // ---- D9: stale-push (a co-editor changed the bot first) -> ask to reload or overwrite ----
+    private Bot? _staleRemote; private long _staleServerRev;
+
+    private void DrawStaleModal(Renderer r)
+    {
+        var b = _staleRemote; if (b == null || b.Remote == null) return;
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = 460, ph = 200;
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Remote changed", Theme.Amber);
+        float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), $"Someone else edited '{b.RemoteName}' on the server while you were working. Reload to get their version (you lose your unpushed edits here), or overwrite the server with yours.", w))
+        { r.Text(r.Fonts.Get(FontKind.Sans, 13), line, new Vector2(x, y), Theme.TextDim); y += 18; }
+        y = panel.Bottom - 52;
+        var reload = new RectF(x, y, 130, 34);
+        var overwrite = new RectF(reload.Right + 10, y, 130, 34);
+        var cancel = new RectF(panel.Right - 22 - 90, y, 90, 34);
+        if (_ui.Button("stale.reload", reload, Ircuitry.Core.Icons.Glyph("arrows-clockwise") + " Reload", Theme.Sky, primary: true))
+        { var s = b.Remote; var nm = b.RemoteName; _staleRemote = null; OpenRemoteBotInEditor(s!, nm); }   // re-pull graph + rev
+        if (_ui.Button("stale.overwrite", overwrite, Ircuitry.Core.Icons.Glyph("upload-simple") + " Overwrite", Theme.Alert))
+        {
+            var tab = b; tab.RemoteRev = _staleServerRev;   // adopt the server's rev so our push is accepted
+            tab.Remote!.PushGraph(tab.RemoteName, Ircuitry.Graph.GraphSerializer.Save(tab.Graph, tab.RemoteName), tab.RemoteRev, (rev, stale) => { if (!stale && rev > 0) tab.RemoteRev = rev; });
+            _staleRemote = null;
+        }
+        if (_ui.Button("stale.cancel", cancel, "Keep editing", Theme.Idle)) _staleRemote = null;
+        r.End();
     }
 
     // ---------------- collaborative editing: live cursors + soft node locks ----------------

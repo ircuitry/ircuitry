@@ -36,6 +36,7 @@ public sealed class Bot
     // is idle; edits push to the server, and run/glow/console come from the session. (Local bots leave these null.)
     public Ircuitry.App.Server.ControlClient? Remote;
     public string RemoteName = "";
+    public long RemoteRev;   // server graph revision this tab last synced from (optimistic-concurrency base)
     public bool IsRemote => Remote != null;
 
     public Bot(string name)

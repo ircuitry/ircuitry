@@ -323,9 +323,14 @@ public sealed partial class MainScreen
         if (bot.IsRemote)   // a little cloud where the status dot would be: this bot lives on a server
         {
             var cf = r.Fonts.Get(FontKind.Sans, 13);
-            string cg = Ircuitry.Core.Icons.Glyph("cloud");
+            // glyph + tint reflect the live connection: connected = cloud, reconnecting = amber cloud, dropped = slash
+            var st = bot.Remote!.State;
+            bool live = st == Ircuitry.App.Server.ControlClient.Conn.Connected;
+            bool busy = st is Ircuitry.App.Server.ControlClient.Conn.Reconnecting or Ircuitry.App.Server.ControlClient.Conn.Connecting;
+            string cg = Ircuitry.Core.Icons.Glyph(live ? "cloud" : busy ? "cloud-arrow-up" : "cloud-slash");
+            var cc = live ? col : busy ? Theme.Amber : Theme.Alert;
             var cm = cf.MeasureString(cg);
-            r.Text(cf, cg, new Vector2(tab.X + 16 - cm.X / 2f, tab.Center.Y + 3 - cm.Y / 2f), Theme.WithAlpha(col, active ? 0.95f : 0.75f));
+            r.Text(cf, cg, new Vector2(tab.X + 16 - cm.X / 2f, tab.Center.Y + 3 - cm.Y / 2f), Theme.WithAlpha(cc, active ? 1f : 0.8f));
         }
         else if (active) Hud.SoftDot(r, new Vector2(tab.X + 16, tab.Center.Y + 3), 3.4f, col);
         else r.Disc(new Vector2(tab.X + 16, tab.Center.Y + 3), 3f, col);
