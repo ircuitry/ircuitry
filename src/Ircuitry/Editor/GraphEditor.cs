@@ -423,6 +423,17 @@ public sealed class GraphEditor
             foreach (var n in nodes) { n.Pos = new Vector2(x, y); y += NodeLayout.For(n).Card.H + rowGap; }
             x += colW + colGap;
         }
+
+        // tool nodes flow vertically: park each directly below the AI node it feeds (stacked if several)
+        var toolY = new Dictionary<string, float>();
+        foreach (var c in Graph.Connections)
+        {
+            var from = Graph.Find(c.FromNode); var to = Graph.Find(c.ToNode);
+            if (from == null || to == null || c.FromPin >= from.Outputs.Length || from.Outputs[c.FromPin].Kind != PinKind.Tool) continue;
+            float baseY = toolY.TryGetValue(to.Id, out var yy) ? yy : NodeLayout.For(to).Card.Bottom + rowGap;
+            from.Pos = new Vector2(to.Pos.X, baseY);
+            toolY[to.Id] = baseY + NodeLayout.For(from).Card.H + rowGap;
+        }
         Selection.Clear();
     }
 
@@ -1029,9 +1040,22 @@ public sealed class GraphEditor
     {
         string key = c.FromNode + ":" + c.FromPin + ">" + c.ToNode + ":" + c.ToPin;
         if (_routeCache.TryGetValue(key, out var cached)) return cached;
-        var route = Simplify(ComputeRoute(c) ?? FallbackRoute(c));
+        var route = ToolRoute(c) ?? Simplify(ComputeRoute(c) ?? FallbackRoute(c));
         _routeCache[key] = route;
         return route;
+    }
+
+    /// <summary>Tool wires flow vertically: out the top of the tool node, into the bottom of the AI node. A
+    /// simple S-route (no obstacle avoidance) keeps the magenta tool plugs reading top-to-bottom.</summary>
+    private List<Vector2>? ToolRoute(Connection c)
+    {
+        var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
+        if (a == null || b == null || c.FromPin >= a.Outputs.Length || c.ToPin >= b.Inputs.Length) return null;
+        if (a.Outputs[c.FromPin].Kind != PinKind.Tool) return null;
+        var p0 = NodeLayout.For(a).OutPin(c.FromPin);   // tool node's top edge
+        var p1 = NodeLayout.For(b).InPin(c.ToPin);      // AI node's bottom edge
+        float step = MathF.Max(28f, MathF.Abs(p1.Y - p0.Y) * 0.4f);
+        return new List<Vector2> { p0, new(p0.X, p0.Y - step), new(p1.X, p1.Y + step), p1 };
     }
 
     /// <summary>Collapse collinear runs so a straight stretch is one segment (corner discs only at real bends).</summary>
@@ -1259,7 +1283,7 @@ public sealed class GraphEditor
             var ps = Cam.WorldToScreen(l.InPin(p));
             var pd = ins[p];
             DrawPort(r, ps, pd.Kind, Graph.InputConnected(n.Id, p), z);
-            if (z > 0.55f && pd.Name.Length > 0)
+            if (z > 0.55f && pd.Name.Length > 0 && pd.Kind != PinKind.Tool)   // tool pins sit on the edge - no inline label
                 r.Text(lf, pd.Name, new Vector2(ps.X + 10 * z, ps.Y - lf.MeasureString(pd.Name).Y / 2f), Theme.TextDim);
         }
         for (int p = 0; p < outs.Length; p++)
@@ -1267,7 +1291,7 @@ public sealed class GraphEditor
             var ps = Cam.WorldToScreen(l.OutPin(p));
             var pd = outs[p];
             DrawPort(r, ps, pd.Kind, Graph.OutputConnected(n.Id, p), z);
-            if (z > 0.55f && pd.Name.Length > 0)
+            if (z > 0.55f && pd.Name.Length > 0 && pd.Kind != PinKind.Tool)
             {
                 var m = lf.MeasureString(pd.Name);
                 r.Text(lf, pd.Name, new Vector2(ps.X - 10 * z - m.X, ps.Y - m.Y / 2f), Theme.TextDim);
