@@ -3348,6 +3348,11 @@ public sealed partial class MainScreen : IScreen
     // ===================================================================
     private void DrawFleetModal(Renderer r)
     {
+        // pull fresh remote health on open (the snapshot otherwise only refreshes on a workspace change)
+        if (_fleetJustOpened)
+            foreach (var rc in _app.Bots.Where(b => b.IsRemote && b.Remote != null).Select(b => b.Remote!).Distinct())
+                try { rc.Snapshot(); } catch { }
+
         r.Begin();
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
         float pw = MathF.Min(1060, _vw * 0.95f), ph = MathF.Min(720, _vh * 0.9f);
