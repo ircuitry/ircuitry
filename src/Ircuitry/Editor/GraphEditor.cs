@@ -35,6 +35,66 @@ public sealed class GraphEditor
     public void ToggleWatch(string nodeId) { if (!_watches.Remove(nodeId)) _watches.Add(nodeId); }
     public bool IsWatched(string nodeId) => _watches.Contains(nodeId);
 
+    // why-didn't-this-fire tracer (#14): walk back from a node along exec wires using the last run trace
+    private string? _explainCulprit;
+    private readonly HashSet<string> _explainPath = new();
+    private int _explainFrames;
+
+    public string Explain(string targetId)
+    {
+        _explainPath.Clear(); _explainCulprit = null; _explainFrames = 0;
+        var run = LastRun?.Invoke();
+        if (run == null) return "Nothing has run yet - run the bot (or Test) first, then ask again.";
+        var ran = new Dictionary<string, NodeTrace>();
+        foreach (var t in run.Nodes) ran[t.NodeId] = t;
+
+        _explainFrames = 540;   // glow the trail for ~9s
+        if (ran.ContainsKey(targetId)) { _explainCulprit = targetId; _explainPath.Add(targetId); return "This node DID run in the last trace."; }
+
+        string? cur = targetId;
+        var seen = new HashSet<string>();
+        while (cur != null && seen.Add(cur))
+        {
+            _explainPath.Add(cur);
+            var curNode = Graph.Find(cur);
+            var inWire = Graph.Connections.FirstOrDefault(c => c.ToNode == cur && curNode != null && c.ToPin < curNode.Inputs.Length && curNode.Inputs[c.ToPin].Kind == PinKind.Exec);
+            if (inWire == null)
+            {
+                _explainCulprit = cur;
+                return curNode?.Def.IsTrigger == true
+                    ? $"'{curNode.DisplayTitle}' never fired - no matching event reached it in the last run."
+                    : "Nothing is wired into this node's exec input.";
+            }
+            var src = Graph.Find(inWire.FromNode);
+            if (src != null && ran.TryGetValue(src.Id, out var st))
+            {
+                _explainCulprit = src.Id; _explainPath.Add(src.Id);
+                string pin = inWire.FromPin < src.Outputs.Length ? src.Outputs[inWire.FromPin].Name : "out";
+                return st.Pulsed.Contains(pin)
+                    ? $"'{src.DisplayTitle}' pulsed '{pin}', but the flow stopped before reaching here."
+                    : $"'{src.DisplayTitle}' ran but did NOT pulse its '{pin}' output - that branch wasn't taken.";
+            }
+            cur = src?.Id;
+        }
+        _explainCulprit = _explainPath.Count > 0 ? null : targetId;
+        return "The trigger never fired in the last run (no matching event reached this flow).";
+    }
+
+    private void DrawExplain(Renderer r)
+    {
+        if (_explainFrames <= 0) return;
+        _explainFrames--;
+        float fade = Math.Min(1f, _explainFrames / 60f);
+        foreach (var id in _explainPath)
+        {
+            var n = Graph.Find(id); if (n == null) continue;
+            var card = ScreenRect(NodeLayout.For(n).Card);
+            bool culprit = id == _explainCulprit;
+            r.RoundOutline(card.Inflate(culprit ? 4 : 2, culprit ? 4 : 2), Theme.WithAlpha(Theme.Alert, (culprit ? 0.95f : 0.4f) * fade), 12f * Cam.Zoom + 4);
+            if (culprit) r.RoundOutline(card.Inflate(8, 8), Theme.WithAlpha(Theme.Alert, 0.35f * fade), 12f * Cam.Zoom + 8);
+        }
+    }
+
     private static bool IsDataPin(PinKind k) => k != PinKind.Exec && k != PinKind.Tool;
     private string OutValue(string nodeId, int pin)
     {
@@ -986,6 +1046,7 @@ public sealed class GraphEditor
         foreach (var n in Graph.Nodes) DrawNode(r, n, clock);
         DrawGhosts(r, input.Mouse);   // "+" suggestions on dangling exec outputs
         DrawWireValues(r, input.Mouse);   // pin inspector tooltip + watch chips (#16)
+        DrawExplain(r);                   // why-didn't-this-fire red trail (#14)
         // node-fired shockwave (alpha so the rings read on the cream canvas): a white-hot flash
         // outline at the instant of firing, then two rings rippling outward as it fades.
         if (FireGlow != null)

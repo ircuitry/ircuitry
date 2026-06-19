@@ -56,7 +56,10 @@ public sealed partial class MainScreen
             Sep();
             Item(anyOn ? Ircuitry.Core.Icons.Glyph("speaker-slash") : Ircuitry.Core.Icons.Glyph("speaker-high"), anyOn ? "Mute" + suffix : "Unmute" + suffix, "M", true, () => { _editor.ToggleMuteSelection(); _app.MarkDirty(); });
             if (only != null)
+            {
                 Item(_editor.IsWatched(only.Id) ? Ircuitry.Core.Icons.Glyph("eye-slash") : Ircuitry.Core.Icons.Glyph("eye"), _editor.IsWatched(only.Id) ? "Unwatch values" : "Watch output values", "", true, () => _editor.ToggleWatch(only.Id));
+                Item(Ircuitry.Core.Icons.Glyph("magnifying-glass"), "Why didn't this fire?", "", true, () => Notify(_editor.Explain(only.Id)));
+            }
             Item(Ircuitry.Core.Icons.Glyph("plug"), "Disconnect wires", "", true, () => { _editor.DisconnectSelection(); _app.MarkDirty(); });
             Sep();
             Item(Ircuitry.Core.Icons.Glyph("trash"), "Delete" + suffix, "Del", true, () => { _editor.DeleteSelection(); _app.MarkDirty(); });
