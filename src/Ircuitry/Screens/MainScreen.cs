@@ -162,6 +162,7 @@ public sealed partial class MainScreen : IScreen
     private readonly List<(string kind, string text)> _testSent = new();
     private RunRecord? _testRec;
     private float _testScroll;
+    private string _testReplayNote = "";   // #17: when set, the test bench is showing a replayed recorded event
 
     // save-selection-as-reusable-node
     private bool _saveNodeOpen, _saveNodeJustOpened, _saveNodeAsTool;
@@ -3729,8 +3730,14 @@ public sealed partial class MainScreen : IScreen
         r.Begin();
         var closeR = new RectF(panel.Right - 16 - 110, btnY, 110, 34);
         var clearR = new RectF(closeR.X - 12 - 110, btnY, 110, 34);
+        var replayR = new RectF(clearR.X - 12 - 150, btnY, 150, 34);
         if (_ui.Button("hist.close", closeR, "CLOSE", Theme.Cyan, primary: true)) _historyOpen = false;
         if (_ui.Button("hist.clear", clearR, "CLEAR", Theme.Idle)) { Bot.Runtime.ClearHistory(); _historyRuns.Clear(); _historySel = -1; }
+        // replay (#17): re-run the selected recorded event through the current graph as a dry run
+        var selRun = _historySel >= 0 && _historySel < _historyRuns.Count ? _historyRuns[_historySel] : null;
+        bool canReplay = selRun?.Envelope != null;
+        if (_ui.Button("hist.replay", replayR, Ircuitry.Core.Icons.Glyph("arrow-counter-clockwise") + "  REPLAY", canReplay ? Theme.Ok : Theme.Idle, enabled: canReplay) && selRun != null)
+            ReplayRun(selRun);
         r.End();
 
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_historyJustOpened) _historyOpen = false;
@@ -3886,7 +3893,7 @@ public sealed partial class MainScreen : IScreen
     private void RunTest()
     {
         _testRunSeq++;   // tutorial watches this to know the user actually ran a test
-        _testSent.Clear(); _testRec = null; _testScroll = 0;
+        _testSent.Clear(); _testRec = null; _testScroll = 0; _testReplayNote = "";
         // a remote tab tests on the SERVER (its real state + secrets), not the local copy
         if (Bot.IsRemote && Bot.Remote?.Connected == true)
         {
@@ -3926,6 +3933,40 @@ public sealed partial class MainScreen : IScreen
         _testSent.AddRange(sink.Sent);
     }
 
+    /// <summary>Replay a recorded real event (#17): re-inject its captured variables through the *current* graph
+    /// as a dry run (TestSink, throwaway state copy - no IRC, your live variables untouched), then show the
+    /// node-by-node trace in the Test Bench so you can see how today's graph would handle that same event.</summary>
+    private void ReplayRun(RunRecord src)
+    {
+        if (src.Envelope == null) return;
+        var graph = Bot.Graph;
+        // find a live trigger to fire: prefer one of the exact same node type, else any node of the same event family
+        var def = NodeCatalog.All.FirstOrDefault(d => d.TypeId == src.TriggerType);
+        string fam = def?.TriggerEvent ?? "";
+        var trig = graph.Nodes.FirstOrDefault(n => n.Def.IsTrigger && n.TypeId == src.TriggerType)
+                ?? graph.Nodes.FirstOrDefault(n => n.Def.IsTrigger && fam.Length > 0 && n.Def.TriggerEvent == fam);
+
+        _testSent.Clear(); _testScroll = 0;
+        if (trig == null)
+        {
+            _testRec = null;
+            _testReplayNote = "This graph no longer has a " + (def?.Title ?? src.Trigger) + " trigger to replay into.";
+            _testOpen = true; _testJustOpened = true; _historyOpen = false;
+            return;
+        }
+
+        var sink = new TestSink(new Dictionary<string, string>(Bot.State));   // throwaway state copy
+        var rec = new RunRecord { Time = DateTime.Now, Trigger = trig.DisplayTitle, Icon = trig.Def.Icon, Summary = src.Summary };
+        GraphExecutor.Fire(graph, sink, trig, new Dictionary<string, string>(src.Envelope), rec);
+        rec.Fired = rec.Nodes.Count > 0 && rec.Nodes[0].Pulsed.Count > 0;
+        rec.Actions = sink.Sent.Count;
+        _testRec = rec.Nodes.Count > 0 ? rec : null;
+        _testSent.AddRange(sink.Sent);
+        _testReplayNote = "Replayed a recorded " + (def?.Title ?? "event") + " from " + src.Time.ToString("HH:mm:ss")
+            + (rec.Fired ? "" : " - it did not fire through the current graph.");
+        _testOpen = true; _testJustOpened = true; _historyOpen = false;
+    }
+
     private void DrawTestModal(Renderer r)
     {
         r.Begin();
@@ -3953,6 +3994,12 @@ public sealed partial class MainScreen : IScreen
         _testChan = _ui.TextField("test.chan", new RectF(fx, y, fw, 30), _testChan, "#test"); y += 42;
         if (_ui.Button("test.run", new RectF(fx, y, fw, 36), Ircuitry.Core.Icons.Glyph("play") + "  RUN", Theme.Ok, primary: true)) RunTest();
         y += 46;
+        if (_testReplayNote.Length > 0)
+        {
+            foreach (var line in Wrap(r.Fonts.Get(FontKind.SansBold, 12), Ircuitry.Core.Icons.Glyph("arrow-counter-clockwise") + "  " + _testReplayNote, fw))
+            { r.Text(r.Fonts.Get(FontKind.SansBold, 12), line, new Vector2(fx, y), Theme.Cyan); y += 16; }
+            y += 8;
+        }
         foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), "Fires every On Message / On Command node against this fake event. Nothing is sent and your variables aren't touched.", fw))
         { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(fx, y), Theme.TextFaint); y += 16; }
         r.End();

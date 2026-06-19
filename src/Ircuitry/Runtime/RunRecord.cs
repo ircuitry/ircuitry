@@ -33,4 +33,9 @@ public sealed class RunRecord
     public readonly List<NodeTrace> Nodes = new();
     public int Actions;                      // IRC sends produced by this run
     public bool Fired;                       // the trigger actually pulsed its flow
+
+    // record & replay (#17): the trigger node's type and the exact event variables it fired with, so a
+    // recorded real event can be re-injected through the current graph offline (a dry run).
+    public string TriggerType = "";
+    public Dictionary<string, string>? Envelope;
 }
