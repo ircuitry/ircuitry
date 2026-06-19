@@ -35,6 +35,7 @@ public sealed partial class MainScreen : IScreen
     private float _paletteScroll;
     // event console: user-resizable height (0 = default), scrollable full history, and the read-only IRC window
     private float _consoleH;
+    private readonly DockManager _dock = new();
     private float _consoleScroll;
     private bool _consoleResizing;
     private bool _consoleResizeHot;     // mouse over the console resize handle this frame (for the resize cursor)
@@ -74,11 +75,11 @@ public sealed partial class MainScreen : IScreen
     /// <summary>True while the "are you sure you want to quit?" prompt is showing (the host raises the window for it).</summary>
     public bool ClosePromptOpen => _closePromptOpen;
 
-    public void DebugWorkflowInstall() { _l = Layout.Compute(_vw, _vh, _consoleH); StageWorkflowInstall("{\"format\":\"ircuitry.workflow.v1\",\"name\":\"Greeter Bot\",\"description\":\"Welcomes people when they join your channel and answers a friendly !hi command.\",\"nodes\":[{\"id\":\"a\",\"type\":\"event.join\"},{\"id\":\"b\",\"type\":\"action.say\"}],\"connections\":[]}"); }
+    public void DebugWorkflowInstall() { _l = DockLayout(); StageWorkflowInstall("{\"format\":\"ircuitry.workflow.v1\",\"name\":\"Greeter Bot\",\"description\":\"Welcomes people when they join your channel and answers a friendly !hi command.\",\"nodes\":[{\"id\":\"a\",\"type\":\"event.join\"},{\"id\":\"b\",\"type\":\"action.say\"}],\"connections\":[]}"); }
 
     public void DebugOpenBake()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         _editor.Selection.Clear();
         foreach (var n in _app.ActiveBot.Graph.Nodes.Where(n => !n.Def.IsTrigger).Take(2)) _editor.Selection.Add(n.Id);
         _saveNodeName = "Greeting Macro"; _saveNodeIcon = "puzzle-piece"; _saveNodeCat = "Action"; _saveNodeDesc = "";
@@ -212,6 +213,108 @@ public sealed partial class MainScreen : IScreen
             FireCount = id => _app.ActiveBot.Runtime.FireCount(id),
             Notify = PushToast,
         };
+        // dockable panels over a full-bleed map: Library left, Inspector right, Console bottom (hidden by default)
+        _dock.Add(new DockManager.Panel { Id = "library", Dock = DockManager.Edge.Left, Size = Layout.PaletteW });
+        _dock.Add(new DockManager.Panel { Id = "inspector", Dock = DockManager.Edge.Right, Size = Layout.InspectorW });
+        _dock.Add(new DockManager.Panel { Id = "console", Dock = DockManager.Edge.Bottom, Size = Layout.ConsoleH, Visible = false });
+        LoadDockLayout();
+    }
+
+    private string DockFile => System.IO.Path.Combine(AppModel.WorkspaceDir, "dock-layout.txt");
+    private void LoadDockLayout() { try { if (System.IO.File.Exists(DockFile)) _dock.Deserialize(System.IO.File.ReadAllText(DockFile)); } catch { } }
+    private void SaveDockLayout() { try { System.IO.Directory.CreateDirectory(AppModel.WorkspaceDir); System.IO.File.WriteAllText(DockFile, _dock.Serialize()); } catch { } }
+
+    /// <summary>Build the frame layout from the dock: a full-bleed map with panels overlaying it.</summary>
+    private Layout DockLayout()
+    {
+        var l = new Layout
+        {
+            Titlebar = new RectF(0, 0, _vw, Layout.TitlebarH),
+            StatusBar = new RectF(0, _vh - Layout.StatusH, _vw, Layout.StatusH),
+        };
+        var work = new RectF(0, Layout.TitlebarH, _vw, MathF.Max(10, _vh - Layout.TitlebarH - Layout.StatusH));
+        _dock.Layout(work);
+        l.Canvas = work;   // the map is always the full work area; panels overlay it
+        l.Palette = _dock.Get("library")!.Content;
+        l.Inspector = _dock.Get("inspector")!.Content;
+        l.Console = _dock.Get("console")!.Content;
+        return l;
+    }
+
+    private static RectF ResizeBorder(DockManager.Panel p)
+    {
+        const float t = 6f;
+        return p.Dock switch
+        {
+            DockManager.Edge.Left => new RectF(p.Rect.Right - t, p.Rect.Y, t, p.Rect.H),
+            DockManager.Edge.Right => new RectF(p.Rect.X, p.Rect.Y, t, p.Rect.H),
+            DockManager.Edge.Top => new RectF(p.Rect.X, p.Rect.Bottom - t, p.Rect.W, t),
+            DockManager.Edge.Bottom => new RectF(p.Rect.X, p.Rect.Y, p.Rect.W, t),
+            _ => new RectF(p.Rect.Right - 16, p.Rect.Bottom - 16, 16, 16),
+        };
+    }
+
+    /// <summary>Pick up a panel by its header to move/dock it, grab its inner border to resize, or hit its
+    /// header × to hide it.</summary>
+    private void DockInputTick(InputState input)
+    {
+        if (Modal) return;
+        var m = input.Mouse;
+        if (_dock.Dragging) { _dock.Tick(m, input.LeftDown); if (!input.LeftDown) SaveDockLayout(); return; }
+        if (!input.LeftPressed) return;
+        const float dragH = 30f;   // the Hud.Panel title bar doubles as the drag grip
+        foreach (var p in _dock.Panels)
+        {
+            if (!p.Visible) continue;
+            if (ResizeBorder(p).Contains(m)) { _dock.BeginResize(p, m); return; }
+            var hdr = new RectF(p.Rect.X, p.Rect.Y, p.Rect.W, dragH);
+            if (!hdr.Contains(m)) continue;
+            if (new RectF(hdr.Right - 26, hdr.Y + 3, 24, 24).Contains(m)) { p.Visible = false; SaveDockLayout(); return; }   // close (×)
+            _dock.BeginDrag(p, m); return;
+        }
+    }
+
+    /// <summary>Console toggle + Bot's-eye buttons, locked to the bottom-right of the VISIBLE map: they ride on
+    /// the map but slide left/up to dodge any right/bottom-docked panel that would otherwise cover them.</summary>
+    private void DrawMapCornerButtons(Renderer r)
+    {
+        if (Modal) return;
+        var corner = _dock.VisibleMapCorner();
+        var con = _dock.Get("console")!;
+        r.Begin();
+        var bf = r.Fonts.Get(FontKind.SansBold, 13);
+        float h = 30, y = corner.Y - 10 - h, rx = corner.X - 10;
+        string eyeLbl = Ircuitry.Core.Icons.Glyph("television") + "  Bot's-eye";
+        float ew = bf.MeasureString(eyeLbl).X + 26;
+        if (_ui.Button("map.eye", new RectF(rx - ew, y, ew, h), eyeLbl, Theme.Teal)) OpenIrcWindow();
+        rx -= ew + 8;
+        string cLbl = Ircuitry.Core.Icons.Glyph("terminal-window") + (con.Visible ? "  Hide console" : "  Console");
+        float cw = bf.MeasureString(cLbl).X + 26;
+        if (_ui.Button("map.console", new RectF(rx - cw, y, cw, h), cLbl, con.Visible ? Theme.Lime : Theme.Idle))
+        { con.Visible = !con.Visible; SaveDockLayout(); }
+        r.End();
+    }
+
+    /// <summary>Draw each panel's close × (over its Hud title bar), the drop-edge highlight while dragging, and
+    /// the floating ghost of the panel being moved. Runs over the top of the panels.</summary>
+    private void DrawDockChrome(Renderer r)
+    {
+        r.Begin();
+        foreach (var p in _dock.Panels)
+        {
+            if (!p.Visible) continue;
+            var xc = new Vector2(p.Rect.Right - 14, p.Rect.Y + 15);
+            DrawGlyphX(r, xc, 3.2f, !Modal && new RectF(xc.X - 12, xc.Y - 12, 24, 24).Contains(In.Mouse) ? Theme.Alert : Theme.TextFaint);
+        }
+        // drop-edge highlight while dragging a panel to a new edge (hint computed in Update's DockInputTick)
+        var dp = _dock.DraggingPanel;
+        if (dp != null)
+        {
+            if (_dock.CurrentDropHint != DockManager.Edge.Float)
+                r.RoundFill(_dock.DropRect(_dock.CurrentDropHint), Theme.WithAlpha(Theme.Sky, 0.22f), 10f);
+            r.RoundFill(dp.Rect, Theme.WithAlpha(Theme.Sky, 0.16f), 10f); r.RoundOutline(dp.Rect, Theme.WithAlpha(Theme.Sky, 0.8f), 10f);
+        }
+        r.End();
     }
 
     private Bot Bot => _app.ActiveBot;
@@ -497,7 +600,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugOpenSaveNode() { _saveNodeName = "Greeting Macro"; _saveNodeOpen = true; _saveNodeJustOpened = true; }
     public void DebugShowGh()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         _openCat = NodeCategory.Action;
         if (NodeCatalog.TryGet("gh.run", out var def))
         {
@@ -509,26 +612,26 @@ public sealed partial class MainScreen : IScreen
     }
     public void DebugOpenInstall()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         var p = System.IO.Path.Combine(NodeCatalog.CustomDir, "wordcount.ircnode");
         if (System.IO.File.Exists(p)) OnNodeDrop(_l.Canvas.Center, p);
     }
 
-    public void DebugInstallClip() { _l = Layout.Compute(_vw, _vh, _consoleH); InstallFromClipboard(); }
+    public void DebugInstallClip() { _l = DockLayout(); InstallFromClipboard(); }
 
     public void DebugOpenUninstall()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         var d = NodeCatalog.Custom.Count > 0 ? NodeCatalog.Custom[0] : null;
         if (d != null) { _uninstallDef = d; _uninstallOpen = true; _uninstallJustOpened = true; }
     }
 
     public void DebugOpenNodeManager() => OpenNodeManager();
-    public void DebugOpenSecretPick() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenSecretPicker("", "API key", _ => { }); }
-    public void DebugShowServers() { _l = Layout.Compute(_vw, _vh, _consoleH); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
-    public void DebugShowAchievements() { _l = Layout.Compute(_vw, _vh, _consoleH); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
+    public void DebugOpenSecretPick() { _l = DockLayout(); OpenSecretPicker("", "API key", _ => { }); }
+    public void DebugShowServers() { _l = DockLayout(); _serversOpen = true; _serversJustOpened = true; _serverSaveName = "my-network"; }
+    public void DebugShowAchievements() { _l = DockLayout(); _achOpen = true; _achJustOpened = true; _achScroll = 0; }
     public void DebugOpenIrcv3Cat() { _openCat = NodeCategory.Ircv3; }
-    public void DebugOpenFileMenu() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenFileMenu(new Vector2(_vw - 360, _l.Titlebar.Bottom + 3)); }
+    public void DebugOpenFileMenu() { _l = DockLayout(); OpenFileMenu(new Vector2(_vw - 360, _l.Titlebar.Bottom + 3)); }
     public void DebugCommandPalette() { OpenCommandPalette(); _cmdkQuery = "se"; _cmdkJustOpened = true; }
     public void DebugLibraryPrefs()
     {
@@ -538,7 +641,7 @@ public sealed partial class MainScreen : IScreen
     }
     public void DebugNotifications()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         PushToast(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved");
         _notifLog.Insert(0, (DateTime.Now.AddMinutes(-1), Ircuitry.Core.Icons.Glyph("export") + " Exported welcomer"));
         _notifLog.Insert(0, (DateTime.Now.AddMinutes(-3), Ircuitry.Core.Icons.Glyph("broadcast") + " saved server irc.libera.chat:6697"));
@@ -547,7 +650,7 @@ public sealed partial class MainScreen : IScreen
     }
     public void DebugMultiServer()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         var b = Bot;
         b.Servers.Clear();
         b.Servers.Add(new Ircuitry.Irc.IrcSettings { Label = "Libera", Host = "irc.libera.chat", Channels = "#ircuitry", ConnectOnStartup = true });
@@ -558,7 +661,7 @@ public sealed partial class MainScreen : IScreen
     }
     public void DebugShowNetwork()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         DebugDemoShot();   // bot 1 -> libera
         var b2 = _app.AddBot("greeter"); b2.Name = "welcomer"; b2.Settings.Host = "irc.libera.chat"; b2.Settings.Channels = "#cozy";
         var b3 = _app.AddBot("pingpong"); b3.Name = "pong-bot"; b3.Settings.Host = "irc.oftc.net"; b3.Settings.Channels = "#bots";
@@ -614,7 +717,7 @@ public sealed partial class MainScreen : IScreen
     {
         _input = input;
         _editor.Graph = Bot.Graph;
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         ClipboardPoll(clock);
         AchievementsTick(clock);
         RemotePump();        // keep any remote-server session live (drains its callbacks/events)
@@ -645,6 +748,9 @@ public sealed partial class MainScreen : IScreen
         else if (!_tut.Active)   // tutorial owns the canvas while it runs (it places/wires for you)
         {
             bool overBar = PlaybackBarRect().Contains(input.Mouse);   // the on-canvas playback bar swallows canvas input
+            DockInputTick(input);                                     // drag panels to dock/float + resize them
+            bool overPanel = _dock.OverPanel(input.Mouse) || _dock.Dragging;   // panels overlay the map - they eat canvas input
+            overBar = overBar || overPanel;
 
             // right-click anywhere on the canvas -> context menu
             if (In.RightPressed && _l.Canvas.Contains(input.Mouse) && !_ui.AnyFieldFocused && !overBar)
@@ -703,7 +809,7 @@ public sealed partial class MainScreen : IScreen
     public void Draw(Renderer r, Clock clock)
     {
         _vw = r.ViewW; _vh = r.ViewH;
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         if (_demoShotFit && _vw > 0) { _demoShotFit = false; _editor.FocusContent(_l.Canvas); }   // frame the demo graph for screenshots
         _editor.Graph = Bot.Graph;
         _editor.Running = RunningOf(Bot);
@@ -724,11 +830,11 @@ public sealed partial class MainScreen : IScreen
         DrawPlaybackBar(r);   // slow-motion run playback control (over the canvas)
 
         // ---------- panel chromes ----------
+        bool consoleOn = _dock.Get("console")!.Visible;
         r.Begin();
         Hud.Panel(r, _l.Palette, "Node Library", Theme.Cyan);
         Hud.Panel(r, _l.Inspector, "Inspector", Theme.Amber);
-        Hud.Panel(r, _l.Console, "Event Console", Theme.Lime);
-        ConsoleHeaderStats(r, _l.Console);
+        if (consoleOn) { Hud.Panel(r, _l.Console, "Event Console", Theme.Lime); ConsoleHeaderStats(r, _l.Console); }
         StatusBar(r, _l.StatusBar, clock);
         r.End();
         DrawTitlebar(r, clock);   // manages its own batches (gloss + scissored tab gutter)
@@ -736,13 +842,12 @@ public sealed partial class MainScreen : IScreen
         // ---------- panel contents (scissored) ----------
         DrawPalette(r);
         DrawInspector(r);
-        DrawConsole(r);
+        if (consoleOn) DrawConsole(r);
+        DrawDockChrome(r);   // panel close buttons + drop highlight + drag ghost, over the panels
 
-        // ---------- canvas save floppy + console button (over chrome) ----------
+        // ---------- canvas save floppy + map corner buttons (console + bot's-eye) ----------
         DrawCanvasSave(r);
-        r.Begin();
-        ConsoleViewButton(r);
-        r.End();
+        DrawMapCornerButtons(r);
 
         // ---------- palette drag ghost ----------
         UpdatePaletteDrag(r);
@@ -1522,7 +1627,7 @@ public sealed partial class MainScreen : IScreen
     private void OpenNodeManager()
     {
         if (Modal) return;
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         _nodeMgrOpen = true; _nodeMgrJustOpened = true; _nodeMgrScroll = 0; _nodeMgrSel.Clear();
         StartNodeUpdateCheck();
     }
@@ -2968,7 +3073,7 @@ public sealed partial class MainScreen : IScreen
 
     public void OpenCommandPalette()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         _cmdkOpen = true; _cmdkJustOpened = true; _cmdkQuery = ""; _cmdkSel = 0; _cmdkScroll = 0;
         _ui.Focus = "cmdk.query";
     }
