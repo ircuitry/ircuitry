@@ -38,6 +38,17 @@ public static class WorkspaceSerializer
         public List<NodeDoc> nodes { get; set; } = new();
         public List<WireDoc> wires { get; set; } = new();
         public List<FrameDoc>? frames { get; set; }
+        public List<EvalDoc>? evals { get; set; }                   // golden-suite cases (absent in old files)
+    }
+
+    private sealed class EvalDoc
+    {
+        public string name { get; set; } = "case";
+        public string message { get; set; } = "";
+        public string nick { get; set; } = "alice";
+        public string channel { get; set; } = "#test";
+        public string expect { get; set; } = "";
+        public int mode { get; set; }   // EvalMatch
     }
 
     private sealed class GroupDoc
@@ -120,6 +131,8 @@ public static class WorkspaceSerializer
                 bd.wires.Add(new WireDoc { from = c.FromNode, fromPin = c.FromPin, to = c.ToNode, toPin = c.ToPin });
             if (b.Graph.Frames.Count > 0)
                 bd.frames = b.Graph.Frames.Select(f => new FrameDoc { id = f.Id, x = f.Pos.X, y = f.Pos.Y, w = f.Size.X, h = f.Size.Y, title = f.Title, body = f.Body, color = f.ColorIndex, collapsed = f.Collapsed }).ToList();
+            if (b.Evals.Count > 0)
+                bd.evals = b.Evals.Select(e => new EvalDoc { name = e.Name, message = e.Message, nick = e.Nick, channel = e.Channel, expect = e.Expect, mode = (int)e.Mode }).ToList();
             doc.bots.Add(bd);
         }
         return JsonSerializer.Serialize(doc, Opts);
@@ -156,6 +169,9 @@ public static class WorkspaceSerializer
                 foreach (var fr in bd.frames)
                     bot.Graph.Frames.Add(new Frame(string.IsNullOrEmpty(fr.id) ? Frame.Create(Vector2.Zero).Id : fr.id)
                     { Pos = new Vector2(fr.x, fr.y), Size = new Vector2(fr.w, fr.h), Title = fr.title ?? "Note", Body = fr.body ?? "", ColorIndex = fr.color, Collapsed = fr.collapsed });
+            if (bd.evals != null)
+                foreach (var ev in bd.evals)
+                    bot.Evals.Add(new EvalCase { Name = ev.name ?? "case", Message = ev.message ?? "", Nick = string.IsNullOrEmpty(ev.nick) ? "alice" : ev.nick, Channel = string.IsNullOrEmpty(ev.channel) ? "#test" : ev.channel, Expect = ev.expect ?? "", Mode = (EvalMatch)ev.mode });
             bots.Add(bot);
         }
         int active = doc.active >= 0 && doc.active < bots.Count ? doc.active : 0;

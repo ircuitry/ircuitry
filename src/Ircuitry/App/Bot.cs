@@ -33,6 +33,7 @@ public sealed class Bot
 
     public readonly ConsoleLog Log = new();
     public readonly ConcurrentDictionary<string, string> State = new();   // bot variables (persisted)
+    public readonly List<EvalCase> Evals = new();                          // golden-suite eval cases (persisted)
     public readonly BotRuntime Runtime;
 
     // ---- remote link: when set, this tab edits a bot living on a remote ircuitry --server. The local runtime

@@ -164,6 +164,12 @@ public sealed partial class MainScreen : IScreen
     private float _testScroll;
     private string _testReplayNote = "";   // #17: when set, the test bench is showing a replayed recorded event
 
+    // golden-suite eval bench: message -> expected-reply cases, dry-run pass/fail
+    private bool _evalOpen, _evalJustOpened;
+    private float _evalScroll;
+    private readonly List<(bool ran, bool pass, string detail)> _evalResults = new();
+    private string _evalSummary = "";
+
     // save-selection-as-reusable-node
     private bool _saveNodeOpen, _saveNodeJustOpened, _saveNodeAsTool;
     private string _saveNodeName = "My Node";
@@ -221,7 +227,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -807,7 +813,7 @@ public sealed partial class MainScreen : IScreen
             {
                 if (_appearanceOpen) CloseAppearance();
                 else if (_themeInstallOpen) CancelThemeInstall();
-                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
             }
         }
         else if (_renamingBot != null)
@@ -1022,6 +1028,11 @@ public sealed partial class MainScreen : IScreen
         {
             _ui.Enabled = true;
             DrawTestModal(r);
+        }
+        else if (_evalOpen)
+        {
+            _ui.Enabled = true;
+            DrawEvalModal(r);
         }
         else if (_ctxOpen)
         {
@@ -1433,6 +1444,7 @@ public sealed partial class MainScreen : IScreen
         Item("key", "Secret keys…", "", true, () => { _secretsOpen = true; _secretsJustOpened = true; });
         Item("trophy", "Achievements", "", true, () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
         Item("puzzle-piece", "Community nodes…", "", true, OpenNodeManager);
+        Item("check-circle", "Eval bench…", "", true, () => { _evalOpen = true; _evalJustOpened = true; _evalScroll = 0; });
         Item("cloud", "Connect to server…", "", true, OpenRemote);
         Item("palette", "Appearance…", "", true, OpenAppearance);
         Sep();
@@ -4034,6 +4046,161 @@ public sealed partial class MainScreen : IScreen
 
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_testJustOpened) _testOpen = false;
         _testJustOpened = false;
+    }
+
+    // ===================================================================
+    //  Eval bench - golden suites: message -> expected reply, dry-run pass/fail
+    // ===================================================================
+    /// <summary>Dry-fire every On Message / On Command trigger with a fake inbound and return the reply
+    /// bodies the graph would send (no IRC, throwaway state). The body is the text after the target.</summary>
+    private List<string> DryFireSent(string msg, string nick, string chan)
+    {
+        var graph = Bot.Graph;
+        var sink = new TestSink(new Dictionary<string, string>(Bot.State));
+        var baseVars = new Dictionary<string, string>
+        {
+            ["botnick"] = Bot.Settings.Nick, ["nick"] = nick, ["user"] = "tester", ["host"] = "test.host",
+            ["channel"] = chan, ["target"] = chan, ["message"] = msg, ["replyto"] = chan,
+            ["args"] = "", ["command"] = "", ["account"] = "", ["isbot"] = "false",
+            ["msgid"] = "test-msg", ["__reply"] = "test-msg",
+        };
+        foreach (var node in graph.Nodes)
+        {
+            if (node.Def.TriggerEvent != "message") continue;
+            try { GraphExecutor.Fire(graph, sink, node, new Dictionary<string, string>(baseVars), new RunRecord()); } catch { }
+        }
+        // sink text is "{target}  {body}"; the body (after the first double-space) is what the case checks against
+        return sink.Sent.Select(s => { int i = s.text.IndexOf("  ", StringComparison.Ordinal); return i >= 0 ? s.text[(i + 2)..] : s.text; }).ToList();
+    }
+
+    private void RunEvals()
+    {
+        SyncEvalResults();
+        int pass = 0;
+        for (int i = 0; i < Bot.Evals.Count; i++)
+        {
+            var c = Bot.Evals[i];
+            var (ok, detail) = c.Evaluate(DryFireSent(c.Message, c.Nick, c.Channel));
+            _evalResults[i] = (true, ok, detail);
+            if (ok) pass++;
+        }
+        _evalSummary = Bot.Evals.Count == 0 ? "" : pass + "/" + Bot.Evals.Count + " passed";
+    }
+
+    private void SyncEvalResults()
+    {
+        while (_evalResults.Count < Bot.Evals.Count) _evalResults.Add((false, false, ""));
+        while (_evalResults.Count > Bot.Evals.Count) _evalResults.RemoveAt(_evalResults.Count - 1);
+    }
+
+    private static string EvalModeName(EvalMatch m) => m switch
+    {
+        EvalMatch.Exact => "is exactly",
+        EvalMatch.Regex => "matches /re/",
+        EvalMatch.NoReply => "stays silent",
+        _ => "contains",
+    };
+
+    private void DrawEvalModal(Renderer r)
+    {
+        SyncEvalResults();
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = MathF.Min(960, _vw * 0.92f), ph = MathF.Min(700, _vh * 0.9f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Eval Bench - golden suite, dry run", Theme.Lime);
+        if (_evalSummary.Length > 0)
+        {
+            bool allPass = _evalResults.Count > 0 && _evalResults.All(x => x.ran && x.pass);
+            r.TextRight(r.Fonts.Get(FontKind.SansBold, 13), _evalSummary, panel.Right - 18, panel.Y + 13, allPass ? Theme.Ok : Theme.Alert);
+        }
+        r.End();
+
+        float top = panel.Y + Hud.HeaderH + 12, btnY = panel.Bottom - 46;
+        var listRect = new RectF(panel.X + 16, top, pw - 32, btnY - top - 10);
+
+        r.Begin();
+        r.RoundFill(listRect, Theme.PanelLo, 8); r.RoundOutline(listRect, Theme.Edge, 8);
+        r.End();
+
+        if (Bot.Evals.Count == 0)
+        {
+            r.Begin();
+            r.TextCenteredX(r.Fonts.Get(FontKind.SansBold, 15), "No eval cases yet", panel.Center.X, listRect.Center.Y - 26, Theme.TextDim);
+            r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 13), "Add a case below: a fake message and the reply you expect. Run the suite any time - no server needed.", panel.Center.X, listRect.Center.Y - 2, Theme.TextFaint);
+            r.End();
+        }
+        else
+        {
+            const float cardH = 100f;
+            float total = Bot.Evals.Count * (cardH + 8);
+            _evalScroll = ClampScroll("evalList", Wheel("evalList", _evalScroll, listRect), total, listRect.H);
+            r.Begin(BlendMode.Alpha, listRect.ToRectangle());
+            var lf = r.Fonts.Get(FontKind.SansBold, 12);
+            float cy = listRect.Y + 6 - _evalScroll;
+            int removeAt = -1;
+            for (int i = 0; i < Bot.Evals.Count; i++)
+            {
+                var c = Bot.Evals[i];
+                var card = new RectF(listRect.X + 6, cy, listRect.W - 12, cardH);
+                if (card.Bottom >= listRect.Y && card.Y <= listRect.Bottom)
+                {
+                    r.RoundFill(card, Theme.Panel, 8); r.RoundOutline(card, Theme.Edge, 8);
+                    float x = card.X + 12, w = card.W - 24;
+                    // header: case index + result chip + delete
+                    r.Text(lf, "CASE " + (i + 1), new Vector2(x, card.Y + 8), Theme.TextDim);
+                    var res = _evalResults[i];
+                    if (res.ran)
+                    {
+                        string chip = (res.pass ? Ircuitry.Core.Icons.Glyph("check") + " pass" : Ircuitry.Core.Icons.Glyph("x") + " fail") + "  " + res.detail;
+                        var cc = res.pass ? Theme.Ok : Theme.Alert;
+                        var cm = lf.MeasureString(chip);
+                        var cb = new RectF(card.X + 86, card.Y + 5, Math.Min(cm.X + 16, w - 200), 18);
+                        r.RoundFill(cb, Theme.WithAlpha(cc, 0.16f), 7f);
+                        r.Text(lf, r.Ellipsize(lf, chip, cb.W - 12), new Vector2(cb.X + 8, cb.Y + 2), cc);
+                    }
+                    if (_ui.Button("eval.del." + i, new RectF(card.Right - 34, card.Y + 5, 24, 20), Ircuitry.Core.Icons.Glyph("trash"), Theme.Alert)) removeAt = i;
+
+                    // row 1: WHEN message FROM nick IN channel
+                    float ry = card.Y + 30;
+                    r.Text(lf, "when", new Vector2(x, ry + 7), Theme.TextFaint);
+                    string nm = _ui.TextField("eval.msg." + i, new RectF(x + 40, ry, w - 40 - 220, 28), c.Message, "!ping");
+                    string nn = _ui.TextField("eval.nick." + i, new RectF(card.Right - 12 - 210, ry, 100, 28), c.Nick, "nick");
+                    string nch = _ui.TextField("eval.chan." + i, new RectF(card.Right - 12 - 104, ry, 104, 28), c.Channel, "#chan");
+                    // row 2: mode + expected text
+                    ry = card.Y + 64;
+                    if (_ui.Button("eval.mode." + i, new RectF(x, ry, 130, 28), EvalModeName(c.Mode), Theme.Lime))
+                    { c.Mode = (EvalMatch)(((int)c.Mode + 1) % 4); _app.MarkDirty(); _evalResults[i] = (false, false, ""); }
+                    string nex = c.Mode == EvalMatch.NoReply ? c.Expect
+                               : _ui.TextField("eval.expect." + i, new RectF(x + 138, ry, w - 138, 28), c.Expect, "expected reply text");
+                    if (c.Mode == EvalMatch.NoReply)
+                        r.Text(r.Fonts.Get(FontKind.Sans, 12), "(no reply expected)", new Vector2(x + 138, ry + 7), Theme.TextFaint);
+
+                    if (nm != c.Message || nn != c.Nick || nch != c.Channel || nex != c.Expect)
+                    { c.Message = nm; c.Nick = nn; c.Channel = nch; c.Expect = nex; _app.MarkDirty(); _evalResults[i] = (false, false, ""); }
+                }
+                cy += cardH + 8;
+            }
+            r.End();
+            if (removeAt >= 0) { Bot.Evals.RemoveAt(removeAt); _evalResults.Clear(); _evalSummary = ""; _app.MarkDirty(); }
+        }
+
+        r.Begin();
+        var addR = new RectF(panel.X + 16, btnY, 130, 34);
+        if (_ui.Button("eval.add", addR, Ircuitry.Core.Icons.Glyph("plus") + "  ADD CASE", Theme.Idle))
+        { Bot.Evals.Add(new EvalCase()); _evalResults.Clear(); _evalSummary = ""; _app.MarkDirty(); }
+        var seedR = new RectF(addR.Right + 10, btnY, 150, 34);
+        if (Bot.Evals.Count == 0 && _ui.Button("eval.seed", seedR, "FROM TEST BENCH", Theme.Idle))
+        { Bot.Evals.Add(new EvalCase { Message = _testMsg, Nick = _testNick, Channel = _testChan, Expect = "" }); _app.MarkDirty(); }
+
+        var closeR = new RectF(panel.Right - 16 - 100, btnY, 100, 34);
+        var runR = new RectF(closeR.X - 12 - 130, btnY, 130, 34);
+        if (_ui.Button("eval.run", runR, Ircuitry.Core.Icons.Glyph("play") + "  RUN ALL", Theme.Ok, primary: true, enabled: Bot.Evals.Count > 0)) RunEvals();
+        if (_ui.Button("eval.close", closeR, "CLOSE", Theme.Cyan, primary: true)) _evalOpen = false;
+        r.End();
+
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_evalJustOpened && !_ui.AnyFieldFocused) _evalOpen = false;
+        _evalJustOpened = false;
     }
 
     // ===================================================================
