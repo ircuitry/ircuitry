@@ -3149,6 +3149,54 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+            new NodeDef
+            {
+                TypeId = "ai.cache", Icon = "lightning", Title = "AI Cache", Subtitle = "ai", Category = NodeCategory.Action,
+                Description = "Caches AI replies so repeated prompts skip the model (and its cost). In 'look up' mode it branches hit / miss and outputs the cached reply on a hit; after an Ask AI miss, run it again in 'save' mode to remember the new reply. Matches on normalised text by default; switch Match to 'semantic' to also match similar wording via an embeddings endpoint.",
+                Inputs = new[] { Ex(), Tx("prompt"), Tx("reply") },
+                Outputs = new[] { Ex("hit"), Ex("miss"), Tx("cached"), Ex("saved") },
+                Params = new[]
+                {
+                    P("mode", "Mode", ParamType.Choice, "look up", "", new[] { "look up", "save" }),
+                    P("match", "Match", ParamType.Choice, "text", "", new[] { "text", "semantic" }),
+                    P("namespace", "Cache name", ParamType.Text, "default", "one shared bucket; reuse the name across nodes"),
+                    P("prompt", "Prompt", ParamType.Multiline, "{message}", "the text to match on"),
+                    P("reply", "Reply to cache", ParamType.Multiline, "", "what to remember", visibleWhen: n => n.GetParam("mode") == "save"),
+                    P("max", "Max entries", ParamType.Int, "50", "oldest are dropped past this"),
+                    P("threshold", "Similarity %", ParamType.Int, "92", "semantic: 0-100, higher = stricter", visibleWhen: n => n.GetParam("match") == "semantic"),
+                    P("embedBaseUrl", "Embeddings base URL", ParamType.Text, "https://api.openai.com/v1", "", visibleWhen: n => n.GetParam("match") == "semantic"),
+                    P("embedModel", "Embeddings model", ParamType.Text, "text-embedding-3-small", "", visibleWhen: n => n.GetParam("match") == "semantic"),
+                    P("embedKey", "Embeddings API key", ParamType.Text, "", "blank = $OPENAI_API_KEY", visibleWhen: n => n.GetParam("match") == "semantic", secret: true),
+                },
+                SummaryParam = "mode",
+                Exec = c =>
+                {
+                    string prompt = c.InOr(1, c.Resolve(c.Param("prompt")));
+                    string norm = AiCache.Normalize(prompt);
+                    string key = "aicache/" + c.Resolve(c.Param("namespace"));
+                    string json = c.GetState(key);
+
+                    float[]? emb = null;
+                    if (c.Param("match") == "semantic" && !c.AiOverBudget)
+                    {
+                        emb = Ai.Embed(c.Resolve(c.Param("embedBaseUrl")), c.Param("embedKey"), c.Resolve(c.Param("embedModel")), prompt, out var eerr, 60, c.RecordTokens);
+                        if (eerr.Length > 0) c.Log("AI Cache: embeddings unavailable, using text match - " + eerr, LogLevel.System);
+                    }
+
+                    if (c.Param("mode") == "save")
+                    {
+                        string reply = c.InOr(2, c.Resolve(c.Param("reply")));
+                        c.SetState(key, AiCache.Put(json, norm, reply, emb, c.ParamInt("max", 50)));
+                        c.Pulse(3);
+                    }
+                    else
+                    {
+                        double thr = Math.Clamp(c.ParamInt("threshold", 92), 1, 100) / 100.0;
+                        if (AiCache.Lookup(json, norm, emb, thr) is { } hit) { c.SetOut(2, hit.reply); c.Pulse(0); }
+                        else c.Pulse(1);
+                    }
+                },
+            },
 
             // ===================== CALENDAR (manage / search) ==============
             new()

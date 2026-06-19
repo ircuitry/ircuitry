@@ -170,6 +170,7 @@ public static class SelfTest
         fails += ModeTemplateTest();
         fails += CodeSandboxTest();
         fails += GuardrailTest();
+        fails += CacheTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -211,6 +212,40 @@ public static class SelfTest
         GraphExecutor.Fire(g, s2, msg, Vars("hello world", "alice", "#x"));
         fails += Expect("mod-in-clean", s2.Sent.Count == 1 && s2.Sent[0] == ("#x", "ok"), Dump(s2));
 
+        return fails;
+    }
+
+    /// <summary>Semantic AI response cache: normalisation, FIFO bound, exact-text hit/miss, and a node-level
+    /// look-up branching hit vs miss after a save.</summary>
+    private static int CacheTest()
+    {
+        int fails = 0;
+        fails += Expect("cache-norm", Ircuitry.Graph.AiCache.Normalize("Hello, There!!") == "hello there", Ircuitry.Graph.AiCache.Normalize("Hello, There!!"));
+
+        string j = "";
+        j = Ircuitry.Graph.AiCache.Put(j, Ircuitry.Graph.AiCache.Normalize("what time is it"), "noon", null, 50);
+        fails += Expect("cache-hit", Ircuitry.Graph.AiCache.Lookup(j, Ircuitry.Graph.AiCache.Normalize("What time is it?"), null, 0.9) is { } h && h.reply == "noon", "");
+        fails += Expect("cache-miss", Ircuitry.Graph.AiCache.Lookup(j, Ircuitry.Graph.AiCache.Normalize("who are you"), null, 0.9) == null, "");
+
+        // FIFO bound drops the oldest
+        string b = "";
+        for (int i = 0; i < 5; i++) b = Ircuitry.Graph.AiCache.Put(b, "k" + i, "v" + i, null, 3);
+        fails += Expect("cache-bound", Ircuitry.Graph.AiCache.Count(b) == 3 && Ircuitry.Graph.AiCache.Lookup(b, "k0", null, 0.9) == null && Ircuitry.Graph.AiCache.Lookup(b, "k4", null, 0.9) is { }, "");
+
+        // node: save "noon" for a prompt, then a look-up with the same prompt hits -> reply "noon"
+        var g = new NodeGraph();
+        var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "time");
+        var save = N(g, "ai.cache", 250, 0); save.SetParam("mode", "save"); save.SetParam("prompt", "what time is it"); save.SetParam("reply", "noon");
+        var look = N(g, "ai.cache", 500, 0); look.SetParam("mode", "look up"); look.SetParam("prompt", "WHAT TIME IS IT?!");
+        var reply = N(g, "action.reply", 750, 0);
+        g.Connect(cmd.Id, 0, save.Id, 0);     // exec: command -> save
+        g.Connect(save.Id, 3, look.Id, 0);    // saved -> look up
+        g.Connect(look.Id, 0, reply.Id, 0);   // hit -> reply
+        g.Connect(look.Id, 2, reply.Id, 1);   // cached text -> reply message
+
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, cmd, Vars("!time", "alice", "#x"));
+        fails += Expect("cache-node-hit", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "noon"), Dump(sink));
         return fails;
     }
 

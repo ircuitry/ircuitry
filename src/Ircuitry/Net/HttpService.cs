@@ -141,6 +141,38 @@ public static class Ai
 
     private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "…";
 
+    /// <summary>Embed one piece of text via an OpenAI-compatible /embeddings endpoint. Returns the vector, or
+    /// null with an error set. Provider-agnostic (OpenAI, Ollama, LM Studio, …).</summary>
+    public static float[]? Embed(string baseUrl, string apiKey, string model, string text, out string error, int timeoutSeconds = 60, Action<int, int>? onUsage = null)
+    {
+        error = "";
+        if (apiKey.Length == 0) apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
+        if (text.Length == 0) { error = "empty text"; return null; }
+        baseUrl = baseUrl.Trim().TrimEnd('/');
+        if (baseUrl.Length == 0) baseUrl = "https://api.openai.com/v1";
+        string url = baseUrl + "/embeddings";
+
+        var payload = new Dictionary<string, object?> { ["model"] = model.Length > 0 ? model : "text-embedding-3-small", ["input"] = text };
+        var headers = new List<(string, string)>();
+        if (apiKey.Length > 0) headers.Add(("Authorization", "Bearer " + apiKey));
+
+        var (status, body) = Http.Send("POST", url, headers, JsonSerializer.Serialize(payload), timeoutSeconds);
+        if (status != 200) { error = $"API {status}: {Truncate(body, 200)}"; return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            ReportUsage(doc.RootElement, onUsage);
+            var data = doc.RootElement.GetProperty("data");
+            if (data.GetArrayLength() == 0) { error = "no embedding in response"; return null; }
+            var arr = data[0].GetProperty("embedding");
+            var v = new float[arr.GetArrayLength()];
+            int i = 0;
+            foreach (var e in arr.EnumerateArray()) v[i++] = (float)e.GetDouble();
+            return v;
+        }
+        catch (Exception ex) { error = "parse error: " + ex.Message; return null; }
+    }
+
     /// <summary>A tool the model may call: a name, a description, and named string args. An optional
     /// <see cref="Parameters"/> JSON-schema object (e.g. an MCP tool's schema) overrides the simple
     /// all-strings <see cref="Args"/> shape so richer arg types reach the model.</summary>
