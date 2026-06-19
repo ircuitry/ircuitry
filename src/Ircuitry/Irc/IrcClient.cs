@@ -39,9 +39,12 @@ public sealed class IrcClient
     private int _nickTries;
     private int _reconnectAttempt;
 
-    // outgoing flood throttle: token bucket, Burst lines instantly then 1 per Interval s
-    private const int Burst = 5;
-    private const double Interval = 0.7;
+    // outgoing flood throttle: token bucket, _burst lines instantly then 1 per _interval s. Tunable live by the
+    // Flood Budget node (Safe/Normal/Aggressive); the gauge reads OutQueueDepth.
+    private volatile int _burst = 5;
+    private double _interval = 0.7;   // not volatile (a torn read of a throttle interval is harmless)
+    public void SetFloodBudget(int burst, double interval) { _burst = Math.Clamp(burst, 1, 30); _interval = Math.Clamp(interval, 0.05, 10.0); _outSignal.Set(); }
+    public int OutQueueDepth { get { lock (_outLock) return _outQueue.Count; } }
     private readonly Queue<string> _outQueue = new();
     private readonly object _outLock = new();
     private readonly AutoResetEvent _outSignal = new(false);
@@ -118,7 +121,7 @@ public sealed class IrcClient
     // it parks on the signal when idle and only writes while a stream is live.
     private void WriterLoop()
     {
-        double tokens = Burst;
+        double tokens = _burst;
         var last = DateTime.UtcNow;
         while (true)
         {
@@ -130,11 +133,11 @@ public sealed class IrcClient
                 if (line == null) break;
 
                 var now = DateTime.UtcNow;
-                tokens = Math.Min(Burst, tokens + (now - last).TotalSeconds / Interval);
+                tokens = Math.Min(_burst, tokens + (now - last).TotalSeconds / _interval);
                 last = now;
                 if (tokens < 1)
                 {
-                    int ms = (int)((1 - tokens) * Interval * 1000);
+                    int ms = (int)((1 - tokens) * _interval * 1000);
                     if (ms > 0) Thread.Sleep(ms);
                     tokens = 1; last = DateTime.UtcNow;
                 }

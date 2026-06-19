@@ -77,6 +77,7 @@ public interface INodeContext
     void Join(string channel);
     void Part(string channel, string reason);
     void Raw(string line);
+    void SetFloodBudget(int burst, double interval);
 
     /// <summary>Accept an incoming DCC file offer: active (connect to ip:port) or passive (port 0 + token).
     /// Downloads <paramref name="size"/> bytes to <paramref name="savePath"/> on a background worker.</summary>

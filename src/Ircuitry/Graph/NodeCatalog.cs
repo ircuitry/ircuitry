@@ -507,6 +507,21 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "irc.floodbudget", Icon = "gauge", Title = "Flood Budget", Subtitle = "irc", Category = NodeCategory.Action,
+                Description = "Tunes how fast the bot may send to this server before its flood throttle kicks in. Safe is gentle (avoids an Excess Flood kill on strict servers), Aggressive is faster but burstier. Wire to On Connect; watch the send gauge in the status bar.",
+                Inputs = new[] { Ex() },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("level", "Budget", ParamType.Choice, "Normal", "", new[] { "Safe", "Normal", "Aggressive" }) },
+                SummaryParam = "level",
+                Exec = c =>
+                {
+                    var (burst, interval) = c.Param("level") switch { "Safe" => (3, 1.3), "Aggressive" => (8, 0.4), _ => (5, 0.7) };
+                    c.SetFloodBudget(burst, interval);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
                 TypeId = "event.numeric", Icon = "hash", Title = "On Numeric", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "numeric",
                 Description = "Fires when the server sends a numeric reply you pick from the list (e.g. RPL_WELCOME, ERR_NICKNAMEINUSE, RPL_INVITING). Exposes {numeric} {numname} {message} {channel} and {arg1}, {arg2}, …",

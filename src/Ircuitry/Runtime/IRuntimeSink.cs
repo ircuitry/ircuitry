@@ -19,6 +19,10 @@ public interface IRuntimeSink
     void Part(string channel, string reason);
     void Raw(string line);
 
+    /// <summary>Tune this server's outgoing flood throttle (token bucket): `burst` lines instantly, then one
+    /// per `interval` seconds. No-op on sinks without a live server.</summary>
+    void SetFloodBudget(int burst, double interval) { }
+
     /// <summary>Accept a DCC file offer (active connect, or passive listen + reverse offer) and download to
     /// <paramref name="savePath"/> on a background worker. No-op on sinks without a live server (dry runs/tests).</summary>
     void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath) { }

@@ -699,6 +699,8 @@ public sealed class ServerConn : IRuntimeSink
     public void React(string target, string msgid, string emoji) { _client.React(target, msgid, emoji); Bump(); }
     public void PrivmsgTagged(string target, string text, string tags) { _client.PrivmsgTagged(target, text, tags); _typing.TryRemove(target, out _); Bump(); }
     public void NoticeTagged(string target, string text, string tags) { _client.NoticeTagged(target, text, tags); Bump(); }
+    public void SetFloodBudget(int burst, double interval) => _client.SetFloodBudget(burst, interval);
+    public int OutQueueDepth => _client.OutQueueDepth;
     public void Join(string channel) => _client.Join(channel);
     public void Part(string channel, string reason) => _client.Part(channel, reason);
     public void Raw(string line) => _client.SendRaw(line);

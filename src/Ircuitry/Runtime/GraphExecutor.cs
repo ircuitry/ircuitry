@@ -399,6 +399,7 @@ public static class GraphExecutor
         public void Join(string channel) => Out().Join(channel);
         public void Part(string channel, string reason) => Out().Part(channel, reason);
         public void Raw(string line) => Out().Raw(line);
+        public void SetFloodBudget(int burst, double interval) => Out().SetFloodBudget(burst, interval);
         public void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath) => Out().DccReceive(fromNick, ip, port, size, token, savePath);
         public void DccSend(string toNick, string filePath, string advertiseIp) => Out().DccSend(toNick, filePath, advertiseIp);
         public void StartTyping(string target) => Out().StartTyping(target);

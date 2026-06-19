@@ -3539,6 +3539,20 @@ public sealed partial class MainScreen : IScreen
         r.Text(f, $"NODES {Bot.Graph.Nodes.Count}", new Vector2(294, y), Theme.TextDim);
         r.Text(f, $"WIRES {Bot.Graph.Connections.Count}", new Vector2(384, y), Theme.TextDim);
         r.Text(f, "ircuitry v" + Ircuitry.App.AppInfo.Version, new Vector2(478, y), Theme.TextFaint);
+
+        // flood send-queue gauge: warms green->red as the outgoing backlog grows toward an Excess Flood kill
+        if (Bot.Runtime.Running)
+        {
+            int depth = Bot.Runtime.OutQueueDepth;
+            float p = Math.Clamp(depth / 12f, 0f, 1f);
+            var fill = Theme.Mix(Theme.Ok, Theme.Alert, p);
+            r.Text(r.Fonts.Get(FontKind.Mono, 12), Ircuitry.Core.Icons.Glyph("paper-plane-tilt"), new Vector2(600, y), depth > 0 ? fill : Theme.TextFaint);
+            var gx = new RectF(620, bar.Center.Y - 5, 64, 10);
+            r.RoundFill(gx, Theme.PanelHi, 5f);
+            float tw = depth > 8 ? 0.5f + 0.5f * clock.Sin01(3f) : 1f;   // twinkle a warning when it's near the limit
+            r.RoundFill(new RectF(gx.X, gx.Y, gx.W * Math.Max(0.05f, p), gx.H), Theme.WithAlpha(fill, tw), 5f);
+            r.RoundOutline(gx, Theme.Hairline, 5f);
+        }
         r.TextRight(f, "Double-click empty space to add a node · drag a port to wire · drag to pan, Shift-drag to box-select · Ctrl+Z undo · Ctrl+D duplicate",
             bar.W - 16, y, Theme.TextFaint);
     }

@@ -51,6 +51,8 @@ public sealed class BotRuntime
     //  Aggregate status across connections (for the UI)
     // ===================================================================
     public bool Running { get { lock (_connLock) return _conns.Any(c => c.Running); } }
+    /// <summary>The deepest outgoing send-queue across this bot's servers (drives the flood gauge).</summary>
+    public int OutQueueDepth { get { lock (_connLock) return _conns.Count == 0 ? 0 : _conns.Max(c => c.OutQueueDepth); } }
 
     public IrcState State
     {
