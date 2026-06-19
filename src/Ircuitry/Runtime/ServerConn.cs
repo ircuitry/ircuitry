@@ -269,6 +269,57 @@ public sealed class ServerConn : IRuntimeSink
             vars["replyto"] = channel;
             FireFamily("join", vars);
         }
+        else if (m.Is("PART"))
+        {
+            string nick = m.Nick ?? "";
+            if (nick.Equals(CurrentNick, StringComparison.OrdinalIgnoreCase)) return;
+            var vars = BaseVars();
+            vars["nick"] = nick;
+            vars["channel"] = vars["target"] = vars["replyto"] = m.P(0);
+            vars["reason"] = m.Trailing;
+            FireFamily("part", vars);
+        }
+        else if (m.Is("QUIT"))
+        {
+            string nick = m.Nick ?? "";
+            if (nick.Equals(CurrentNick, StringComparison.OrdinalIgnoreCase)) return;
+            var vars = BaseVars();
+            vars["nick"] = nick;
+            vars["reason"] = m.Trailing;
+            FireFamily("quit", vars);
+        }
+        else if (m.Is("KICK"))
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";                          // the actor (who did the kicking)
+            vars["channel"] = vars["target"] = vars["replyto"] = m.P(0);
+            vars["kicked"] = m.P(1);                              // the victim
+            vars["reason"] = m.Trailing;
+            FireFamily("kick", vars);
+        }
+        else if (m.Is("NICK"))
+        {
+            var vars = BaseVars();
+            vars["nick"] = vars["oldnick"] = m.Nick ?? "";
+            vars["newnick"] = m.P(0).Length > 0 ? m.P(0) : m.Trailing;
+            FireFamily("nick", vars);
+        }
+        else if (m.Is("MODE"))
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";                          // who set the mode
+            vars["channel"] = vars["target"] = vars["replyto"] = m.P(0);
+            vars["modes"] = m.P(1);
+            vars["args"] = string.Join(' ', m.Params.Skip(2));
+            FireFamily("mode", vars);
+        }
+        else if (m.Is("INVITE"))
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";                          // who invited us
+            vars["channel"] = vars["target"] = vars["replyto"] = m.P(1).Length > 0 ? m.P(1) : m.Trailing;
+            FireFamily("invite", vars);
+        }
         else if (m.IsNumeric(out int num))
         {
             // a server numeric (001, 005, 353, 433, INVITE-related, ...) - lets On Numeric nodes react
@@ -507,6 +558,12 @@ public sealed class ServerConn : IRuntimeSink
         {
             "message" => (string.IsNullOrEmpty(nick) ? "" : nick + ": ") + msg,
             "join" => (nick ?? "") + " joined " + (ch ?? ""),
+            "part" => (nick ?? "") + " left " + (ch ?? ""),
+            "quit" => (nick ?? "") + " quit",
+            "kick" => (v.TryGetValue("kicked", out var kd) ? kd : "") + " kicked from " + (ch ?? ""),
+            "nick" => (nick ?? "") + " -> " + (v.TryGetValue("newnick", out var nn) ? nn : ""),
+            "mode" => "mode " + (v.TryGetValue("modes", out var md) ? md : "") + " on " + (ch ?? ""),
+            "invite" => "invited to " + (ch ?? ""),
             "connect" => "registered",
             "timer" => "timer tick",
             "schedule" => "scheduled fire" + (v.TryGetValue("time", out var tm) ? " @ " + tm : ""),

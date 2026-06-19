@@ -399,6 +399,54 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "event.part", Icon = "sign-out", Title = "On Part", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "part",
+                Description = "Fires when a user leaves a channel the bot is in. Outputs who left, the channel, and the part reason.",
+                Outputs = new[] { Ex("then"), Us("nick"), Ch("channel"), Tx("reason") },
+                Exec = c => { c.SetOut(1, c.Var("nick")); c.SetOut(2, c.Var("channel")); c.SetOut(3, c.Var("reason")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.quit", Icon = "power", Title = "On Quit", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "quit",
+                Description = "Fires when a user quits IRC (disconnects). Outputs who quit and the quit reason - good for seen-tracking or cleanup.",
+                Outputs = new[] { Ex("then"), Us("nick"), Tx("reason") },
+                Exec = c => { c.SetOut(1, c.Var("nick")); c.SetOut(2, c.Var("reason")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.kick", Icon = "boot", Title = "On Kick", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "kick",
+                Description = "Fires when someone is kicked from a channel. Outputs who was kicked, who did it, the channel and the reason. Compare 'kicked' to the bot's nick to auto-rejoin.",
+                Outputs = new[] { Ex("then"), Us("kicked"), Us("by"), Ch("channel"), Tx("reason") },
+                Exec = c => { c.SetOut(1, c.Var("kicked")); c.SetOut(2, c.Var("nick")); c.SetOut(3, c.Var("channel")); c.SetOut(4, c.Var("reason")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.nick", Icon = "user-switch", Title = "On Nick Change", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "nick",
+                Description = "Fires when a user changes their nick. Outputs the old and new nick.",
+                Outputs = new[] { Ex("then"), Us("old"), Us("new") },
+                Exec = c => { c.SetOut(1, c.Var("oldnick")); c.SetOut(2, c.Var("newnick")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.mode", Icon = "sliders-horizontal", Title = "On Mode", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "mode",
+                Description = "Fires when a channel (or user) mode is set. Outputs who set it, the target channel, the mode string (e.g. +o-v) and its arguments - use it to detect (de)ops or bans.",
+                Outputs = new[] { Ex("then"), Us("by"), Ch("channel"), Tx("modes"), Tx("args") },
+                Exec = c => { c.SetOut(1, c.Var("nick")); c.SetOut(2, c.Var("channel")); c.SetOut(3, c.Var("modes")); c.SetOut(4, c.Var("args")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.invite", Icon = "envelope-open", Title = "On Invite", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "invite",
+                Description = "Fires when the bot is invited to a channel. Outputs who invited it and the channel. Wire into Join (gated on a trusted nick) to accept invites.",
+                Outputs = new[] { Ex("then"), Us("by"), Ch("channel") },
+                Exec = c => { c.SetOut(1, c.Var("nick")); c.SetOut(2, c.Var("channel")); c.Pulse(0); },
+            },
+            new()
+            {
                 TypeId = "event.numeric", Icon = "hash", Title = "On Numeric", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "numeric",
                 Description = "Fires when the server sends a numeric reply you pick from the list (e.g. RPL_WELCOME, ERR_NICKNAMEINUSE, RPL_INVITING). Exposes {numeric} {numname} {message} {channel} and {arg1}, {arg2}, …",
