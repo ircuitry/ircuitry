@@ -206,6 +206,7 @@ public sealed partial class MainScreen : IScreen
     // quick-add (double-click canvas)
     private bool _quickOpen, _quickJustOpened;
     private Vector2 _quickWorld, _quickScreen;
+    private (string node, int pin)? _ghostWireFrom;   // when a quick-add was opened from a "+" ghost, auto-wire the result
     private string _quickSearch = "";
     private float _quickScroll;
     private float _lastClickTime;
@@ -743,6 +744,15 @@ public sealed partial class MainScreen : IScreen
         return n;
     }
 
+    /// <summary>If the just-spawned node came from a "+" ghost, wire the source exec output into its first exec input.</summary>
+    private void GhostWire(Node target)
+    {
+        if (_ghostWireFrom is not { } from) return;
+        _ghostWireFrom = null;
+        for (int i = 0; i < target.Inputs.Length; i++)
+            if (target.Inputs[i].Kind == Ircuitry.Graph.PinKind.Exec) { Bot.Graph.Connect(from.node, from.pin, target.Id, i); return; }
+    }
+
     public void DebugSpawnSelect(string typeId)
     {
         if (!NodeCatalog.TryGet(typeId, out _)) return;
@@ -815,6 +825,12 @@ public sealed partial class MainScreen : IScreen
             if (!Modal)
             {
                 _editor.Update(input, _l.Canvas, _ui.AnyFieldFocused || overBar);
+                if (_editor.GhostAdd is { } g)   // a "+" ghost was clicked: quick-add a node wired from that exec pin
+                {
+                    OpenQuickAdd(_editor.Cam.WorldToScreen(g.world));
+                    _quickWorld = g.world; _ghostWireFrom = (g.node, g.pin);
+                    _editor.GhostAdd = null;
+                }
                 if (input.Ctrl && input.KeyPressed(Keys.K)) OpenCommandPalette();
                 if (input.Ctrl && input.KeyPressed(Keys.F)) { _findOpen = !_findOpen; _findArm = _findOpen; if (!_findOpen && _ui.Focus == "find") _ui.Focus = null; }
                 if (input.Ctrl && input.KeyPressed(Keys.S)) { _app.Save(); Notify(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved"); }
@@ -843,6 +859,7 @@ public sealed partial class MainScreen : IScreen
     private void OpenQuickAdd(Vector2 screen)
     {
         _quickOpen = true; _quickJustOpened = true;
+        _ghostWireFrom = null;                   // a plain quick-add doesn't auto-wire (the ghost handler re-sets this)
         _quickScreen = screen;
         _quickWorld = _editor.Cam.ScreenToWorld(screen);
         _quickSearch = "";
@@ -3689,7 +3706,7 @@ public sealed partial class MainScreen : IScreen
                 r.Text(icf, Ircuitry.Core.Icons.Glyph(def.Icon), new Vector2(row.X + 6, row.Y + 4), col);
                 r.Text(tf, r.Ellipsize(tf, def.Title, row.W - 84), new Vector2(row.X + 30, row.Y + 6), Theme.Text);
                 r.TextRight(cf, def.Category.ToString().ToLowerInvariant(), row.Right - 8, row.Y + 8, Theme.WithAlpha(col, 0.9f));
-                if (hover && In.LeftPressed) { SpawnNode(def, _quickWorld); _app.MarkDirty(); _quickOpen = false; }
+                if (hover && In.LeftPressed) { var sn = SpawnNode(def, _quickWorld); GhostWire(sn); _app.MarkDirty(); _quickOpen = false; }
             }
             ry += rowH;
         }

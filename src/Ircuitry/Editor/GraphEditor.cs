@@ -63,6 +63,27 @@ public sealed class GraphEditor
     private Vector2 _frameDragOff, _frameStartSize;
     private readonly Dictionary<string, Vector2> _frameContained = new();   // node id -> offset, for group-move
     public Frame? SelectedFrame => _frameSel == null ? null : Graph.Frames.FirstOrDefault(f => f.Id == _frameSel);
+
+    // ghost-node suggester (#5): a "+" on a dangling exec output; clicking it asks the host to quick-add a node
+    // already wired from that pin. The host reads + clears this each frame.
+    public (string node, int pin, Vector2 world)? GhostAdd;
+    private bool ShowsGhosts(Node n, Vector2 screen) => (Selection.Count == 1 && Selection.Contains(n.Id)) || NodeLayout.For(n).Card.Contains(Cam.ScreenToWorld(screen));
+    private static Vector2 GhostPos(NodeLayout l, int pin) => l.OutPin(pin) + new Vector2(24, 0);
+    private (string node, int pin, Vector2 world)? HitGhost(Vector2 screen)
+    {
+        foreach (var n in Graph.Nodes)
+        {
+            if (!ShowsGhosts(n, screen)) continue;
+            var l = NodeLayout.For(n);
+            for (int p = 0; p < n.Outputs.Length; p++)
+            {
+                if (n.Outputs[p].Kind != PinKind.Exec || Graph.OutputConnected(n.Id, p)) continue;
+                var gw = GhostPos(l, p);
+                if (Vector2.Distance(screen, Cam.WorldToScreen(gw)) <= 13) return (n.Id, p, gw + new Vector2(150, 15));
+            }
+        }
+        return null;
+    }
     public Frame AddFrame(Vector2 worldPos) { var f = Frame.Create(worldPos - new Vector2(150, 15)); Graph.Frames.Add(f); _frameSel = f.Id; Selection.Clear(); return f; }
     public void DeleteFrame(string id) { Graph.Frames.RemoveAll(f => f.Id == id); if (_frameSel == id) _frameSel = null; }
     private const float FrameHandle = 16f;
@@ -659,6 +680,7 @@ public sealed class GraphEditor
         Dragged = false;
         _wireUndo = false;
         _frameSel = null;            // any press resets frame selection unless a frame is hit below
+        if (HitGhost(input.Mouse) is { } ghost) { GhostAdd = ghost; return; }   // clicked a "+" suggestion
         var port = HitPort(input.Mouse);
         if (port.HasValue)
         {
@@ -798,6 +820,29 @@ public sealed class GraphEditor
         }
     }
 
+    private void DrawGhosts(Renderer r, Vector2 screen)
+    {
+        if (_mode != Mode.Idle && _mode != Mode.DragNodes) return;   // hide while wiring/panning
+        float z = Cam.Zoom;
+        foreach (var n in Graph.Nodes)
+        {
+            if (!ShowsGhosts(n, screen)) continue;
+            var l = NodeLayout.For(n);
+            for (int p = 0; p < n.Outputs.Length; p++)
+            {
+                if (n.Outputs[p].Kind != PinKind.Exec || Graph.OutputConnected(n.Id, p)) continue;
+                var ps = Cam.WorldToScreen(l.OutPin(p));
+                var gs = Cam.WorldToScreen(GhostPos(l, p));
+                bool hot = Vector2.Distance(screen, gs) <= 13;
+                float rad = (hot ? 11 : 9) * z;
+                var box = new RectF(gs.X - rad, gs.Y - rad, rad * 2, rad * 2);
+                r.RoundFill(box, Theme.WithAlpha(Theme.Cyan, hot ? 0.22f : 0.10f), rad);
+                r.RoundOutline(box, Theme.WithAlpha(Theme.Cyan, hot ? 0.95f : 0.5f), rad);
+                r.TextCentered(r.Fonts.Get(FontKind.SansBold, Math.Clamp((int)(15 * z), 9, 20)), "+", box, Theme.WithAlpha(Theme.Cyan, hot ? 1f : 0.7f));
+            }
+        }
+    }
+
     private (string node, int pin, bool input)? HitPort(Vector2 screen)
     {
         const float R = 11f;
@@ -828,6 +873,7 @@ public sealed class GraphEditor
         foreach (var c in Graph.Connections) if (WireHeat(c) > 0.02f) DrawWire(r, c, clock);
         if (_mode == Mode.DragWire) DrawDragWire(r, input);
         foreach (var n in Graph.Nodes) DrawNode(r, n, clock);
+        DrawGhosts(r, input.Mouse);   // "+" suggestions on dangling exec outputs
         // node-fired shockwave (alpha so the rings read on the cream canvas): a white-hot flash
         // outline at the instant of firing, then two rings rippling outward as it fades.
         if (FireGlow != null)
