@@ -301,14 +301,32 @@ public sealed partial class MainScreen
             r.RoundOutline(cont, Theme.WithAlpha(g.Color, 0.55f), 11f);
         }
 
-        // ---- elements ----
+        // ---- elements: while a tab is being dragged, neighbours slide toward their slots and the dragged tab
+        // rides the cursor (lifted), drawn last so it stays on top - the real-browser feel ----
+        bool anim = _tabDragging && _tabDragBot != null;
+        float DrawX(int k)
+        {
+            if (elems[k].kind != 0) return ex[k];                                  // headers snap to their slot
+            var b = bots[elems[k].bot];
+            if (anim && b == _tabDragBot) return Math.Clamp(In.Mouse.X - _tabDragGrabDx, gutter.X - ws[k] + 24, gutter.X + viewW - 24);
+            if (!anim) { _tabDrawX[b] = ex[k]; return ex[k]; }
+            float cur = _tabDrawX.TryGetValue(b, out var v) ? v : ex[k];
+            cur += (ex[k] - cur) * 0.35f;
+            if (MathF.Abs(ex[k] - cur) < 0.5f) cur = ex[k];
+            return _tabDrawX[b] = cur;
+        }
+
+        int dragK = -1;
         for (int k = 0; k < elems.Count; k++)
         {
-            var slot = new RectF(ex[k], top, ws[k], tabH);
+            if (anim && elems[k].kind == 0 && bots[elems[k].bot] == _tabDragBot) { dragK = k; continue; }   // deferred - drawn on top below
+            var slot = new RectF(DrawX(k), top, ws[k], tabH);
             if (slot.Right < gutter.X - 2 || slot.X > gutter.X + viewW + 2) continue;
             if (elems[k].kind == 1) DrawGroupHeader(r, elems[k].g!, slot, gf, clock, gutter, viewW, noDrag);
             else DrawOneTab(r, elems[k].bot, slot, tf, clock, gutter, viewW, noDrag);
         }
+        if (dragK >= 0)
+            DrawOneTab(r, elems[dragK].bot, new RectF(DrawX(dragK), top, ws[dragK], tabH), tf, clock, gutter, viewW, noDrag, lifted: true);
 
         // + add a bot
         var addR = new RectF(addX, top + 1, 32, tabH - 2);
@@ -365,6 +383,7 @@ public sealed partial class MainScreen
 
         if (_renamingGroup == g)
         {
+            if (_pendingRenameFocus == "group.rename") { _ui.Focus = "group.rename"; _pendingRenameFocus = null; }   // focus the field on its first drawn frame (so EndFrame doesn't blur it)
             var nm = _ui.TextField("group.rename", new RectF(chip.X + 6, chip.Center.Y - 9, chip.W - 12, 22), g.Name, "group");
             if (nm != g.Name) { g.Name = string.IsNullOrWhiteSpace(nm) ? g.Name : nm; _app.MarkDirty(); }
             if (_ui.Focus != "group.rename") _renamingGroup = null;
@@ -388,17 +407,20 @@ public sealed partial class MainScreen
         }
     }
 
-    private void DrawOneTab(Renderer r, int i, RectF slot, FontStashSharp.DynamicSpriteFont tf, Clock clock, RectF gutter, float viewW, Action<RectF> noDrag)
+    private void DrawOneTab(Renderer r, int i, RectF slot, FontStashSharp.DynamicSpriteFont tf, Clock clock, RectF gutter, float viewW, Action<RectF> noDrag, bool lifted = false)
     {
         var bot = _app.Bots[i];
         bool active = i == _app.Active;
         bool renaming = _renamingBot == bot;
         var col = StatusColor(bot.Runtime);
 
-        var tab = active ? new RectF(slot.X, slot.Y - 2, slot.W, slot.H + 2) : new RectF(slot.X, slot.Y + 2, slot.W, slot.H - 2);
+        var tab = lifted ? new RectF(slot.X, slot.Y - 4, slot.W, slot.H + 2)
+                : active ? new RectF(slot.X, slot.Y - 2, slot.W, slot.H + 2)
+                : new RectF(slot.X, slot.Y + 2, slot.W, slot.H - 2);
         var clip = tab.Intersect(new RectF(gutter.X, gutter.Y, viewW, gutter.H));
         if (clip.W > 4) noDrag(clip);
 
+        if (lifted) r.RoundFill(tab.Offset(0, 5), Theme.WithAlpha(Color.Black, 0.28f), 10f);   // a real shadow under the picked-up tab
         r.RoundFill(tab.Offset(0, 1), Theme.WithAlpha(BarDim, 0.35f), 9f);   // drop shadow so it reads on the bar
         if (active)
         {
@@ -429,6 +451,7 @@ public sealed partial class MainScreen
 
         if (renaming)
         {
+            if (_pendingRenameFocus == "tab.rename") { _ui.Focus = "tab.rename"; _pendingRenameFocus = null; }
             var nm = _ui.TextField("tab.rename", new RectF(tab.X + 26, tab.Center.Y - 9, tab.W - 36, 22), bot.Name, "bot name");
             if (nm != bot.Name) { bot.Name = string.IsNullOrWhiteSpace(nm) ? bot.Name : nm; _app.MarkDirty(); }
             if (_ui.Focus != "tab.rename") _renamingBot = null;
@@ -459,8 +482,8 @@ public sealed partial class MainScreen
                 bool dbl = _tabClickBot == bot && clock.Time - _tabClickTime < 0.35f;
                 _tabClickBot = bot; _tabClickTime = clock.Time;
                 if (!active) { _app.SetActive(i); _editor.Selection.Clear(); }
-                if (dbl) { _renamingBot = bot; _ui.Focus = "tab.rename"; }
-                else { _tabDragBot = bot; _tabDragDownX = In.Mouse.X; _tabDragging = false; }   // begin a potential drag-reorder
+                if (dbl) { _renamingBot = bot; _pendingRenameFocus = "tab.rename"; }
+                else { _tabDragBot = bot; _tabDragDownX = In.Mouse.X; _tabDragGrabDx = In.Mouse.X - tab.X; _tabDragging = false; }   // begin a potential drag-reorder
             }
         }
         else if (!Modal && In.RightPressed && tab.Contains(In.Mouse) && gutter.Contains(In.Mouse))
@@ -476,7 +499,7 @@ public sealed partial class MainScreen
         {
             // drop: the tab joins the group whose coloured band the cursor is over (or leaves its group), then re-contiguify
             if (_tabDragging) { _tabDragBot.GroupId = hoverGroup()?.Id; _app.NormalizeGroups(); _app.MarkDirty(); }
-            _tabDragBot = null; _tabDragging = false; return;
+            _tabDragBot = null; _tabDragging = false; _tabDrawX.Clear(); return;
         }
         if (!_tabDragging && MathF.Abs(In.Mouse.X - _tabDragDownX) > 6) _tabDragging = true;
         if (!_tabDragging) return;
@@ -514,7 +537,7 @@ public sealed partial class MainScreen
     {
         _ctxAnchor = anchor; _ctxItems.Clear();
         var g = _app.GroupOf(b);
-        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("plus"), Label = "Add to new group", Enabled = true, Do = () => { var ng = _app.NewGroup(b); _renamingGroup = ng; _ui.Focus = "group.rename"; } });
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("plus"), Label = "Add to new group", Enabled = true, Do = () => { var ng = _app.NewGroup(b); _renamingGroup = ng; _pendingRenameFocus = "group.rename"; } });
         foreach (var other in _app.Groups)
         {
             if (other == g) continue;
@@ -533,7 +556,7 @@ public sealed partial class MainScreen
     {
         _ctxAnchor = anchor; _ctxItems.Clear();
         _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph(g.Collapsed ? "caret-right" : "caret-down"), Label = g.Collapsed ? "Expand group" : "Collapse group", Enabled = true, Do = () => { g.Collapsed = !g.Collapsed; _app.MarkDirty(); } });
-        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("pencil"), Label = "Rename group", Enabled = true, Do = () => { _renamingGroup = g; _ui.Focus = "group.rename"; } });
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("pencil"), Label = "Rename group", Enabled = true, Do = () => { _renamingGroup = g; _pendingRenameFocus = "group.rename"; } });
         _ctxItems.Add(new CtxItem { Sep = true });
         for (int c = 0; c < TabGroup.PaletteCount; c++)
         {
