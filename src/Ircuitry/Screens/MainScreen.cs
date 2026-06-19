@@ -2194,9 +2194,12 @@ public sealed partial class MainScreen : IScreen
 
         if (!In.LeftDown)
         {
+            // the map is full-bleed under the panels now, so "on the canvas" must exclude the panels - dropping
+            // on a panel (or just clicking a library entry) should land the node in the centre of the VISIBLE map
+            bool overMap = _l.Canvas.Contains(In.Mouse) && !_dock.OverPanel(In.Mouse);
             bool spawned = false;
-            if (_l.Canvas.Contains(In.Mouse)) { SpawnNode(_dragDef, _editor.Cam.ScreenToWorld(In.Mouse)); spawned = true; }
-            else if (!_dragging) { _editor.Spawn(_dragDef, _editor.Cam.ScreenToWorld(_l.Canvas.Center)); spawned = true; }
+            if (overMap) { SpawnNode(_dragDef, _editor.Cam.ScreenToWorld(In.Mouse)); spawned = true; }
+            else if (!_dragging) { _editor.Spawn(_dragDef, _editor.Cam.ScreenToWorld(_dock.VisibleMapRect().Center)); spawned = true; }
             if (spawned) _app.MarkDirty();
             _dragDef = null; _dragging = false;
             return;
@@ -3149,13 +3152,13 @@ public sealed partial class MainScreen : IScreen
         A("folder-open", "Show files", "", () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
         A("graduation-cap", "Tutorial", "", ForceStartTutorial);
 
-        // every node: "Add <Title>", spawned at the centre of the canvas
+        // every node: "Add <Title>", spawned at the centre of the visible map (not under a docked panel)
         foreach (var def in NodeCatalog.All)
         {
             var d = def;
             A(Ircuitry.Core.Icons.Glyph(d.Icon), "Add: " + d.Title, d.Category.ToString().ToLowerInvariant(), () =>
             {
-                var world = _editor.Cam.ScreenToWorld(new Vector2(_l.Canvas.Center.X, _l.Canvas.Center.Y));
+                var world = _editor.Cam.ScreenToWorld(_dock.VisibleMapRect().Center);
                 var n = SpawnNode(d, world);
                 _editor.Selection.Clear(); _editor.Selection.Add(n.Id); _app.MarkDirty();
             });
