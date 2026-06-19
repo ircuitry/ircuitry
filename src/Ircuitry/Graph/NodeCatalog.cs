@@ -1205,6 +1205,80 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+            new NodeDef
+            {
+                TypeId = "mod.in", Icon = "shield-check", Title = "Moderate In", Subtitle = "guard", Category = NodeCategory.Filter,
+                Description = "Guardrail: screens an incoming message and branches clean / flagged. Heuristic by default (block list, links, SHOUTING, channel invites). Switch mode to 'heuristic + AI' to also ask a moderation model for nuanced cases (heuristic runs first, AI only on what passes). Wire 'flagged' to a warn/kick; 'clean' to your normal flow.",
+                Inputs = new[] { Ex(), Tx("text") },
+                Outputs = new[] { Ex("clean"), Ex("flagged"), Tx("category"), Tx("reason") },
+                Params = new[]
+                {
+                    P("mode", "Mode", ParamType.Choice, "heuristic", "", new[] { "heuristic", "heuristic + AI" }),
+                    P("blockWords", "Block list", ParamType.Multiline, "", "words/phrases to flag, comma or newline separated"),
+                    P("flagLinks", "Flag links", ParamType.Bool, "false", ""),
+                    P("flagCaps", "Flag SHOUTING", ParamType.Bool, "false", ""),
+                    P("flagInvites", "Flag channel invites", ParamType.Bool, "false", ""),
+                    P("baseUrl", "AI base URL", ParamType.Text, "https://api.openai.com/v1", "only used in heuristic + AI mode"),
+                    P("model", "AI model", ParamType.Text, "gpt-4o-mini", ""),
+                    P("apiKey", "AI API key", ParamType.Text, "", "blank = $OPENAI_API_KEY", secret: true),
+                },
+                SummaryParam = "mode",
+                Exec = c =>
+                {
+                    string text = c.InOr(1, c.Var("message"));
+                    var terms = Moderation.Terms(c.Resolve(c.Param("blockWords")));
+                    var (flagged, cat, reason) = Moderation.Check(text, terms, c.ParamBool("flagLinks"), c.ParamBool("flagCaps"), c.ParamBool("flagInvites"));
+                    if (!flagged && c.Param("mode").Contains("AI") && !c.AiOverBudget)
+                    {
+                        var reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), Moderation.ClassifierSystem, text, 60, out var err, 60, onUsage: c.RecordTokens);
+                        if (err.Length == 0) { if (Moderation.ParseVerdict(reply) is { } v && v.flagged) { flagged = true; cat = "ai"; reason = v.reason; } }
+                        else c.Log("Moderate In: AI check unavailable - " + err, LogLevel.System);   // fail open: don't block on an AI error
+                    }
+                    c.SetOut(2, cat); c.SetOut(3, reason);
+                    c.Pulse(flagged ? 1 : 0);
+                },
+            },
+            new NodeDef
+            {
+                TypeId = "mod.out", Icon = "shield", Title = "Moderate Out", Subtitle = "guard", Category = NodeCategory.Filter,
+                Description = "Guardrail on the bot's OWN outgoing text before it's sent. Branches clean / flagged and outputs a 'safe text'. On flag = block (take the flagged branch, send nothing) or redact (mask the offending words and continue on clean). Heuristic by default, with an optional AI check.",
+                Inputs = new[] { Ex(), Tx("text") },
+                Outputs = new[] { Ex("clean"), Ex("flagged"), Tx("safe text"), Tx("reason") },
+                Params = new[]
+                {
+                    P("mode", "Mode", ParamType.Choice, "heuristic", "", new[] { "heuristic", "heuristic + AI" }),
+                    P("onFlag", "On flag", ParamType.Choice, "block", "", new[] { "block", "redact" }),
+                    P("blockWords", "Block list", ParamType.Multiline, "", "words/phrases to flag, comma or newline separated"),
+                    P("flagLinks", "Flag links", ParamType.Bool, "false", ""),
+                    P("flagCaps", "Flag SHOUTING", ParamType.Bool, "false", ""),
+                    P("baseUrl", "AI base URL", ParamType.Text, "https://api.openai.com/v1", "only used in heuristic + AI mode"),
+                    P("model", "AI model", ParamType.Text, "gpt-4o-mini", ""),
+                    P("apiKey", "AI API key", ParamType.Text, "", "blank = $OPENAI_API_KEY", secret: true),
+                },
+                SummaryParam = "onFlag",
+                Exec = c =>
+                {
+                    string text = c.InOr(1, "");
+                    var terms = Moderation.Terms(c.Resolve(c.Param("blockWords")));
+                    var (flagged, _, reason) = Moderation.Check(text, terms, c.ParamBool("flagLinks"), c.ParamBool("flagCaps"), false);
+                    if (!flagged && c.Param("mode").Contains("AI") && !c.AiOverBudget)
+                    {
+                        var reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), Moderation.ClassifierSystem, text, 60, out var err, 60, onUsage: c.RecordTokens);
+                        if (err.Length == 0) { if (Moderation.ParseVerdict(reply) is { } v && v.flagged) { flagged = true; reason = v.reason; } }
+                        else c.Log("Moderate Out: AI check unavailable - " + err, LogLevel.System);
+                    }
+                    if (flagged && c.Param("onFlag") == "redact")
+                    {
+                        c.SetOut(2, Moderation.Redact(text, terms, c.ParamBool("flagLinks"))); c.SetOut(3, reason);
+                        c.Pulse(0);   // sanitised - continue on the clean branch
+                    }
+                    else
+                    {
+                        c.SetOut(2, flagged ? "" : text); c.SetOut(3, reason);
+                        c.Pulse(flagged ? 1 : 0);
+                    }
+                },
+            },
             // ---- building-block tool nodes: usable standalone, or wired into Ask AI's 'tools' so the model can
             // call them. They carry a Tool output, so the SuperAI recipe (a composite .ircnode) is built FROM
             // these rather than from a built-in - drop SuperAI into nodes/ and right-click to edit/rewire it.

@@ -169,8 +169,48 @@ public static class SelfTest
         fails += WebhookTest();
         fails += ModeTemplateTest();
         fails += CodeSandboxTest();
+        fails += GuardrailTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
+        return fails;
+    }
+
+    /// <summary>Guardrails (#19): the heuristic moderation primitives, and a Moderate In node branching
+    /// clean vs flagged on a block-list term.</summary>
+    private static int GuardrailTest()
+    {
+        int fails = 0;
+
+        // heuristic primitives
+        var terms = Ircuitry.Graph.Moderation.Terms("spam, scam\nphish");
+        fails += Expect("mod-terms", terms.Count == 3 && terms.Contains("scam"), string.Join("|", terms));
+        fails += Expect("mod-block", Ircuitry.Graph.Moderation.Check("please no spam here", terms, false, false, false).flagged, "");
+        fails += Expect("mod-clean", !Ircuitry.Graph.Moderation.Check("a friendly hello", terms, true, true, true).flagged, "");
+        fails += Expect("mod-caps", Ircuitry.Graph.Moderation.Check("STOP SHOUTING AT ME", new string[0], false, true, false).flagged, "");
+        fails += Expect("mod-link", Ircuitry.Graph.Moderation.Check("see https://evil.example", new string[0], true, false, false).flagged, "");
+        fails += Expect("mod-redact", Ircuitry.Graph.Moderation.Redact("buy spam now", terms, false) == "buy **** now", Ircuitry.Graph.Moderation.Redact("buy spam now", terms, false));
+        var verdict = Ircuitry.Graph.Moderation.ParseVerdict("FLAG: harassment");
+        fails += Expect("mod-verdict", verdict is { } v && v.flagged && v.reason == "harassment", "");
+        fails += Expect("mod-verdict-safe", Ircuitry.Graph.Moderation.ParseVerdict("SAFE") is { } sv && !sv.flagged, "");
+
+        // node branching: On Message -> Moderate In -> (clean -> "ok") / (flagged -> "blocked")
+        var g = new NodeGraph();
+        var msg = N(g, "event.message", 0, 0);
+        var mod = N(g, "mod.in", 250, 0); mod.SetParam("blockWords", "spam");
+        var ok = N(g, "action.reply", 500, 0); ok.SetParam("message", "ok");
+        var bad = N(g, "action.reply", 500, 140); bad.SetParam("message", "blocked");
+        g.Connect(msg.Id, 0, mod.Id, 0);
+        g.Connect(mod.Id, 0, ok.Id, 0);    // clean
+        g.Connect(mod.Id, 1, bad.Id, 0);   // flagged
+
+        var s1 = new FakeSink();
+        GraphExecutor.Fire(g, s1, msg, Vars("buy spam now", "alice", "#x"));
+        fails += Expect("mod-in-flagged", s1.Sent.Count == 1 && s1.Sent[0] == ("#x", "blocked"), Dump(s1));
+
+        var s2 = new FakeSink();
+        GraphExecutor.Fire(g, s2, msg, Vars("hello world", "alice", "#x"));
+        fails += Expect("mod-in-clean", s2.Sent.Count == 1 && s2.Sent[0] == ("#x", "ok"), Dump(s2));
+
         return fails;
     }
 
