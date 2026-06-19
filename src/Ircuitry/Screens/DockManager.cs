@@ -98,6 +98,21 @@ public sealed class DockManager
         return new Vector2(right, bottom);
     }
 
+    /// <summary>The sub-rect of the map not covered by any edge-docked panel - where on-map HUD (the info card,
+    /// zoom readout, corner buttons) should live so it dodges the panels instead of hiding behind them.</summary>
+    public RectF VisibleMapRect()
+    {
+        float l = _work.X, t = _work.Y, rgt = _work.Right, b = _work.Bottom;
+        foreach (var p in _panels.Where(p => p.Visible && p.Dock != Edge.Float))
+        {
+            if (p.Dock == Edge.Left) l = MathF.Max(l, p.Rect.Right);
+            else if (p.Dock == Edge.Right) rgt = MathF.Min(rgt, p.Rect.X);
+            else if (p.Dock == Edge.Top) t = MathF.Max(t, p.Rect.Bottom);
+            else if (p.Dock == Edge.Bottom) b = MathF.Min(b, p.Rect.Y);
+        }
+        return new RectF(l, t, MathF.Max(0, rgt - l), MathF.Max(0, b - t));
+    }
+
     /// <summary>Begin dragging a panel by its header (called when the header is pressed).</summary>
     public void BeginDrag(Panel p, Vector2 mouse) { _drag = p; _dragOff = new Vector2(mouse.X - p.Rect.X, mouse.Y - p.Rect.Y); }
     public void BeginResize(Panel p, Vector2 mouse) { _resize = p; _resizeStart = mouse; _resizeStartSize = p.Size; _resizeStartRect = p.Rect; }

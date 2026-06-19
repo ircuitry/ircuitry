@@ -459,7 +459,9 @@ public sealed class GraphEditor
     {
         if (!_camInit) { Cam.CenterOn(Vector2.Zero, canvas.Center); _camInit = true; }
 
-        bool inCanvas = canvas.Contains(input.Mouse);
+        // panels overlay the full-bleed map now, so a click "in the canvas" that's really on a panel (or a
+        // panel being dragged) must NOT pan/select the map
+        bool inCanvas = canvas.Contains(input.Mouse) && !uiCapturing;
         Vector2 mw = Cam.ScreenToWorld(input.Mouse);
 
         if (inCanvas && input.ScrollDelta != 0) Cam.ZoomAt(input.Mouse, input.ScrollDelta / 120f);

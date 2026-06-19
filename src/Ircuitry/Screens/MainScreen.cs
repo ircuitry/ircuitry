@@ -269,7 +269,6 @@ public sealed partial class MainScreen : IScreen
             if (ResizeBorder(p).Contains(m)) { _dock.BeginResize(p, m); return; }
             var hdr = new RectF(p.Rect.X, p.Rect.Y, p.Rect.W, dragH);
             if (!hdr.Contains(m)) continue;
-            if (new RectF(hdr.Right - 26, hdr.Y + 3, 24, 24).Contains(m)) { p.Visible = false; SaveDockLayout(); return; }   // close (×)
             _dock.BeginDrag(p, m); return;
         }
     }
@@ -295,7 +294,7 @@ public sealed partial class MainScreen : IScreen
         r.End();
     }
 
-    /// <summary>Draw each panel's close × (over its Hud title bar), the drop-edge highlight while dragging, and
+    /// <summary>Draw each panel's drag grip (over its Hud title bar), the drop-edge highlight while dragging, and
     /// the floating ghost of the panel being moved. Runs over the top of the panels.</summary>
     private void DrawDockChrome(Renderer r)
     {
@@ -303,8 +302,14 @@ public sealed partial class MainScreen : IScreen
         foreach (var p in _dock.Panels)
         {
             if (!p.Visible) continue;
-            var xc = new Vector2(p.Rect.Right - 14, p.Rect.Y + 15);
-            DrawGlyphX(r, xc, 3.2f, !Modal && new RectF(xc.X - 12, xc.Y - 12, 24, 24).Contains(In.Mouse) ? Theme.Alert : Theme.TextFaint);
+            // a grip handle centered on the title bar, so it's clear you can drag the panel here
+            var hdr = new RectF(p.Rect.X, p.Rect.Y, p.Rect.W, 30f);
+            bool hot = !Modal && hdr.Contains(In.Mouse) && !_dock.Dragging;
+            var grip = Theme.WithAlpha(Theme.TextDim, hot ? 0.9f : 0.5f);
+            float gx = hdr.Center.X, gy = hdr.Y + 6;
+            for (int row = 0; row < 2; row++)
+                for (int col = -2; col <= 2; col++)
+                    r.Disc(new Vector2(gx + col * 5, gy + row * 4), 1.15f, grip);
         }
         // drop-edge highlight while dragging a panel to a new edge (hint computed in Update's DockInputTick)
         var dp = _dock.DraggingPanel;
@@ -1297,13 +1302,15 @@ public sealed partial class MainScreen : IScreen
     {
         r.RoundOutline(c, Theme.Edge, Hud.PanelRadius);
         Hud.CornerBrackets(r, c, Theme.WithAlpha(Theme.Cyan, 0.5f), 18f, 2f);
+        // panels overlay the full-bleed map, so the on-map readouts ride the visible region (dodging docked panels)
+        var vis = _dock.VisibleMapRect();
         var f = r.Fonts.Get(FontKind.SansBold, 12);
-        var box = new RectF(c.X + 12, c.Y + 12, 250, 26);
+        var box = new RectF(vis.X + 12, vis.Y + 12, 250, 26);
         r.RoundFill(box, Theme.WithAlpha(Theme.PanelHi, 0.92f), 7f);
         r.RoundOutline(box, Theme.Hairline, 7f);
         r.Fill(new RectF(box.X + 9, box.Y + 7, 3, 12), Theme.Cyan);
         r.Text(f, $"{Bot.Name}  ·  {Bot.Graph.Nodes.Count} nodes · {Bot.Graph.Connections.Count} wires", new Vector2(box.X + 18, box.Y + 7), Theme.TextDim);
-        r.TextRight(r.Fonts.Get(FontKind.SansBold, 12), $"{(int)Math.Round(_editor.Cam.Zoom * 100)}%", c.Right - 14, c.Bottom - 24, Theme.TextFaint);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), $"{(int)Math.Round(_editor.Cam.Zoom * 100)}%", new Vector2(vis.X + 14, vis.Bottom - 24), Theme.TextFaint);
     }
 
     private void EmptyHint(Renderer r, RectF c, Clock clock)
