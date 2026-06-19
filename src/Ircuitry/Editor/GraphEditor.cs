@@ -98,6 +98,16 @@ public sealed class GraphEditor
         Cam.CenterOn(center, canvas.Center);
     }
 
+    /// <summary>Centre the camera on a node and select it (used by find-in-graph and the error tray).</summary>
+    public void Reveal(string id, RectF canvas)
+    {
+        var n = Graph.Find(id);
+        if (n == null) return;
+        if (Cam.Zoom < 0.5f) Cam.Zoom = 0.9f;
+        Cam.CenterOn(NodeLayout.For(n).Card.Center, canvas.Center);
+        Selection.Clear(); Selection.Add(id);
+    }
+
     public Node Spawn(NodeDef def, Vector2 worldPos)
     {
         PushUndo();

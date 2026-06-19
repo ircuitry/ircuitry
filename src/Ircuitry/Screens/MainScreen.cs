@@ -128,6 +128,12 @@ public sealed partial class MainScreen : IScreen
     private bool _notifOpen, _notifJustOpened;
     private int _notifUnread;        // toasts shown since the history was last opened (for the bell badge)
     private float _notifScroll;
+    // find-in-graph (Ctrl+F): live node search + jump-to-hit
+    private bool _findOpen, _findArm;
+    private string _findQuery = "";
+    private readonly List<string> _findHits = new();
+    private int _findIdx;
+
     // command palette (Ctrl+K): run any action or add any node by typing
     private bool _cmdkOpen, _cmdkJustOpened;
     private string _cmdkQuery = "";
@@ -810,6 +816,7 @@ public sealed partial class MainScreen : IScreen
             {
                 _editor.Update(input, _l.Canvas, _ui.AnyFieldFocused || overBar);
                 if (input.Ctrl && input.KeyPressed(Keys.K)) OpenCommandPalette();
+                if (input.Ctrl && input.KeyPressed(Keys.F)) { _findOpen = !_findOpen; _findArm = _findOpen; if (!_findOpen && _ui.Focus == "find") _ui.Focus = null; }
                 if (input.Ctrl && input.KeyPressed(Keys.S)) { _app.Save(); Notify(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved"); }
                 if (input.Ctrl && input.KeyPressed(Keys.R)) ToggleRun();
                 if (input.Ctrl && input.KeyPressed(Keys.E)) { _app.ExportActive(); Notify(Ircuitry.Core.Icons.Glyph("export") + $" Exported {Bot.Name}"); }
@@ -869,6 +876,7 @@ public sealed partial class MainScreen : IScreen
         CanvasFrame(r, _l.Canvas);
         r.End();
         DrawPlaybackBar(r);   // slow-motion run playback control (over the canvas)
+        DrawFindBar(r);       // find-in-graph (Ctrl+F)
 
         // ---------- panel chromes ----------
         bool consoleOn = _dock.Get("console")!.Visible;
@@ -2300,6 +2308,56 @@ public sealed partial class MainScreen : IScreen
             // click anywhere outside the pill + panel collapses it
             if (In.LeftPressed && !pill.Contains(In.Mouse) && !panel.Contains(In.Mouse)) _pbSliderOpen = false;
         }
+    }
+
+    // ---- find-in-graph (#6): a floating search bar that jumps the camera to matching nodes ----
+    private void RecomputeFind()
+    {
+        _findHits.Clear();
+        string q = _findQuery.Trim().ToLowerInvariant();
+        if (q.Length == 0) { _findIdx = 0; return; }
+        foreach (var n in Bot.Graph.Nodes)
+        {
+            bool hit = n.DisplayTitle.ToLowerInvariant().Contains(q)
+                || n.TypeId.ToLowerInvariant().Contains(q)
+                || n.Def.Title.ToLowerInvariant().Contains(q)
+                || n.Params.Any(kv => kv.Value.ToLowerInvariant().Contains(q) || kv.Key.ToLowerInvariant().Contains(q));
+            if (hit) _findHits.Add(n.Id);
+        }
+        _findIdx = Math.Clamp(_findIdx, 0, Math.Max(0, _findHits.Count - 1));
+    }
+
+    private void FindJump(int dir)
+    {
+        if (_findHits.Count == 0) return;
+        _findIdx = ((_findIdx + dir) % _findHits.Count + _findHits.Count) % _findHits.Count;
+        _editor.Reveal(_findHits[_findIdx], _l.Canvas);
+    }
+
+    private void DrawFindBar(Renderer r)
+    {
+        if (!_findOpen || Modal) return;
+        var vis = _dock.VisibleMapRect();
+        const float w = 330, h = 34;
+        var bar = new RectF(vis.Center.X - w / 2f, vis.Y + 12, w, h);
+        r.Begin();
+        r.RoundFill(bar.Offset(0, 2), Theme.WithAlpha(Color.Black, 0.12f), 10f);
+        r.RoundFill(bar, Theme.WithAlpha(Theme.PanelHi, 0.97f), 10f);
+        r.RoundOutline(bar, Theme.Edge, 10f);
+        r.Text(r.Fonts.Get(FontKind.Sans, 15), Ircuitry.Core.Icons.Glyph("magnifying-glass"), new Vector2(bar.X + 10, bar.Center.Y - 9), Theme.TextDim);
+        if (_findArm) { _ui.Focus = "find"; _findArm = false; }
+        var q = _ui.TextField("find", new RectF(bar.X + 32, bar.Center.Y - 11, w - 150, 22), _findQuery, "find nodes by name, type or value");
+        if (q != _findQuery) { _findQuery = q; RecomputeFind(); }
+        var cf = r.Fonts.Get(FontKind.Mono, 12);
+        string cnt = _findQuery.Trim().Length == 0 ? "" : _findHits.Count == 0 ? "0" : (_findIdx + 1) + "/" + _findHits.Count;
+        r.TextRight(cf, cnt, bar.Right - 86, bar.Center.Y - 7, _findHits.Count == 0 && _findQuery.Trim().Length > 0 ? Theme.Alert : Theme.TextDim);
+        if (_ui.Button("find.prev", new RectF(bar.Right - 76, bar.Y + 5, 22, h - 10), Ircuitry.Core.Icons.Glyph("caret-up"), Theme.Idle)) FindJump(-1);
+        if (_ui.Button("find.next", new RectF(bar.Right - 52, bar.Y + 5, 22, h - 10), Ircuitry.Core.Icons.Glyph("caret-down"), Theme.Idle)) FindJump(1);
+        if (_ui.Button("find.close", new RectF(bar.Right - 28, bar.Y + 5, 22, h - 10), Ircuitry.Core.Icons.Glyph("x"), Theme.Idle)) { _findOpen = false; if (_ui.Focus == "find") _ui.Focus = null; }
+        r.End();
+        if (In.EnterPressed) { FindJump(In.Shift ? -1 : 1); _findArm = true; }   // Enter cycles + keeps the box focused
+        if (In.KeyPressed(Keys.F3)) FindJump(In.Shift ? -1 : 1);
+        if (In.KeyPressed(Keys.Escape)) { _findOpen = false; if (_ui.Focus == "find") _ui.Focus = null; }
     }
 
     private void DrawInspector(Renderer r)
