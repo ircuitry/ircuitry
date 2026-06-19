@@ -174,6 +174,7 @@ public static class SelfTest
         fails += GuardrailTest();
         fails += CacheTest();
         fails += WatchdogTest();
+        fails += CapabilitiesTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -215,6 +216,31 @@ public static class SelfTest
         GraphExecutor.Fire(g, s2, msg, Vars("hello world", "alice", "#x"));
         fails += Expect("mod-in-clean", s2.Sent.Count == 1 && s2.Sent[0] == ("#x", "ok"), Dump(s2));
 
+        return fails;
+    }
+
+    /// <summary>The "can't lie" capability scan: powers are derived truthfully from the contained node types.</summary>
+    private static int CapabilitiesTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        N(g, "event.command", 0, 0);
+        var http = N(g, "net.http", 120, 0); http.SetParam("url", "{{secret.token}}");
+        N(g, "action.reply", 240, 0);
+        var caps = Ircuitry.Graph.Capabilities.Scan(g);
+        fails += Expect("caps-net", caps.Any(c => c.Label == "Network access" && c.Caution), "");
+        fails += Expect("caps-irc", caps.Any(c => c.Label == "Acts on IRC"), "");
+        fails += Expect("caps-secret", caps.Any(c => c.Label == "Uses your secret keys"), "");
+
+        var g2 = new NodeGraph();
+        g2.Nodes.Add(new Node("x1", "totally.bogus.node"));
+        fails += Expect("caps-unknown", Ircuitry.Graph.Capabilities.Scan(g2).Any(c => c.Label == "Unknown node" && c.Caution), "");
+
+        var g3 = new NodeGraph();
+        N(g3, "event.command", 0, 0);
+        N(g3, "filter.contains", 120, 0);
+        var clean = Ircuitry.Graph.Capabilities.Scan(g3);
+        fails += Expect("caps-clean", clean.Count == 1 && !clean[0].Caution, clean.Count.ToString());
         return fails;
     }
 

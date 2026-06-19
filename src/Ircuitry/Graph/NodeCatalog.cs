@@ -29,6 +29,23 @@ public static class NodeCatalog
     public static NodeDef Get(string typeId) => _byId[typeId];
     public static bool TryGet(string typeId, out NodeDef def) => _byId.TryGetValue(typeId, out def!);
 
+    /// <summary>Make a def resolvable WITHOUT writing it to disk (used by try-before-install to run a community
+    /// node in a throwaway harness). Idempotent; remove again with <see cref="UnregisterTransient"/>.</summary>
+    public static void RegisterTransient(NodeDef def)
+    {
+        if (def == null || _builtins.Any(b => b.TypeId == def.TypeId)) return;
+        _byId[def.TypeId] = def;
+        if (_all.All(d => d.TypeId != def.TypeId)) _all.Add(def);
+    }
+
+    /// <summary>Undo a <see cref="RegisterTransient"/> for a type that was never actually installed.</summary>
+    public static void UnregisterTransient(string typeId)
+    {
+        if (_builtins.Any(b => b.TypeId == typeId) || _custom.Any(c => c.TypeId == typeId)) return;   // keep real ones
+        _byId.Remove(typeId);
+        _all.RemoveAll(d => d.TypeId == typeId);
+    }
+
     /// <summary>True if this typeId is an installed community/custom node (not a built-in).</summary>
     public static bool IsCustom(string typeId) => _custom.Any(c => c.TypeId == typeId);
 

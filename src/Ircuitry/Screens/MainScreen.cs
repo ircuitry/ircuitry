@@ -188,6 +188,7 @@ public sealed partial class MainScreen : IScreen
     private string? _installText;   // set when installing from clipboard (write text) instead of a dropped file (copy)
     private Vector2 _installScreen;
     private NodeDef? _installDef;
+    private List<Ircuitry.Graph.Capability> _installCaps = new();   // trust card: what the node can actually do
     private bool _uninstallOpen, _uninstallJustOpened;
     private NodeDef? _uninstallDef;
 
@@ -195,6 +196,11 @@ public sealed partial class MainScreen : IScreen
     private bool _wfInstallOpen, _wfInstallJustOpened;
     private string _wfInstallText = "", _wfInstallName = "", _wfInstallDesc = "";
     private int _wfInstallNodes;
+    private List<Ircuitry.Graph.Capability> _wfInstallCaps = new();
+
+    // try-before-install: run a community item in a throwaway Test Bench without adding it to the workspace
+    private NodeGraph? _testEphemeral;
+    private string _testEphemeralName = "", _testEphemeralType = "";
 
     // community node manager
     private bool _nodeMgrOpen, _nodeMgrJustOpened;
@@ -424,6 +430,7 @@ public sealed partial class MainScreen : IScreen
             if (def == null) { Bot.Log.Add(LogLevel.Error, "not a valid .ircnode: " + System.IO.Path.GetFileName(path)); return; }
             _installPath = path; _installText = null; _installScreen = screen; _installDef = def;
             _installPreview = NodePreview(text);
+            _installCaps = NodeCaps(def);
             _installOpen = true; _installJustOpened = true;
         }
         catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "could not read .ircnode: " + ex.Message); }
@@ -567,7 +574,16 @@ public sealed partial class MainScreen : IScreen
         _installScreen = new Vector2((_vw > 0 ? _vw : 1280) / 2f, (_vh > 0 ? _vh : 800) / 2f);
         _installDef = def;
         _installPreview = NodePreview(text);
+        _installCaps = NodeCaps(def);
         _installOpen = true; _installJustOpened = true;
+    }
+
+    /// <summary>Scan a community node's composite subgraph for its real powers (the "can't lie" trust card).</summary>
+    private static List<Ircuitry.Graph.Capability> NodeCaps(NodeDef def)
+    {
+        NodeGraph sub;
+        try { sub = def.SubgraphProvider?.Invoke() ?? new NodeGraph(); } catch { sub = new NodeGraph(); }
+        return Ircuitry.Graph.Capabilities.Scan(sub);
     }
 
     // Stage a community workflow for a confirm (mirrors the node install): it becomes a new bot tab.
@@ -586,28 +602,38 @@ public sealed partial class MainScreen : IScreen
         }
         catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "invalid workflow: " + ex.Message); return; }
         _wfInstallText = text; _wfInstallName = name; _wfInstallDesc = desc; _wfInstallNodes = nodes;
+        try { _wfInstallCaps = Ircuitry.Graph.Capabilities.Scan(Ircuitry.Graph.GraphSerializer.Load(text).graph); }
+        catch { _wfInstallCaps = new(); }
         _wfInstallOpen = true; _wfInstallJustOpened = true;
     }
 
     private void DrawWorkflowInstallModal(Renderer r)
     {
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
-        float pw = 560, ph = 300;
+        float pw = 580, ph = 460;
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, "Install community workflow?", Theme.Sky);
 
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), Ircuitry.Core.Icons.Glyph("robot") + "  " + _wfInstallName, new Vector2(x, y), Theme.Text); y += 26;
-        r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{_wfInstallNodes} node(s) · adds a new bot tab", new Vector2(x, y), Theme.TextDim); y += 24;
+        r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{_wfInstallNodes} node(s) · adds a new bot tab", new Vector2(x, y), Theme.TextDim); y += 22;
         if (_wfInstallDesc.Length > 0)
-            foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), _wfInstallDesc, w))
-            { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 17; }
-        y += 8;
-        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), Ircuitry.Core.Icons.Glyph("warning") + "  A workflow can include Code nodes that run on your machine. Review it before you press RUN BOT.", w))
-        { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.Alert); y += 17; }
+            foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), _wfInstallDesc, w).Take(2))
+            { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 16; }
+        y += 6;
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), Ircuitry.Core.Icons.Glyph("seal-check") + "  What this workflow can do (read from its nodes):", new Vector2(x, y), Theme.TextDim); y += 22;
 
-        var goR = new RectF(panel.Right - 22 - 130, panel.Bottom - 50, 130, 34);
-        var cancelR = new RectF(goR.X - 12 - 110, panel.Bottom - 50, 110, 34);
+        var box = new RectF(x, y, w, panel.Bottom - 50 - y - 12);
+        DrawCapCard(r, box, _wfInstallCaps);
+
+        var goR = new RectF(panel.Right - 22 - 110, panel.Bottom - 50, 110, 34);
+        var cancelR = new RectF(goR.X - 10 - 96, panel.Bottom - 50, 96, 34);
+        var tryR = new RectF(panel.X + 22, panel.Bottom - 50, 130, 34);
+        if (_ui.Button("wfinstall.try", tryR, Ircuitry.Core.Icons.Glyph("flask") + "  TRY", Theme.Cyan))
+        {
+            try { TryEphemeral(Ircuitry.Graph.GraphSerializer.Load(_wfInstallText).graph, _wfInstallName, ""); }
+            catch (Exception ex) { Bot.Log.Add(LogLevel.Error, "could not try workflow: " + ex.Message); }
+        }
         if (_ui.Button("wfinstall.cancel", cancelR, "CANCEL", Theme.Idle)) _wfInstallOpen = false;
         if (_ui.Button("wfinstall.go", goR, "INSTALL", Theme.Sky, primary: true))
         {
@@ -686,7 +712,12 @@ public sealed partial class MainScreen : IScreen
     {
         _l = DockLayout();
         var p = System.IO.Path.Combine(NodeCatalog.CustomDir, "wordcount.ircnode");
-        if (System.IO.File.Exists(p)) OnNodeDrop(_l.Canvas.Center, p);
+        if (System.IO.File.Exists(p)) { OnNodeDrop(_l.Canvas.Center, p); return; }
+        // no installed sample on this box: synthesize a composite in memory (no disk write) so the trust card shows
+        StageInstall("{\"typeId\":\"demo.fetcher\",\"title\":\"Web Fetcher\",\"icon\":\"globe\",\"category\":\"Action\",\"description\":\"demo\"," +
+            "\"inputs\":[{\"kind\":\"Exec\"}],\"outputs\":[{\"kind\":\"Exec\",\"name\":\"then\"},{\"kind\":\"Text\",\"name\":\"text\"}]," +
+            "\"subgraph\":{\"nodes\":[{\"id\":\"a\",\"type\":\"net.http\",\"x\":0,\"y\":0,\"params\":{\"url\":\"{{secret.api}}\"}}," +
+            "{\"id\":\"b\",\"type\":\"action.reply\",\"x\":200,\"y\":0,\"params\":{}}],\"wires\":[]}}", "demo");
     }
 
     public void DebugInstallClip() { _l = DockLayout(); InstallFromClipboard(); }
@@ -985,6 +1016,7 @@ public sealed partial class MainScreen : IScreen
         r.End();
 
         // ---------- modals (on top, capture input) ----------
+        if (!_testOpen) EndEphemeralTry();   // closing the Test Bench discards any try-before-install harness
         // install confirms take priority so a deep-link install overlays whatever modal is already open
         if (_installOpen)
         {
@@ -1275,7 +1307,7 @@ public sealed partial class MainScreen : IScreen
     private void DrawInstallModal(Renderer r)
     {
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
-        float pw = 560, ph = 430;
+        float pw = 580, ph = 470;
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, "Install community node?", Theme.Amber);
 
@@ -1284,23 +1316,19 @@ public sealed partial class MainScreen : IScreen
         if (d != null)
         {
             r.Text(r.Fonts.Get(FontKind.SansBold, 15), Ircuitry.Core.Icons.Glyph(d.Icon) + "  " + d.Title, new Vector2(x, y), Theme.Text); y += 24;
-            r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{d.TypeId} · {d.Category} · {d.Inputs.Length}in/{d.Outputs.Length}out", new Vector2(x, y), Theme.TextDim); y += 22;
+            var sub = d.SubgraphProvider != null ? SafeSub(d) : new NodeGraph();
+            r.Text(r.Fonts.Get(FontKind.Mono, 11), d.TypeId + " · " + d.Category + " · built from " + Ircuitry.Graph.Capabilities.Composition(sub), new Vector2(x, y), Theme.TextDim); y += 22;
         }
-        r.Text(r.Fonts.Get(FontKind.Sans, 12), Ircuitry.Core.Icons.Glyph("warning") + "  This runs code on your machine. Review before installing:", new Vector2(x, y), Theme.Alert); y += 22;
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), Ircuitry.Core.Icons.Glyph("seal-check") + "  What this node can do (read from the nodes it's built from, not its description):", new Vector2(x, y), Theme.TextDim); y += 22;
 
         var box = new RectF(x, y, w, panel.Bottom - 50 - y - 12);
-        r.RoundFill(box, Theme.PanelLo, 7f);
-        var mf = r.Fonts.Get(FontKind.Mono, 11);
-        float ly = box.Y + 6f;
-        foreach (var raw in _installPreview.Split('\n'))
-        {
-            if (ly + 14f > box.Bottom - 4f) { r.Text(mf, "…", new Vector2(box.X + 8, ly), Theme.TextFaint); break; }
-            r.Text(mf, r.Ellipsize(mf, raw, box.W - 16), new Vector2(box.X + 8, ly), Theme.Text);
-            ly += 14f;
-        }
+        DrawCapCard(r, box, _installCaps);
 
-        var goR = new RectF(panel.Right - 22 - 120, panel.Bottom - 50, 120, 34);
-        var cancelR = new RectF(goR.X - 12 - 110, panel.Bottom - 50, 110, 34);
+        bool runnable = d != null && d.Inputs.Length > 0 && d.Inputs[0].Kind == PinKind.Exec && Array.Exists(d.Outputs, p => p.Kind == PinKind.Exec);
+        var goR = new RectF(panel.Right - 22 - 110, panel.Bottom - 50, 110, 34);
+        var cancelR = new RectF(goR.X - 10 - 96, panel.Bottom - 50, 96, 34);
+        var tryR = new RectF(panel.X + 22, panel.Bottom - 50, 130, 34);
+        if (_ui.Button("install.try", tryR, Ircuitry.Core.Icons.Glyph("flask") + "  TRY", Theme.Cyan, enabled: runnable) && d != null) TryNode(d);
         if (_ui.Button("install.cancel", cancelR, "CANCEL", Theme.Idle)) _installOpen = false;
         if (_ui.Button("install.go", goR, "INSTALL", Theme.Amber, primary: true))
         {
@@ -1320,6 +1348,29 @@ public sealed partial class MainScreen : IScreen
         }
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_installJustOpened) _installOpen = false;
         _installJustOpened = false;
+    }
+
+    private static NodeGraph SafeSub(NodeDef d) { try { return d.SubgraphProvider!.Invoke() ?? new NodeGraph(); } catch { return new NodeGraph(); } }
+
+    /// <summary>The "can't lie" trust card: a row per capability, cautions (network, code, files, secrets,
+    /// raw IRC, AI-edit, unknown nodes) flagged in amber, benign powers in green.</summary>
+    private void DrawCapCard(Renderer r, RectF box, List<Ircuitry.Graph.Capability> caps)
+    {
+        r.RoundFill(box, Theme.PanelLo, 8f);
+        r.RoundOutline(box, Theme.Edge, 8f);
+        var tf = r.Fonts.Get(FontKind.SansBold, 12);
+        var df = r.Fonts.Get(FontKind.Sans, 11);
+        var icf = r.Fonts.Get(FontKind.Display, 15);
+        float ry = box.Y + 9;
+        foreach (var c in caps)
+        {
+            if (ry + 30 > box.Bottom) { r.Text(df, "…", new Vector2(box.X + 12, ry), Theme.TextFaint); break; }
+            var col = c.Caution ? Theme.Amber : Theme.Ok;
+            r.Text(icf, Ircuitry.Core.Icons.Glyph(c.Icon), new Vector2(box.X + 12, ry), col);
+            r.Text(tf, c.Label, new Vector2(box.X + 40, ry), Theme.Text);
+            r.Text(df, r.Ellipsize(df, c.Detail, box.W - 56), new Vector2(box.X + 40, ry + 16), Theme.TextDim);
+            ry += 34;
+        }
     }
 
     private void DrawCloseModal(Renderer r)
@@ -4226,9 +4277,11 @@ public sealed partial class MainScreen : IScreen
     private void RunTest()
     {
         _testRunSeq++;   // tutorial watches this to know the user actually ran a test
-        _testSent.Clear(); _testRec = null; _testScroll = 0; _testReplayNote = "";
-        // a remote tab tests on the SERVER (its real state + secrets), not the local copy
-        if (Bot.IsRemote && Bot.Remote?.Connected == true)
+        _testSent.Clear(); _testRec = null; _testScroll = 0;
+        if (_testEphemeral == null) _testReplayNote = "";   // try-before-install keeps its note across runs
+        // a remote tab tests on the SERVER (its real state + secrets), not the local copy - but never for an
+        // ephemeral try (that runs purely locally against the throwaway graph)
+        if (_testEphemeral == null && Bot.IsRemote && Bot.Remote?.Connected == true)
         {
             var b = Bot;
             b.Remote!.TestCommand(b.RemoteName, _testMsg, _testNick, _testChan, res =>
@@ -4243,8 +4296,8 @@ public sealed partial class MainScreen : IScreen
             });
             return;
         }
-        var graph = Bot.Graph;
-        var sink = new TestSink(new Dictionary<string, string>(Bot.State));   // throwaway state copy
+        var graph = _testEphemeral ?? Bot.Graph;
+        var sink = new TestSink(new Dictionary<string, string>(_testEphemeral != null ? new() : Bot.State));   // throwaway state copy (empty for a try)
         var baseVars = new Dictionary<string, string>
         {
             ["botnick"] = Bot.Settings.Nick, ["nick"] = _testNick, ["user"] = "tester", ["host"] = "test.host",
@@ -4264,6 +4317,45 @@ public sealed partial class MainScreen : IScreen
         }
         _testRec = fired;
         _testSent.AddRange(sink.Sent);
+    }
+
+    /// <summary>Try-before-install: run a community NODE in a throwaway harness (On Command "try" -> node ->
+    /// Send Reply) through the Test Bench, without writing it to disk or touching the workspace.</summary>
+    private void TryNode(NodeDef def)
+    {
+        NodeCatalog.RegisterTransient(def);   // resolvable in-memory only; removed when the bench closes
+        var g = new NodeGraph();
+        var cmd = Node.Create(NodeCatalog.Get("event.command"), new Vector2(0, 0)); cmd.SetParam("command", "try");
+        var nd = Node.Create(def, new Vector2(260, 0));
+        var reply = Node.Create(NodeCatalog.Get("action.reply"), new Vector2(520, 0));
+        g.Nodes.Add(cmd); g.Nodes.Add(nd); g.Nodes.Add(reply);
+        g.Connect(cmd.Id, 0, nd.Id, 0);   // exec: command -> node
+        int execOut = Array.FindIndex(def.Outputs, p => p.Kind == PinKind.Exec);
+        if (execOut >= 0) g.Connect(nd.Id, execOut, reply.Id, 0);
+        int txOut = Array.FindIndex(def.Outputs, p => p.Kind != PinKind.Exec && p.Kind != PinKind.Tool);
+        if (txOut >= 0) g.Connect(nd.Id, txOut, reply.Id, 1); else reply.SetParam("message", "(" + def.Title + " ran)");
+        _testMsg = "!try";
+        TryEphemeral(g, def.Title, def.TypeId);
+    }
+
+    /// <summary>Point the Test Bench at a throwaway graph (a tried node's harness, or a community workflow) so
+    /// the user can run it with nothing installed or saved.</summary>
+    private void TryEphemeral(NodeGraph g, string name, string typeId)
+    {
+        _testEphemeral = g; _testEphemeralName = name; _testEphemeralType = typeId;
+        _installOpen = false; _wfInstallOpen = false;
+        _testOpen = true; _testJustOpened = true;
+        RunTest();
+        _testReplayNote = Ircuitry.Core.Icons.Glyph("flask") + " Trying \"" + name + "\" - nothing is installed or saved.";
+    }
+
+    /// <summary>Tear down an ephemeral try: drop the throwaway graph and unregister a node type that was only
+    /// registered transiently for the try (never installed).</summary>
+    private void EndEphemeralTry()
+    {
+        if (_testEphemeral == null) return;
+        if (_testEphemeralType.Length > 0) NodeCatalog.UnregisterTransient(_testEphemeralType);
+        _testEphemeral = null; _testEphemeralName = ""; _testEphemeralType = "";
     }
 
     /// <summary>Replay a recorded real event (#17): re-inject its captured variables through the *current* graph
@@ -4306,7 +4398,7 @@ public sealed partial class MainScreen : IScreen
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
         float pw = MathF.Min(1040, _vw * 0.9f), ph = MathF.Min(660, _vh * 0.9f);
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
-        Hud.Panel(r, panel, "Test Bench - dry run, no IRC", Theme.Cyan);
+        Hud.Panel(r, panel, _testEphemeral != null ? "Try \"" + _testEphemeralName + "\" - dry run, not installed" : "Test Bench - dry run, no IRC", Theme.Cyan);
         r.End();
 
         float top = panel.Y + Hud.HeaderH + 14, btnY = panel.Bottom - 46;
