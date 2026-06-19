@@ -138,6 +138,7 @@ public static class SelfTest
         fails += SwitchPruneTest();
         fails += IoTest();
         fails += WorkspaceTest();
+        fails += ZimTest();
         fails += TextSafetyTest();
         fails += SignalTest();
         fails += RunCompletedTest();
@@ -1901,6 +1902,81 @@ public static class SelfTest
         bool ok = name == "iobot" && g2.Nodes.Count == 2 && g2.Connections.Count == 1
             && g2.Find(cmd.Id)?.GetParam("command") == "hi";
         return Expect("ircbot-export-import-roundtrip", ok, $"name={name} nodes={g2.Nodes.Count} wires={g2.Connections.Count}");
+    }
+
+    /// <summary>Hand-build a minimal ZIM (raw + zstd cluster) and round-trip open / title-search / read through
+    /// the managed reader - the binary parsing (header, dirents, pointer lists, cluster blob slicing) is the risk.</summary>
+    private static int ZimTest() => ZimCase("zim-read-raw", false) + ZimCase("zim-read-zstd", true);
+
+    private static int ZimCase(string name, bool zstd)
+    {
+        string path = Path.Combine(Path.GetTempPath(), "irc-zim-" + Guid.NewGuid().ToString("N") + ".zim");
+        try
+        {
+            File.WriteAllBytes(path, BuildMiniZim(zstd));
+            using var z = Ircuitry.Net.ZimArchive.Open(path);
+            var android = z.FindTitle("android");                 // case-insensitive title lookup
+            var apple = z.FindPath("A/Apple");                    // explicit namespaced path
+            var search = z.SearchTitles("App", 5);                // prefix search
+            var all = z.SearchTitles("A", 5);
+            bool ok = z.ArticleCount == 2 && z.ClusterCount == 1 && z.ContentNamespace == 'A'
+                && android is { } a && z.ReadText(a) == "Android is an OS."
+                && apple is { } p && z.ReadText(z.Resolve(p)) == "Apple is a fruit."
+                && search.Count == 1 && search[0].Title == "Apple"
+                && all.Count == 2;
+            return Expect(name, ok, $"count={z.ArticleCount}/{z.ClusterCount} ns={z.ContentNamespace} android={(android != null)} search={search.Count} all={all.Count}");
+        }
+        catch (Exception ex) { return Expect(name, false, ex.Message); }
+        finally { try { File.Delete(path); } catch { } }
+    }
+
+    private static byte[] BuildMiniZim(bool zstd)
+    {
+        var blob0 = Encoding.UTF8.GetBytes("Android is an OS.");
+        var blob1 = Encoding.UTF8.GetBytes("Apple is a fruit.");
+        // cluster payload = offset table (3 x uint32) then the two blobs
+        using var pms = new MemoryStream();
+        var pw = new BinaryWriter(pms);
+        pw.Write(12u); pw.Write((uint)(12 + blob0.Length)); pw.Write((uint)(12 + blob0.Length + blob1.Length));
+        pw.Write(blob0); pw.Write(blob1); pw.Flush();
+        byte[] payload = pms.ToArray();
+        byte[] body = zstd ? new ZstdSharp.Compressor().Wrap(payload).ToArray() : payload;
+        byte info = (byte)(zstd ? 0x05 : 0x01);
+
+        using var ms = new MemoryStream();
+        var w = new BinaryWriter(ms);
+        w.Write(new byte[80]);                                    // header placeholder
+        long mimeListPos = ms.Position;
+        w.Write(Encoding.UTF8.GetBytes("text/html")); w.Write((byte)0); w.Write((byte)0);   // one mime + empty terminator
+        long Dirent(char ns, uint blob, string url, string title)
+        {
+            long pos = ms.Position;
+            w.Write((ushort)0); w.Write((byte)0); w.Write((byte)ns); w.Write(0u);   // mime, paramLen, ns, revision
+            w.Write(0u); w.Write(blob);                                             // cluster 0, blob
+            w.Write(Encoding.UTF8.GetBytes(url)); w.Write((byte)0);
+            w.Write(Encoding.UTF8.GetBytes(title)); w.Write((byte)0);
+            return pos;
+        }
+        long dAndroid = Dirent('A', 0, "Android", "Android");
+        long dApple = Dirent('A', 1, "Apple", "Apple");
+        long urlPtrPos = ms.Position; w.Write((ulong)dAndroid); w.Write((ulong)dApple);     // sorted by url
+        long titlePtrPos = ms.Position; w.Write(0u); w.Write(1u);                           // url indices, sorted by title
+        long clusterPtrPos = ms.Position; w.Write((ulong)(clusterPtrPos + 8));              // cluster follows the 1-entry list
+        w.Write(info); w.Write(body);
+        long checksumPos = ms.Position; w.Write(new byte[16]);
+        w.Flush();
+
+        var buf = ms.ToArray();
+        BitConverter.GetBytes(0x044d495au).CopyTo(buf, 0);
+        BitConverter.GetBytes((ushort)5).CopyTo(buf, 4); BitConverter.GetBytes((ushort)0).CopyTo(buf, 6);
+        BitConverter.GetBytes(2u).CopyTo(buf, 24); BitConverter.GetBytes(1u).CopyTo(buf, 28);
+        BitConverter.GetBytes((ulong)urlPtrPos).CopyTo(buf, 32);
+        BitConverter.GetBytes((ulong)titlePtrPos).CopyTo(buf, 40);
+        BitConverter.GetBytes((ulong)clusterPtrPos).CopyTo(buf, 48);
+        BitConverter.GetBytes((ulong)mimeListPos).CopyTo(buf, 56);
+        BitConverter.GetBytes(0u).CopyTo(buf, 64); BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(buf, 68);
+        BitConverter.GetBytes((ulong)checksumPos).CopyTo(buf, 72);
+        return buf;
     }
 
     /// <summary>Round-trip the whole workspace (bots + connection settings + graph) through JSON.</summary>

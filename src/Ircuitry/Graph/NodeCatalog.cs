@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using Ircuitry.Core;
 using Ircuitry.Net;
@@ -102,6 +103,24 @@ public static class NodeCatalog
         if (string.IsNullOrEmpty(s)) return "";
         s = s.Replace('\n', ' ').Replace('\r', ' ').Replace('\t', ' ').Trim();
         return s.Length <= max ? s : s[..max] + "…";
+    }
+
+    private static string JsonStr(string s) => System.Text.Json.JsonSerializer.Serialize(s);
+
+    /// <summary>Render HTML (e.g. a ZIM article body) down to readable plain text - drop scripts/styles, turn
+    /// block tags into line breaks, strip the rest, decode entities, and tidy whitespace.</summary>
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return "";
+        html = Regex.Replace(html, "(?is)<(script|style)[^>]*>.*?</\\1>", " ");
+        html = Regex.Replace(html, "(?is)<br\\s*/?>", "\n");
+        html = Regex.Replace(html, "(?is)</(p|div|h[1-6]|li|tr|table|ul|ol|section|article)>", "\n");
+        html = Regex.Replace(html, "(?s)<[^>]+>", " ");
+        html = System.Net.WebUtility.HtmlDecode(html);
+        html = Regex.Replace(html, "[ \\t\\f\\v]+", " ");
+        html = Regex.Replace(html, " *\\n *", "\n");
+        html = Regex.Replace(html, "\\n{3,}", "\n\n");
+        return html.Trim();
     }
     private static PinDef Us(string n) => new(n, PinKind.User);
     private static PinDef Ch(string n) => new(n, PinKind.Channel);
@@ -1412,6 +1431,100 @@ public static class NodeCatalog
                         c.Pulse(0);
                     }
                     catch (Exception ex) { c.Log("read failed: " + ex.Message, LogLevel.Error); c.SetOut(2, ""); c.Pulse(1); }
+                },
+            },
+            new()
+            {
+                TypeId = "zim.info", Icon = "books", Title = "ZIM Info", Subtitle = "zim", Category = NodeCategory.Storage,
+                Description = "Opens a .zim archive (offline Wikipedia / Kiwix content) and reports its title and article count. Branches to 'missing' if the file isn't found. Set the .zim file in the inspector (relative paths live under ~/ircuitry/files).",
+                Inputs = new[] { Ex() },
+                Outputs = new[] { Ex("then"), Ex("missing"), Tx("info"), Nm("articles") },
+                Params = new[] { P("path", "ZIM file", ParamType.Text, "", "wikipedia.zim or /abs/path.zim") },
+                SummaryParam = "path",
+                Exec = c =>
+                {
+                    var path = ResolveFile(c.Resolve(c.Param("path")));
+                    if (path.Length == 0 || !File.Exists(path)) { c.SetOut(2, ""); c.SetOut(3, "0"); c.Pulse(1); return; }
+                    try
+                    {
+                        using var z = ZimArchive.Open(path);
+                        string title = z.Metadata("Title");
+                        c.SetOut(2, (title.Length > 0 ? title : Path.GetFileNameWithoutExtension(path)) + " - " + z.ArticleCount + " articles");
+                        c.SetOut(3, z.ArticleCount.ToString());
+                        c.Pulse(0);
+                    }
+                    catch (Exception ex) { c.Log("ZIM: " + ex.Message, LogLevel.Error); c.SetOut(2, ""); c.SetOut(3, "0"); c.Pulse(1); }
+                },
+            },
+            new()
+            {
+                TypeId = "zim.search", Icon = "magnifying-glass", Title = "ZIM Search", Subtitle = "zim", Category = NodeCategory.Storage,
+                Description = "Searches a .zim archive's article TITLES (prefix match) and returns a JSON array of {title, path}. Wire into Ask AI (or a Programmer AI) to give a bot an offline-wiki search tool. Set the .zim file in the inspector.",
+                Inputs = new[] { Ex(), Tx("query") },
+                Outputs = new[] { Ex("then"), Tx("results"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "search_wiki", "search_wiki"),
+                    P("path", "ZIM file", ParamType.Text, "", "wikipedia.zim or /abs/path.zim"),
+                    P("count", "Max results", ParamType.Int, "8", "8"),
+                    P("query", "Query", ParamType.Text, "", "title to look up"),
+                },
+                SummaryParam = "path",
+                Exec = c =>
+                {
+                    var path = ResolveFile(c.Resolve(c.Param("path")));
+                    string query = Arg(c, 1, "query");
+                    try
+                    {
+                        if (path.Length == 0 || !File.Exists(path)) { c.SetOut(1, "[]"); c.Pulse(0); return; }
+                        using var z = ZimArchive.Open(path);
+                        var hits = z.SearchTitles(query, Math.Clamp(c.ParamInt("count", 8), 1, 50));
+                        var sb = new StringBuilder("[");
+                        for (int i = 0; i < hits.Count; i++)
+                        {
+                            if (i > 0) sb.Append(',');
+                            sb.Append("{\"title\":").Append(JsonStr(hits[i].Title)).Append(",\"path\":").Append(JsonStr(hits[i].Path)).Append('}');
+                        }
+                        c.SetOut(1, sb.Append(']').ToString());
+                        c.Pulse(0);
+                    }
+                    catch (Exception ex) { c.Log("ZIM: " + ex.Message, LogLevel.Error); c.SetOut(1, "[]"); c.Pulse(0); }
+                },
+            },
+            new()
+            {
+                TypeId = "zim.article", Icon = "article", Title = "ZIM Article", Subtitle = "zim", Category = NodeCategory.Storage,
+                Description = "Reads one article from a .zim archive by title (or a namespaced path like A/Android) and returns its text - HTML stripped to plain text by default. Branches to 'missing' if not found. Wire into Ask AI as an offline-wiki reader. Set the .zim file in the inspector.",
+                Inputs = new[] { Ex(), Tx("title") },
+                Outputs = new[] { Ex("then"), Ex("missing"), Tx("content"), Tx("found"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "read_article", "read_article"),
+                    P("path", "ZIM file", ParamType.Text, "", "wikipedia.zim or /abs/path.zim"),
+                    P("html", "Keep HTML", ParamType.Bool, "false", "off = strip to plain text"),
+                    P("maxChars", "Max characters", ParamType.Int, "4000", "0 = whole article"),
+                    P("title", "Title", ParamType.Text, "", "article title to fetch"),
+                },
+                SummaryParam = "path",
+                Exec = c =>
+                {
+                    var path = ResolveFile(c.Resolve(c.Param("path")));
+                    string title = Arg(c, 1, "title");
+                    try
+                    {
+                        if (path.Length == 0 || !File.Exists(path)) { c.SetOut(2, ""); c.SetOut(3, ""); c.Pulse(1); return; }
+                        using var z = ZimArchive.Open(path);
+                        var e = z.FindTitle(title);
+                        if (e == null) { c.SetOut(2, ""); c.SetOut(3, ""); c.Pulse(1); return; }
+                        string text = z.ReadText(e.Value);
+                        if (!c.ParamBool("html")) text = StripHtml(text);
+                        int max = c.ParamInt("maxChars", 4000);
+                        if (max > 0 && text.Length > max) text = text[..max].TrimEnd() + " …";
+                        c.SetOut(2, text);
+                        c.SetOut(3, e.Value.Title);
+                        c.Pulse(0);
+                    }
+                    catch (Exception ex) { c.Log("ZIM: " + ex.Message, LogLevel.Error); c.SetOut(2, ""); c.SetOut(3, ""); c.Pulse(1); }
                 },
             },
             new()

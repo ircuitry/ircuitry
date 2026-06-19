@@ -274,6 +274,25 @@ public static class CommunityNodes
         R("tool.search", CodeTool("tool.search", "Search Files (grep)", "magnifying-glass", "Greps the codebase folder for a pattern.", "code.grep", new[] { ("pattern", 1) }, 1, "matches"));
         R("tool.run", CodeTool("tool.run", "Run Command", "keyboard", "Runs a command in the codebase folder.", "code.shell", new[] { ("cmd", 1) }, 1, "stdout"));
 
+        // ===== offline wiki (.zim) =====
+        R("zim.wiki", Make("zim.wiki", "Offline Wiki", "books", "Storage",
+            "Looks a topic up in an offline .zim archive (Kiwix / offline Wikipedia): searches article titles, opens the best match, and returns its text. Set the .zim file's path on the node and wire a !wiki command into 'topic'.",
+            c =>
+            {
+                var topic = c.Arg("topic");
+                var search = c.N("zim.search", ("count", "1"));
+                c.Expose(search, "path", "");
+                c.Wire(topic, 0, search, 1);           // topic -> zim.search query
+                c.Exec(search);
+                var pick = c.N("data.json", ("path", "0.title"));
+                c.Wire(search, 1, pick, 0);            // results JSON -> first hit's title
+                var art = c.N("zim.article");
+                c.Expose(art, "path", "");             // same .zim file as the search
+                c.Wire(pick, 0, art, 1);               // title -> zim.article
+                c.Exec(art);
+                c.Out("article", art, 2);              // the article text
+            }));
+
         // the image -> filehost recipe (HTTP multipart) - kept under its own filename
         L.Add(("filehost-image.ircnode", FilehostImage()));
 
