@@ -33,6 +33,9 @@ public interface IRuntimeSink
     /// <summary>Set the bot's AI spend cap (max tokens, optional reset window in seconds). No-op without a runtime.</summary>
     void SetTokenBudget(int maxTokens, double windowSeconds) { }
 
+    /// <summary>Auto-heal: (re)connect a dropped server (blank = the current one). No-op without a live runtime.</summary>
+    void Reconnect(string server) { }
+
     /// <summary>Accept a DCC file offer (active connect, or passive listen + reverse offer) and download to
     /// <paramref name="savePath"/> on a background worker. No-op on sinks without a live server (dry runs/tests).</summary>
     void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath) { }

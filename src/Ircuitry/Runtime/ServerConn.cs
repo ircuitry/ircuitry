@@ -586,6 +586,7 @@ public sealed class ServerConn : IRuntimeSink
             "invite" => "invited to " + (ch ?? ""),
             "connect" => "registered",
             "timer" => "timer tick",
+            "watchdog" => "watchdog: " + (v.TryGetValue("connected", out var wc) && wc == "true" ? "ok" : "down") + ", " + (v.TryGetValue("down", out var wd) ? wd : "0") + " down",
             "schedule" => "scheduled fire" + (v.TryGetValue("time", out var tm) ? " @ " + tm : ""),
             _ => family ?? "",
         };
@@ -705,6 +706,7 @@ public sealed class ServerConn : IRuntimeSink
     public void RecordTokens(int input, int output) => _owner.AddTokens(input, output);
     public bool AiOverBudget => _owner.AiOverBudget;
     public void SetTokenBudget(int maxTokens, double windowSeconds) => _owner.SetTokenBudget(maxTokens, windowSeconds);
+    public void Reconnect(string server) => _owner.ReconnectServer(server.Length > 0 ? server : _cfg.DisplayName);
     public int OutQueueDepth => _client.OutQueueDepth;
     public void Join(string channel) => _client.Join(channel);
     public void Part(string channel, string reason) => _client.Part(channel, reason);

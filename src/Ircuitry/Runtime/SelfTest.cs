@@ -37,6 +37,8 @@ public static class SelfTest
         public void StopTyping(string t) => Logs.Add("TYPING stop " + t);
         public void Log(string m, LogLevel lvl) => Logs.Add(m);
         public void NodeFired(string id) { }
+        public readonly List<string> Reconnects = new();
+        public void Reconnect(string server) => Reconnects.Add(server);
         public System.Collections.Generic.List<string> LastRun = new();
         public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes) { LastRun = new(executedTypes); }
         public readonly List<RecentMsg> RecentSeed = new();   // what SuperAI's recent_messages tool sees
@@ -171,6 +173,7 @@ public static class SelfTest
         fails += CodeSandboxTest();
         fails += GuardrailTest();
         fails += CacheTest();
+        fails += WatchdogTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -211,6 +214,49 @@ public static class SelfTest
         var s2 = new FakeSink();
         GraphExecutor.Fire(g, s2, msg, Vars("hello world", "alice", "#x"));
         fails += Expect("mod-in-clean", s2.Sent.Count == 1 && s2.Sent[0] == ("#x", "ok"), Dump(s2));
+
+        return fails;
+    }
+
+    /// <summary>Watchdog / auto-heal: the Watchdog trigger branches healthy vs needs-heal on the injected
+    /// health vars, and the Reconnect node routes a (re)connect request to the runtime.</summary>
+    private static int WatchdogTest()
+    {
+        int fails = 0;
+
+        // Watchdog -> healthy / needs-heal, plus needs-heal -> Reconnect
+        var g = new NodeGraph();
+        var wd = N(g, "event.watchdog", 0, 0); wd.SetParam("when", "a server is down");
+        var ok = N(g, "action.reply", 300, 0); ok.SetParam("message", "ok");
+        var rc = N(g, "action.reconnect", 300, 120); rc.SetParam("server", "irc.libera.chat");
+        g.Connect(wd.Id, 0, ok.Id, 0);    // healthy -> reply
+        g.Connect(wd.Id, 1, rc.Id, 0);    // needs heal -> reconnect
+
+        Dictionary<string, string> Health(string down, bool connected, string queue = "0", string errors = "0") => new()
+        { ["down"] = down, ["connected"] = connected ? "true" : "false", ["queue"] = queue, ["errors"] = errors, ["replyto"] = "#x", ["channel"] = "#x" };
+
+        var down1 = new FakeSink();
+        GraphExecutor.Fire(g, down1, wd, Health("1", false));
+        fails += Expect("wd-needs-heal", down1.Reconnects.Count == 1 && down1.Reconnects[0] == "irc.libera.chat" && down1.Sent.Count == 0, string.Join("|", down1.Reconnects));
+
+        var ok1 = new FakeSink();
+        GraphExecutor.Fire(g, ok1, wd, Health("0", true));
+        fails += Expect("wd-healthy", ok1.Sent.Count == 1 && ok1.Sent[0] == ("#x", "ok") && ok1.Reconnects.Count == 0, Dump(ok1));
+
+        // "any errors" rule heals when the error count is non-zero
+        wd.SetParam("when", "any errors");
+        var err1 = new FakeSink();
+        GraphExecutor.Fire(g, err1, wd, Health("0", true, errors: "3"));
+        fails += Expect("wd-errors-rule", err1.Reconnects.Count == 1, string.Join("|", err1.Reconnects));
+
+        // "queue above" rule respects the threshold
+        wd.SetParam("when", "queue above"); wd.SetParam("threshold", "5");
+        var q1 = new FakeSink();
+        GraphExecutor.Fire(g, q1, wd, Health("0", true, queue: "9"));
+        fails += Expect("wd-queue-rule", q1.Reconnects.Count == 1, string.Join("|", q1.Reconnects));
+        var q2 = new FakeSink();
+        GraphExecutor.Fire(g, q2, wd, Health("0", true, queue: "2"));
+        fails += Expect("wd-queue-ok", q2.Reconnects.Count == 0 && q2.Sent.Count == 1, Dump(q2));
 
         return fails;
     }

@@ -90,6 +90,10 @@ public interface INodeContext
     /// resetting the count every <paramref name="windowSeconds"/> (0 = never reset).</summary>
     void SetTokenBudget(int maxTokens, double windowSeconds);
 
+    /// <summary>Auto-heal: (re)connect a dropped server. Blank reconnects the server this flow is running on; a
+    /// name targets a specific one. A server that's already connected is left alone.</summary>
+    void Reconnect(string server);
+
     /// <summary>Accept an incoming DCC file offer: active (connect to ip:port) or passive (port 0 + token).
     /// Downloads <paramref name="size"/> bytes to <paramref name="savePath"/> on a background worker.</summary>
     void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath);

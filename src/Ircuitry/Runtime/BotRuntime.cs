@@ -24,6 +24,12 @@ public sealed class BotRuntime
     private readonly object _connLock = new();
     private int _workflowSeq;
 
+    // watchdog/auto-heal: a tick that fires event.watchdog nodes on a cadence even while a server is down,
+    // so a heal flow (Watchdog -> Reconnect) can bring a dropped connection back.
+    private System.Threading.Thread? _wdThread;
+    private volatile bool _wdRun;
+    private readonly Dictionary<string, DateTime> _wdLast = new();
+
     private readonly ConcurrentDictionary<string, DateTime> _activity = new();
     private readonly ConcurrentDictionary<string, int> _fireCounts = new();
     private readonly LinkedList<RunRecord> _history = new();
@@ -128,6 +134,7 @@ public sealed class BotRuntime
                 _conns.Add(c);
                 c.Start();
             }
+        EnsureWatchdog();
     }
 
     /// <summary>Bring one more server online (or reconnect it) without disturbing the others.</summary>
@@ -152,11 +159,76 @@ public sealed class BotRuntime
         target?.Stop();
     }
 
+    /// <summary>Auto-heal: bring a dropped server back. Blank/unknown name = the first one. A server that is
+    /// still connected (or mid-connect) is left untouched; only a fully-closed one is recreated.</summary>
+    public void ReconnectServer(string name)
+    {
+        ServerConn? target; NodeGraph? g;
+        lock (_connLock) { target = _conns.FirstOrDefault(c => name.Length == 0 || c.Matches(name) || c.Label == name) ?? _conns.FirstOrDefault(); g = _runGraph; }
+        if (target == null || g == null || target.Running) return;   // Running stays true until the socket fully closes
+        _log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("plugs-connected") + " watchdog reconnecting " + target.Label);
+        ConnectServer(g, target.Config);   // removes the dead conn and starts a fresh one
+    }
+
     public void Stop()
     {
+        _wdRun = false;
         List<ServerConn> snapshot;
         lock (_connLock) { snapshot = _conns.ToList(); _conns.Clear(); }
         foreach (var c in snapshot) { try { c.Stop(); } catch { } }
+        lock (_wdLast) _wdLast.Clear();
+    }
+
+    // ----- watchdog/auto-heal ticker -----
+    private void EnsureWatchdog()
+    {
+        if (_wdThread is { IsAlive: true }) return;
+        _wdRun = true;
+        _wdThread = new System.Threading.Thread(WatchdogLoop) { IsBackground = true, Name = "watchdog:" + OwnerName };
+        _wdThread.Start();
+    }
+
+    private void WatchdogLoop()
+    {
+        while (_wdRun)
+        {
+            System.Threading.Thread.Sleep(1000);
+            var g = _runGraph;
+            if (g == null) continue;
+            List<Node> wds;
+            try { wds = g.Nodes.Where(n => n.Def.TriggerEvent == "watchdog").ToList(); } catch { continue; }
+            if (wds.Count == 0) continue;
+            ServerConn? host;
+            lock (_connLock) host = _conns.FirstOrDefault(c => c.State == IrcState.Connected) ?? _conns.FirstOrDefault();
+            if (host == null) continue;   // need a conn object to host the flow (even a closed one routes a reconnect)
+            var now = DateTime.Now;
+            foreach (var n in wds)
+            {
+                int interval = Math.Max(5, int.TryParse(n.GetParam("seconds"), out var s) ? s : 30);
+                if (!_wdLast.TryGetValue(n.Id, out var t)) { _wdLast[n.Id] = now; continue; }   // wait one interval first
+                if ((now - t).TotalSeconds >= interval) { _wdLast[n.Id] = now; try { host.FireNode(n, WatchdogVars()); } catch { } }
+            }
+        }
+    }
+
+    private Dictionary<string, string> WatchdogVars()
+    {
+        int servers, down; bool connected;
+        lock (_connLock)
+        {
+            servers = _conns.Count;
+            down = _conns.Count(c => c.State != IrcState.Connected);
+            connected = _conns.Any(c => c.State == IrcState.Connected);
+        }
+        return new Dictionary<string, string>
+        {
+            ["connected"] = connected ? "true" : "false",
+            ["down"] = down.ToString(),
+            ["servers"] = servers.ToString(),
+            ["queue"] = OutQueueDepth.ToString(),
+            ["errors"] = ErrorCount.ToString(),
+            ["botnick"] = CurrentNick,
+        };
     }
 
     /// <summary>Swap in an edited graph on a LIVE bot without disconnecting (no restart needed).</summary>

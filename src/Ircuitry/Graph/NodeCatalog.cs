@@ -2645,6 +2645,46 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "event.watchdog", Icon = "heartbeat", Title = "Watchdog", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "watchdog",
+                Description = "Health check on a cadence - fires even when a server has dropped, so you can auto-heal. Branches healthy / needs heal by your chosen rule and outputs live health. Wire 'needs heal' into Reconnect (and/or an alert).",
+                Outputs = new[] { Ex("healthy"), Ex("needs heal"), Tx("down"), Tx("queue"), Tx("errors") },
+                Params = new[]
+                {
+                    P("seconds", "Every (seconds)", ParamType.Int, "30", "how often to check (min 5)"),
+                    P("when", "Needs heal when", ParamType.Choice, "a server is down", "", new[] { "a server is down", "not connected", "queue above", "any errors" }),
+                    P("threshold", "Queue threshold", ParamType.Int, "8", "", visibleWhen: n => n.GetParam("when") == "queue above"),
+                },
+                SummaryParam = "when",
+                Exec = c =>
+                {
+                    c.SetOut(2, c.Var("down")); c.SetOut(3, c.Var("queue")); c.SetOut(4, c.Var("errors"));
+                    int down = int.TryParse(c.Var("down"), out var d) ? d : 0;
+                    int queue = int.TryParse(c.Var("queue"), out var q) ? q : 0;
+                    int errors = int.TryParse(c.Var("errors"), out var e) ? e : 0;
+                    bool connected = c.Var("connected") == "true";
+                    bool needsHeal = c.Param("when") switch
+                    {
+                        "not connected" => !connected,
+                        "queue above" => queue > Math.Max(0, c.ParamInt("threshold", 8)),
+                        "any errors" => errors > 0,
+                        _ => down > 0,
+                    };
+                    c.Pulse(needsHeal ? 1 : 0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.reconnect", Icon = "plugs-connected", Title = "Reconnect", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Auto-heal: reconnects a dropped server. Leave 'server' blank to reconnect the one this flow is running on, or name a host/label to bring a specific server back. A server that is already connected is left alone. Pair with Watchdog.",
+                Inputs = new[] { Ex(), Tx("server") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("server", "Server", ParamType.Text, "", "blank = current; or a host/label") },
+                Exec = c => { c.Reconnect(c.InOr(1, c.Resolve(c.Param("server")))); c.Pulse(0); },
+            },
+            new()
+            {
                 TypeId = "event.webhook", Icon = "webhooks-logo", Title = "On Webhook", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "webhook",
                 Description = "Fires on an HTTP request to this bot's webhook URL when hosted (POST http://host:port/hook/<path> on a running ircuitry --server). The path is the shared secret - use a long random one. Outputs the request {body}; pair with JSON to parse it. The bot must be connected.",
