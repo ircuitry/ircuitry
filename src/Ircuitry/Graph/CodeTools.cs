@@ -125,8 +125,17 @@ public static class CodeTools
     //  file ops (all confined)
     // =====================================================================
 
+    /// <summary>Guard a file operation against a blank path. A blank path would resolve to the project root, so a
+    /// write/edit/delete with truncated-or-empty tool arguments could clobber the whole root - reject it clearly.</summary>
+    private static void RequirePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.Replace('\\', '/').Trim('/', ' ', '\t').Length == 0)
+            throw new CodeAccessException("no file path given - the tool arguments may have been truncated (write a smaller file, or raise the node's Max tokens)");
+    }
+
     public static string Read(string root, string path, int startLine = 0, int endLine = 0)
     {
+        RequirePath(path);
         string full = Confine(root, path);
         if (!File.Exists(full)) throw new CodeAccessException("no such file: " + path);
         if (new FileInfo(full).Length > MaxBytes) throw new CodeAccessException("file too big (> 8MB): " + path);
@@ -140,6 +149,7 @@ public static class CodeTools
 
     public static void Write(string root, string path, string content)
     {
+        RequirePath(path);
         string full = Confine(root, path);
         string? dir = Path.GetDirectoryName(full);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
@@ -148,6 +158,7 @@ public static class CodeTools
 
     public static void Append(string root, string path, string content)
     {
+        RequirePath(path);
         string full = Confine(root, path);
         string? dir = Path.GetDirectoryName(full);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
@@ -160,6 +171,7 @@ public static class CodeTools
     public static int Edit(string root, string path, string find, string replace, bool all)
     {
         if (find.Length == 0) throw new CodeAccessException("edit needs a non-empty 'find' string");
+        RequirePath(path);
         string full = Confine(root, path);
         if (!File.Exists(full)) throw new CodeAccessException("no such file: " + path);
         string text = File.ReadAllText(full);
@@ -173,6 +185,7 @@ public static class CodeTools
 
     public static int Insert(string root, string path, int afterLine, string content)
     {
+        RequirePath(path);
         string full = Confine(root, path);
         var lines = (File.Exists(full) ? File.ReadAllText(full).Replace("\r\n", "\n") : "").Split('\n').ToList();
         if (lines.Count == 1 && lines[0].Length == 0) lines.Clear();
@@ -198,6 +211,7 @@ public static class CodeTools
 
     public static void Move(string root, string from, string to)
     {
+        RequirePath(from); RequirePath(to);
         string src = Confine(root, from), dst = Confine(root, to);
         if (!File.Exists(src) && !Directory.Exists(src)) throw new CodeAccessException("no such path: " + from);
         string? dir = Path.GetDirectoryName(dst);
@@ -208,6 +222,7 @@ public static class CodeTools
 
     public static void Copy(string root, string from, string to)
     {
+        RequirePath(from); RequirePath(to);
         string src = Confine(root, from), dst = Confine(root, to);
         if (Directory.Exists(src)) CopyDir(src, dst);
         else if (File.Exists(src))

@@ -127,7 +127,7 @@ public static class Ai
         {
             ["model"] = model.Length > 0 ? model : "gpt-4o-mini",
             ["messages"] = messages,
-            ["max_tokens"] = Math.Clamp(maxTokens, 1, 4096),
+            ["max_tokens"] = Math.Clamp(maxTokens, 1, 32768),
         };
 
         var headers = new List<(string, string)>();
@@ -245,7 +245,7 @@ public static class Ai
             {
                 ["model"] = model.Length > 0 ? model : "gpt-4o-mini",
                 ["messages"] = messages,
-                ["max_tokens"] = Math.Clamp(maxTokens, 1, 4096),
+                ["max_tokens"] = Math.Clamp(maxTokens, 1, 32768),
             };
             if (toolSpecs != null) payload["tools"] = toolSpecs;
 

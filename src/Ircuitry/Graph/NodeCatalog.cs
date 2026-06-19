@@ -1425,7 +1425,7 @@ public static class NodeCatalog
                     P("allowCommands", "Allow running commands", ParamType.Bool, "true", ""),
                     P("sandboxImage", "Command sandbox image", ParamType.Text, "alpine", "commands run in this isolated container (python:3.12 · node:20 · your dev image)", visibleWhen: n => n.GetParam("allowCommands") == "true"),
                     P("allowNetwork", "Allow command network", ParamType.Bool, "false", "off = commands run fully offline", visibleWhen: n => n.GetParam("allowCommands") == "true"),
-                    P("maxTokens", "Max tokens", ParamType.Int, "1500", "1500"),
+                    P("maxTokens", "Max tokens", ParamType.Int, "8000", "output budget per step - must be big enough to write a whole file in one tool call"),
                     P("maxSteps", "Max tool steps", ParamType.Int, "40", "how many read/edit/run steps the AI may take before stopping"),
                     P("timeout", "Timeout per step (seconds)", ParamType.Int, "180", "AI can be slow; 180 = 3 min per model call"),
                     P("filehostUrl", "Filehost URL", ParamType.Text, "https://0x0.st", "where the finished codebase is uploaded"),

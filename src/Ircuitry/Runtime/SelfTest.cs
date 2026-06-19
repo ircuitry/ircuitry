@@ -279,6 +279,20 @@ public static class SelfTest
         GraphExecutor.Fire(g, sr, cmd, Vars("!x", "u", "#c"));
         fails += Expect("modout-redact", sr.Sent.Count == 1 && sr.Sent[0] == ("#c", "buy **** now"), Dump(sr));
 
+        // ---- code tool guard: an empty/blank path must be rejected, never resolved to (and clobber) the root ----
+        string troot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-ct-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(troot);
+        try
+        {
+            bool threw = false;
+            try { CodeTools.Write(troot, "", "must not write to the root folder"); } catch (CodeAccessException) { threw = true; }
+            fails += Expect("ct-empty-write-rejected", threw, "blank path should throw");
+            fails += Expect("ct-root-intact", Directory.Exists(troot), "root must still be a directory, not overwritten");
+            CodeTools.Write(troot, "sub/a.txt", "hi");
+            fails += Expect("ct-valid-write", File.Exists(System.IO.Path.Combine(troot, "sub", "a.txt")), "a real path still works");
+        }
+        finally { try { Directory.Delete(troot, true); } catch { } }
+
         // ---- container sandbox: the runtime arg builder (deterministic, no daemon needed) ----
         var runArgs = Ircuitry.Net.ContainerEngine.BuildRunArgs(Ircuitry.Net.ContainerEngine.Engine.Docker, "python:3.12", "/home/u/proj", "pytest -q", false, "ircuitry-run-abc");
         string runJoined = string.Join(" ", runArgs);
