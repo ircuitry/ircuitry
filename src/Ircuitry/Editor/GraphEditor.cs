@@ -1262,7 +1262,7 @@ public sealed class GraphEditor
         // cute icon + title (display face)
         if (z > 0.42f)
         {
-            int ts = Math.Clamp((int)MathF.Round(13 * z), 9, 22);
+            int ts = Math.Clamp((int)MathF.Round(15 * z), 10, 24);
             var tf = r.Fonts.Get(FontKind.Display, ts);
             float ix = card.X + 11 * z;
             float tx;
@@ -1284,7 +1284,7 @@ public sealed class GraphEditor
         }
 
         // pins + labels
-        var lf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(10.5f * z), 7, 15));
+        var lf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(12f * z), 8, 17));
         var ins = n.Inputs; var outs = n.Outputs;
         for (int p = 0; p < ins.Length; p++)
         {
@@ -1312,7 +1312,7 @@ public sealed class GraphEditor
             var sy = Cam.WorldToScreen(new Vector2(l.Card.Left, l.SummaryTop)).Y;
             var sumRect = new RectF(card.X + 8 * z, sy + 3 * z, card.W - 16 * z, NodeLayout.SummaryH * z - 6 * z);
             r.RoundFill(sumRect, Theme.PanelLo, 5f);
-            var sf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(11 * z), 8, 16));
+            var sf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(12.5f * z), 9, 18));
             string val = n.GetParam(n.Def.SummaryParam!);
             val = val.Length == 0 ? "-" : val.Replace("\n", " " + Ircuitry.Core.Icons.Glyph("arrow-bend-down-left") + " ");
             val = r.Ellipsize(sf, val, sumRect.W - 14 * z);
