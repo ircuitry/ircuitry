@@ -95,6 +95,14 @@ public static class NodeCatalog
     // ---- tiny builder helpers ----
     private static PinDef Ex(string n = "") => new(n, PinKind.Exec);
     private static PinDef Tx(string n) => new(n, PinKind.Text);
+
+    /// <summary>One-line, length-capped preview of a (possibly multi-line) string, for step logs.</summary>
+    private static string Brief(string s, int max)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        s = s.Replace('\n', ' ').Replace('\r', ' ').Replace('\t', ' ').Trim();
+        return s.Length <= max ? s : s[..max] + "…";
+    }
     private static PinDef Us(string n) => new(n, PinKind.User);
     private static PinDef Ch(string n) => new(n, PinKind.Channel);
     private static PinDef Nm(string n) => new(n, PinKind.Number);
@@ -1146,6 +1154,7 @@ public static class NodeCatalog
                     P("instructions", "Extra instructions (optional)", ParamType.Multiline, "", "house style, constraints, what 'done' means"),
                     P("allowCommands", "Allow running commands", ParamType.Bool, "true", ""),
                     P("maxTokens", "Max tokens", ParamType.Int, "1500", "1500"),
+                    P("maxSteps", "Max tool steps", ParamType.Int, "40", "how many read/edit/run steps the AI may take before stopping"),
                     P("filehostUrl", "Filehost URL", ParamType.Text, "https://0x0.st", "where the finished codebase is uploaded"),
                     P("filehostField", "Filehost file field", ParamType.Text, "file", "file · fileToUpload (catbox) · image"),
                     PL("filehostFields", "Filehost extra fields (optional)", true, "Add field"),
@@ -1259,7 +1268,9 @@ public static class NodeCatalog
                                 c.SetVar("__tool_result", ""); c.RunNode(tn); return c.Var("__tool_result");
                             }
                             return "(unknown tool: " + name + ")";
-                        }, out var err);
+                        }, out var err,
+                        maxRounds: Math.Clamp(c.ParamInt("maxSteps", 40), 1, 200),
+                        onTool: (name, argsJson, res) => c.Log(Ircuitry.Core.Icons.Glyph("wrench") + " " + name + Brief(argsJson, 80) + "  -> " + Brief(res, 100), LogLevel.Action));
 
                     if (err.Length > 0) c.Log("Programmer AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);

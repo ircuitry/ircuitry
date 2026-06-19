@@ -139,7 +139,8 @@ public static class Ai
     /// until the model returns a final answer (capped).
     /// </summary>
     public static string ChatWithTools(string baseUrl, string apiKey, string model, string system, string prompt,
-        int maxTokens, List<ToolDef> tools, Func<string, Dictionary<string, string>, string> execTool, out string error)
+        int maxTokens, List<ToolDef> tools, Func<string, Dictionary<string, string>, string> execTool, out string error,
+        int maxRounds = 6, Action<string, string, string>? onTool = null)
     {
         error = "";
         if (apiKey.Length == 0) apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
@@ -171,7 +172,8 @@ public static class Ai
                 },
             }).ToList();
 
-        for (int round = 0; round < 6; round++)
+        int rounds = Math.Max(1, maxRounds);
+        for (int round = 0; round < rounds; round++)
         {
             var payload = new Dictionary<string, object?>
             {
@@ -221,13 +223,14 @@ public static class Ai
                     try { result = execTool(name, argd) ?? ""; }
                     catch (Exception ex) { result = "tool error: " + ex.Message; }
                     messages.Add(new() { ["role"] = "tool", ["tool_call_id"] = id, ["content"] = result });
+                    onTool?.Invoke(name, argsJson, result);   // surface each step so the run is observable
                 }
                 continue; // let the model use the results
             }
 
             return (msg.TryGetProperty("content", out var fc) && fc.ValueKind == JsonValueKind.String ? fc.GetString() ?? "" : "").Trim();
         }
-        error = "tool loop exceeded";
+        error = $"tool loop exceeded ({rounds} steps) - raise 'Max tool steps' on the node, or narrow the task";
         return "";
     }
 }
