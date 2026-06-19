@@ -245,6 +245,20 @@ public static class SelfTest
         var sink = new FakeSink { FilehostUrl = "https://files.example/upload" };
         GraphExecutor.Fire(g, sink, cmd, Vars("!fh", "u", "#c"));
         fails += Expect("fh-token-resolve", sink.Sent.Count == 1 && sink.Sent[0] == ("#c", "https://files.example/upload"), Dump(sink));
+
+        // Has Filehost? branches yes/no on availability
+        var hg = new NodeGraph();
+        var hc = N(hg, "event.command", 0, 0); hc.SetParam("command", "h");
+        var hf = N(hg, "irc.hasfilehost", 200, 0);
+        var yes = N(hg, "action.reply", 400, 0); yes.SetParam("message", "yes");
+        var no = N(hg, "action.reply", 400, 120); no.SetParam("message", "no");
+        hg.Connect(hc.Id, 0, hf.Id, 0); hg.Connect(hf.Id, 0, yes.Id, 0); hg.Connect(hf.Id, 1, no.Id, 0);
+        var withFh = new FakeSink { FilehostUrl = "https://f/up" };
+        GraphExecutor.Fire(hg, withFh, hc, Vars("!h", "u", "#c"));
+        fails += Expect("fh-has-yes", withFh.Sent.Count == 1 && withFh.Sent[0] == ("#c", "yes"), Dump(withFh));
+        var noFh = new FakeSink();
+        GraphExecutor.Fire(hg, noFh, hc, Vars("!h", "u", "#c"));
+        fails += Expect("fh-has-no", noFh.Sent.Count == 1 && noFh.Sent[0] == ("#c", "no"), Dump(noFh));
         return fails;
     }
 

@@ -567,6 +567,20 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "irc.hasfilehost", Icon = "cloud-check", Title = "Has Filehost?", Subtitle = "ircv3", Category = NodeCategory.Filter,
+                Description = "Branches on whether the bot's server advertises an IRCv3 draft/FILEHOST endpoint - so a workflow can choose the server filehost when present and an external one otherwise. Also outputs the URL (same as {filehost}).",
+                Inputs = new[] { Ex() },
+                Outputs = new[] { Ex("yes"), Ex("no"), Tx("url") },
+                SummaryParam = null,
+                Exec = c =>
+                {
+                    string url = c.IrcInfo("filehost", "");
+                    c.SetOut(2, url);
+                    c.Pulse(url.Length > 0 ? 0 : 1);
+                },
+            },
+            new()
+            {
                 TypeId = "event.numeric", Icon = "hash", Title = "On Numeric", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "numeric",
                 Description = "Fires when the server sends a numeric reply you pick from the list (e.g. RPL_WELCOME, ERR_NICKNAMEINUSE, RPL_INVITING). Exposes {numeric} {numname} {message} {channel} and {arg1}, {arg2}, …",
