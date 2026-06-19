@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
+using Ircuitry.App;
 using Ircuitry.Core;
 using Ircuitry.Render;
 
@@ -244,40 +245,73 @@ public sealed partial class MainScreen
     private void DrawCartridgeTabs(Renderer r, RectF bar, RectF gutter, Clock clock, Action<RectF> noDrag)
     {
         var tf = r.Fonts.Get(FontKind.Display, 16);
+        var gf = r.Fonts.Get(FontKind.SansBold, 12);
         float top = bar.Y + 7, tabH = bar.H - 12, pad = 7f;
+        var bots = _app.Bots;
 
-        // measure total width
-        var widths = new float[_app.Bots.Count];
-        float total = 0;
-        for (int i = 0; i < _app.Bots.Count; i++)
+        // ---- render plan: a flat ordered list of elements. kind 0 = a bot tab, kind 1 = a group header. a
+        // collapsed group hides its member tabs (except the active bot, which always stays visible). ----
+        var elems = new List<(int kind, int bot, TabGroup? g)>();
+        for (int i = 0; i < bots.Count;)
         {
-            var b = _app.Bots[i];
-            // cap each tab so one long name can't eat the whole gutter; the label is ellipsized to fit
-            widths[i] = _renamingBot == b ? 210 : Math.Clamp(tf.MeasureString(b.Name).X + 58, 86, 150);
-            total += widths[i] + pad;
+            var g = _app.GroupOf(bots[i]);
+            if (g == null) { elems.Add((0, i, null)); i++; continue; }
+            elems.Add((1, i, g));
+            int j = i;
+            while (j < bots.Count && bots[j].GroupId == g.Id) { if (!g.Collapsed || j == _app.Active) elems.Add((0, j, g)); j++; }
+            i = j;
         }
+
+        float ElemW(int k)
+        {
+            var e = elems[k];
+            if (e.kind == 1) return GroupHeaderWidth(gf, e.g!);
+            var b = bots[e.bot];
+            return _renamingBot == b ? 210 : Math.Clamp(tf.MeasureString(b.Name).X + 58, 86, 150);
+        }
+        var ws = new float[elems.Count];
+        float total = 0;
+        for (int k = 0; k < elems.Count; k++) { ws[k] = ElemW(k); total += ws[k] + pad; }
         total += 36;   // the + button
 
         bool overflow = total > gutter.W;
         float scrollBtnW = overflow ? 26 : 0;
         float viewW = gutter.W - scrollBtnW;
         float maxScroll = MathF.Max(0, total - viewW);
-
         if (!Modal && gutter.Contains(In.Mouse) && In.ScrollDelta != 0) _tabScroll -= In.ScrollDelta * 0.6f;
         _tabScroll = Math.Clamp(_tabScroll, 0, maxScroll);
 
+        var ex = new float[elems.Count];
+        { float x = gutter.X - _tabScroll; for (int k = 0; k < elems.Count; k++) { ex[k] = x; x += ws[k] + pad; } }
+        float addX = elems.Count > 0 ? ex[^1] + ws[^1] + pad : gutter.X - _tabScroll;
+
         r.Begin(BlendMode.Alpha, new RectF(gutter.X, gutter.Y, viewW, gutter.H).ToRectangle());
-        float x = gutter.X - _tabScroll;
-        for (int i = 0; i < _app.Bots.Count; i++)
+
+        // ---- coloured group containers (behind each group's header + member tabs) ----
+        _groupRects.Clear();
+        for (int k = 0; k < elems.Count; k++)
         {
-            float w = widths[i];
-            var slot = new RectF(x, top, w, tabH);
-            if (slot.Right >= gutter.X - 2 && slot.X <= gutter.X + viewW + 2)
-                DrawOneTab(r, i, slot, tf, clock, gutter, viewW, noDrag);
-            x += w + pad;
+            if (elems[k].kind != 1) continue;
+            var g = elems[k].g!;
+            int last = k;
+            for (int m = k + 1; m < elems.Count && elems[m].g == g; m++) last = m;
+            var cont = new RectF(ex[k] - 3, top - 1, (ex[last] + ws[last]) - ex[k] + 6, tabH + 2);
+            _groupRects.Add((g, cont));
+            r.RoundFill(cont, Theme.WithAlpha(g.Color, 0.17f), 11f);
+            r.RoundOutline(cont, Theme.WithAlpha(g.Color, 0.55f), 11f);
         }
+
+        // ---- elements ----
+        for (int k = 0; k < elems.Count; k++)
+        {
+            var slot = new RectF(ex[k], top, ws[k], tabH);
+            if (slot.Right < gutter.X - 2 || slot.X > gutter.X + viewW + 2) continue;
+            if (elems[k].kind == 1) DrawGroupHeader(r, elems[k].g!, slot, gf, clock, gutter, viewW, noDrag);
+            else DrawOneTab(r, elems[k].bot, slot, tf, clock, gutter, viewW, noDrag);
+        }
+
         // + add a bot
-        var addR = new RectF(x, top + 1, 32, tabH - 2);
+        var addR = new RectF(addX, top + 1, 32, tabH - 2);
         if (addR.X <= gutter.X + viewW)
         {
             bool ah = !Modal && addR.Contains(In.Mouse);
@@ -289,30 +323,15 @@ public sealed partial class MainScreen
         }
         r.End();
 
-        // drag a tab to reorder (and persist the new order)
-        if (_tabDragBot != null && !_app.Bots.Contains(_tabDragBot)) { _tabDragBot = null; _tabDragging = false; }
-        if (_tabDragBot != null)
-        {
-            if (!In.LeftDown) { _tabDragBot = null; _tabDragging = false; }
-            else
-            {
-                if (!_tabDragging && MathF.Abs(In.Mouse.X - _tabDragDownX) > 6) _tabDragging = true;
-                if (_tabDragging)
-                {
-                    float sx = gutter.X - _tabScroll; int target = 0;
-                    for (int j = 0; j < _app.Bots.Count; j++) { if (In.Mouse.X > sx + widths[j] / 2f) target = j + 1; sx += widths[j] + pad; }
-                    target = Math.Clamp(target, 0, _app.Bots.Count - 1);
-                    int cur = _app.Bots.IndexOf(_tabDragBot);
-                    if (cur >= 0 && target != cur)
-                    {
-                        var activeBot = _app.ActiveBot;
-                        _app.Bots.RemoveAt(cur); _app.Bots.Insert(target, _tabDragBot);
-                        _app.Active = Math.Max(0, _app.Bots.IndexOf(activeBot));
-                        _app.MarkDirty();
-                    }
-                }
-            }
-        }
+        // per-bot visible x-centre (hidden tabs = -1), so drag targets and group hit-tests use what's on screen
+        var botCx = new float[bots.Count];
+        for (int b = 0; b < bots.Count; b++) botCx[b] = -1;
+        for (int k = 0; k < elems.Count; k++) if (elems[k].kind == 0) botCx[elems[k].bot] = ex[k] + ws[k] / 2f;
+        int TargetIndex() { int t = 0; for (int b = 0; b < bots.Count; b++) if (botCx[b] >= 0 && In.Mouse.X > botCx[b]) t = b + 1; return Math.Clamp(t, 0, bots.Count - 1); }
+        TabGroup? HoverGroup() { foreach (var (g, rect) in _groupRects) if (rect.Contains(In.Mouse)) return g; return null; }
+
+        DragTabReorder(TargetIndex, HoverGroup);
+        DragGroup(botCx);
 
         // caret scroll button to page the gutter right (wraps back to start at the end)
         if (overflow)
@@ -325,6 +344,47 @@ public sealed partial class MainScreen
             noDrag(sr);
             if (sh && In.LeftPressed) _tabScroll = _tabScroll >= maxScroll - 1 ? 0 : Math.Min(maxScroll, _tabScroll + viewW * 0.8f);
             r.End();
+        }
+    }
+
+    private float GroupHeaderWidth(FontStashSharp.DynamicSpriteFont gf, TabGroup g)
+    {
+        if (_renamingGroup == g) return 150;
+        return Math.Clamp(gf.MeasureString(g.Name).X + 32, 56, 150) + (g.Collapsed ? 20 : 0);   // + room for the count badge
+    }
+
+    private void DrawGroupHeader(Renderer r, TabGroup g, RectF slot, FontStashSharp.DynamicSpriteFont gf, Clock clock, RectF gutter, float viewW, Action<RectF> noDrag)
+    {
+        var col = g.Color;
+        var chip = new RectF(slot.X, slot.Y + 1, slot.W, slot.H - 2);
+        var clip = chip.Intersect(new RectF(gutter.X, gutter.Y, viewW, gutter.H));
+        if (clip.W > 4) noDrag(clip);
+        bool hot = !Modal && chip.Contains(In.Mouse);
+        r.RoundFill(chip, Theme.WithAlpha(col, hot ? 0.96f : 0.85f), 8f);
+        r.RoundOutline(chip, Theme.WithAlpha(Theme.Mix(col, Theme.Text, 0.35f), 0.85f), 8f);
+
+        if (_renamingGroup == g)
+        {
+            var nm = _ui.TextField("group.rename", new RectF(chip.X + 6, chip.Center.Y - 9, chip.W - 12, 22), g.Name, "group");
+            if (nm != g.Name) { g.Name = string.IsNullOrWhiteSpace(nm) ? g.Name : nm; _app.MarkDirty(); }
+            if (_ui.Focus != "group.rename") _renamingGroup = null;
+            return;
+        }
+
+        float tx = chip.X + 8;
+        var cf = r.Fonts.Get(FontKind.SansBold, 11);
+        string caret = Ircuitry.Core.Icons.Glyph(g.Collapsed ? "caret-right" : "caret-down");
+        r.Text(cf, caret, new Vector2(tx, chip.Center.Y - cf.MeasureString(caret).Y / 2f), Theme.TextInk);
+        tx += 13;
+        float nameMax = chip.Right - tx - 8 - (g.Collapsed ? 16 : 0);
+        r.Text(gf, r.Ellipsize(gf, g.Name, nameMax), new Vector2(tx, chip.Center.Y - gf.MeasureString(g.Name).Y / 2f - 1), Theme.TextInk);
+        if (g.Collapsed)
+            r.TextRight(cf, _app.GroupCount(g).ToString(), chip.Right - 8, chip.Center.Y - cf.MeasureString("0").Y / 2f, Theme.WithAlpha(Theme.TextInk, 0.85f));
+
+        if (!Modal && gutter.Contains(In.Mouse) && chip.Contains(In.Mouse))
+        {
+            if (In.RightPressed) OpenGroupMenu(g, In.Mouse);
+            else if (In.LeftPressed) { _groupDragG = g; _groupDragDownX = In.Mouse.X; _groupDragging = false; }   // click=collapse, drag=move
         }
     }
 
@@ -403,6 +463,86 @@ public sealed partial class MainScreen
                 else { _tabDragBot = bot; _tabDragDownX = In.Mouse.X; _tabDragging = false; }   // begin a potential drag-reorder
             }
         }
+        else if (!Modal && In.RightPressed && tab.Contains(In.Mouse) && gutter.Contains(In.Mouse))
+            OpenTabMenu(bot, In.Mouse);   // group options for this tab
+    }
+
+    // ---- tab-group drag + menus ----
+    private void DragTabReorder(Func<int> target, Func<TabGroup?> hoverGroup)
+    {
+        if (_tabDragBot != null && !_app.Bots.Contains(_tabDragBot)) { _tabDragBot = null; _tabDragging = false; }
+        if (_tabDragBot == null) return;
+        if (!In.LeftDown)
+        {
+            // drop: the tab joins the group whose coloured band the cursor is over (or leaves its group), then re-contiguify
+            if (_tabDragging) { _tabDragBot.GroupId = hoverGroup()?.Id; _app.NormalizeGroups(); _app.MarkDirty(); }
+            _tabDragBot = null; _tabDragging = false; return;
+        }
+        if (!_tabDragging && MathF.Abs(In.Mouse.X - _tabDragDownX) > 6) _tabDragging = true;
+        if (!_tabDragging) return;
+        // live: membership follows the band under the cursor; position follows the target slot (no mid-drag normalize)
+        _tabDragBot.GroupId = hoverGroup()?.Id;
+        int tgt = target(), cur = _app.Bots.IndexOf(_tabDragBot);
+        if (cur >= 0 && tgt != cur)
+        {
+            var activeBot = _app.ActiveBot;
+            _app.Bots.RemoveAt(cur); _app.Bots.Insert(tgt, _tabDragBot);
+            _app.Active = Math.Max(0, _app.Bots.IndexOf(activeBot));
+            _app.MarkDirty();
+        }
+    }
+
+    private void DragGroup(float[] botCx)
+    {
+        if (_groupDragG != null && !_app.Groups.Contains(_groupDragG)) { _groupDragG = null; _groupDragging = false; }
+        if (_groupDragG == null) return;
+        if (!In.LeftDown)
+        {
+            if (!_groupDragging) { _groupDragG.Collapsed = !_groupDragG.Collapsed; _app.MarkDirty(); }   // a plain click toggles collapse
+            _groupDragG = null; _groupDragging = false; return;
+        }
+        if (!_groupDragging && MathF.Abs(In.Mouse.X - _groupDragDownX) > 6) _groupDragging = true;
+        if (!_groupDragging) return;
+        // move the whole group: drop the block before the first non-member tab whose centre is right of the cursor
+        Bot? before = null;
+        for (int b = 0; b < _app.Bots.Count; b++)
+            if (_app.Bots[b].GroupId != _groupDragG.Id && botCx[b] >= 0 && botCx[b] > In.Mouse.X) { before = _app.Bots[b]; break; }
+        _app.MoveGroupBlock(_groupDragG, before);
+    }
+
+    private void OpenTabMenu(Bot b, Vector2 anchor)
+    {
+        _ctxAnchor = anchor; _ctxItems.Clear();
+        var g = _app.GroupOf(b);
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("plus"), Label = "Add to new group", Enabled = true, Do = () => { var ng = _app.NewGroup(b); _renamingGroup = ng; _ui.Focus = "group.rename"; } });
+        foreach (var other in _app.Groups)
+        {
+            if (other == g) continue;
+            var o = other;
+            _ctxItems.Add(new CtxItem { Icon = "circle", Label = "Add to " + (o.Name.Length > 0 ? o.Name : "group"), Enabled = true, Tint = o.Color, Do = () => _app.AddToGroup(b, o) });
+        }
+        if (g != null)
+        {
+            _ctxItems.Add(new CtxItem { Sep = true });
+            _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("minus-circle"), Label = "Remove from group", Enabled = true, Do = () => _app.RemoveFromGroup(b) });
+        }
+        _ctxOpen = true; _ctxJustOpened = true;
+    }
+
+    private void OpenGroupMenu(TabGroup g, Vector2 anchor)
+    {
+        _ctxAnchor = anchor; _ctxItems.Clear();
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph(g.Collapsed ? "caret-right" : "caret-down"), Label = g.Collapsed ? "Expand group" : "Collapse group", Enabled = true, Do = () => { g.Collapsed = !g.Collapsed; _app.MarkDirty(); } });
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("pencil"), Label = "Rename group", Enabled = true, Do = () => { _renamingGroup = g; _ui.Focus = "group.rename"; } });
+        _ctxItems.Add(new CtxItem { Sep = true });
+        for (int c = 0; c < TabGroup.PaletteCount; c++)
+        {
+            int ci = c;
+            _ctxItems.Add(new CtxItem { Icon = "circle", Label = TabGroup.PaletteName(ci), Enabled = true, Tint = TabGroup.Palette(ci), Do = () => { g.ColorIndex = ci; _app.MarkDirty(); } });
+        }
+        _ctxItems.Add(new CtxItem { Sep = true });
+        _ctxItems.Add(new CtxItem { Icon = Ircuitry.Core.Icons.Glyph("x"), Label = "Ungroup", Enabled = true, Do = () => _app.Ungroup(g) });
+        _ctxOpen = true; _ctxJustOpened = true;
     }
 
     // A floppy "apply" button that hangs in the canvas's top-right ONLY while the live bot has edits it hasn't

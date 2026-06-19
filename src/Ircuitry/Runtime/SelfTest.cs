@@ -1913,18 +1913,24 @@ public static class SelfTest
         bot.Settings.Host = "irc.example.net"; bot.Settings.Nick = "zzz";
         bot.Settings.Channels = "#a #b"; bot.Settings.SaslPass = "secret"; bot.Settings.UseTls = false;
         bot.State["score"] = "42";   // persistent variable
+        bot.GroupId = "grp1";        // tab-group membership + the group def must round-trip
+        var bot2 = new Ircuitry.App.Bot("beta") { GroupId = "grp1" };
+        var group = new Ircuitry.App.TabGroup { Id = "grp1", Name = "My Group", ColorIndex = 3, Collapsed = true };
 
-        string json = Ircuitry.App.WorkspaceSerializer.Save(new List<Ircuitry.App.Bot> { bot }, 0);
-        var (loaded, _) = Ircuitry.App.WorkspaceSerializer.Load(json);
+        string json = Ircuitry.App.WorkspaceSerializer.Save(new List<Ircuitry.App.Bot> { bot, bot2 }, 0, new List<Ircuitry.App.TabGroup> { group });
+        var (loaded, _, groups) = Ircuitry.App.WorkspaceSerializer.Load(json);
 
-        bool ok = loaded.Count == 1 && loaded[0].Name == "alpha"
+        bool ok = loaded.Count == 2 && loaded[0].Name == "alpha"
             && loaded[0].Graph.Nodes.Count == 2 && loaded[0].Graph.Connections.Count == 1
             && loaded[0].Settings.Host == "irc.example.net" && loaded[0].Settings.Nick == "zzz"
             && loaded[0].Settings.Channels == "#a #b" && loaded[0].Settings.SaslPass == "secret"
             && loaded[0].Settings.UseTls == false
             && loaded[0].Graph.Find(reply.Id)?.GetParam("message") == "pong"
-            && loaded[0].State.TryGetValue("score", out var sc) && sc == "42";
-        return Expect("workspace-save-load", ok, $"bots={loaded.Count}");
+            && loaded[0].State.TryGetValue("score", out var sc) && sc == "42"
+            && loaded[0].GroupId == "grp1" && loaded[1].GroupId == "grp1"
+            && groups.Count == 1 && groups[0].Id == "grp1" && groups[0].Name == "My Group"
+            && groups[0].ColorIndex == 3 && groups[0].Collapsed;
+        return Expect("workspace-save-load", ok, $"bots={loaded.Count} groups={groups.Count}");
     }
 
     private static int FreePort()

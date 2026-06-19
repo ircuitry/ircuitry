@@ -15,9 +15,71 @@ public sealed class AppModel
     public int Active;
     public bool Dirty;
 
+    /// <summary>Browser-style tab groups. Membership is by <see cref="Bot.GroupId"/>; the list order here is the
+    /// colour/creation order, while the on-screen order follows <see cref="Bots"/> (kept contiguous per group).</summary>
+    public readonly List<TabGroup> Groups = new();
+
     private string _lastPersisted = "";   // the JSON we last wrote/loaded - distinguishes our own writes from external edits
 
     public Bot ActiveBot => Bots[Math.Clamp(Active, 0, Bots.Count - 1)];
+
+    // ---------------- tab groups ----------------
+    public TabGroup? GroupOf(Bot b) => b.GroupId == null ? null : Groups.Find(g => g.Id == b.GroupId);
+    public int GroupCount(TabGroup g) => Bots.Count(b => b.GroupId == g.Id);
+
+    /// <summary>Create a new group seeded with one bot; gives it the next palette colour. Returns the group.</summary>
+    public TabGroup NewGroup(Bot seed)
+    {
+        var g = new TabGroup { Id = Guid.NewGuid().ToString("N")[..8], Name = "Group", ColorIndex = Groups.Count };
+        Groups.Add(g);
+        seed.GroupId = g.Id;
+        NormalizeGroups();
+        MarkDirty();
+        return g;
+    }
+
+    /// <summary>Move a whole group's contiguous block of tabs so it sits just before <paramref name="before"/>
+    /// (or at the end when null). No-op when already in place, so it's safe to call every drag frame.</summary>
+    public void MoveGroupBlock(TabGroup g, Bot? before)
+    {
+        var members = Bots.Where(b => b.GroupId == g.Id).ToList();
+        if (members.Count == 0 || members.Contains(before!)) return;
+        int first = Bots.IndexOf(members[0]), last = Bots.IndexOf(members[^1]);
+        bool contiguous = last - first + 1 == members.Count;
+        int beforeIdx = before != null ? Bots.IndexOf(before) : Bots.Count;
+        if (contiguous && (beforeIdx == first || beforeIdx == last + 1)) return;   // already there
+        var active = Active >= 0 && Active < Bots.Count ? Bots[Active] : null;
+        foreach (var m in members) Bots.Remove(m);
+        int idx = before != null ? Bots.IndexOf(before) : Bots.Count;
+        if (idx < 0) idx = Bots.Count;
+        Bots.InsertRange(idx, members);
+        NormalizeGroups();
+        if (active != null) Active = Math.Max(0, Bots.IndexOf(active));
+        MarkDirty();
+    }
+
+    public void AddToGroup(Bot b, TabGroup g) { b.GroupId = g.Id; NormalizeGroups(); MarkDirty(); }
+    public void RemoveFromGroup(Bot b) { b.GroupId = null; NormalizeGroups(); MarkDirty(); }
+    public void Ungroup(TabGroup g) { foreach (var b in Bots) if (b.GroupId == g.Id) b.GroupId = null; Groups.Remove(g); NormalizeGroups(); MarkDirty(); }
+
+    /// <summary>Keep the workspace consistent: drop dangling group ids, prune empty groups, and reorder Bots so
+    /// every group's tabs are contiguous (anchored at the group's first-seen tab), preserving the active bot.</summary>
+    public void NormalizeGroups()
+    {
+        foreach (var b in Bots) if (b.GroupId != null && !Groups.Exists(g => g.Id == b.GroupId)) b.GroupId = null;
+        Groups.RemoveAll(g => !Bots.Exists(b => b.GroupId == g.Id));
+
+        var active = Active >= 0 && Active < Bots.Count ? Bots[Active] : null;
+        var seen = new HashSet<string>();
+        var ordered = new List<Bot>();
+        foreach (var b in Bots)
+        {
+            if (b.GroupId == null) ordered.Add(b);
+            else if (seen.Add(b.GroupId)) ordered.AddRange(Bots.Where(x => x.GroupId == b.GroupId));   // pull all members together
+        }
+        if (ordered.Count == Bots.Count) { Bots.Clear(); Bots.AddRange(ordered); }
+        if (active != null) Active = Math.Max(0, Bots.IndexOf(active));
+    }
 
     // Data lives in ~/ircuitry, unless IRCUITRY_HOME points elsewhere (sandboxed/alternate workspaces,
     // headless/test runs) - honoured everywhere WorkspaceDir is read, including the MCP server/bridge.
@@ -221,6 +283,7 @@ public sealed class AppModel
         Bots[index].Runtime.Stop();
         Bots.RemoveAt(index);
         Active = Math.Clamp(Active, 0, Bots.Count - 1);
+        NormalizeGroups();   // a closed tab may have emptied its group
         Dirty = true;
     }
 
@@ -239,7 +302,7 @@ public sealed class AppModel
             // remote tabs are live session state, not workspace content - never write them to disk
             var local = Bots.Where(b => !b.IsRemote).ToList();
             int localActive = (Active >= 0 && Active < Bots.Count && !Bots[Active].IsRemote) ? local.IndexOf(Bots[Active]) : 0;
-            var json = WorkspaceSerializer.Save(local, Math.Max(0, localActive));
+            var json = WorkspaceSerializer.Save(local, Math.Max(0, localActive), Groups);
             File.WriteAllText(WorkspacePath, json);
             _lastPersisted = json;        // remember our own write so the file-watcher ignores it
             Dirty = false;
@@ -321,7 +384,7 @@ public sealed class AppModel
             if (!File.Exists(WorkspacePath)) return false;
             var text = File.ReadAllText(WorkspacePath);
             if (text.Length == 0 || text == _lastPersisted) return false;   // our own write, or unchanged
-            var (bots, active) = WorkspaceSerializer.Load(text);
+            var (bots, active, groups) = WorkspaceSerializer.Load(text);
             if (bots.Count == 0) return false;
 
             // Never quit a LIVE bot just because the workspace changed on disk - an AI self-edit, the MCP
@@ -348,6 +411,7 @@ public sealed class AppModel
             Bots.AddRange(merged);
             // keep the same tab focused if it survived; otherwise fall back to the disk's active index
             Active = activeBot != null && merged.Contains(activeBot) ? merged.IndexOf(activeBot) : Math.Clamp(active, 0, Bots.Count - 1);
+            Groups.Clear(); Groups.AddRange(groups); NormalizeGroups();   // adopt the disk's group defs, drop any now-dangling membership
             _lastPersisted = text;
             Dirty = false;
             ActiveBot.Log.Add(LogLevel.System, keptLive > 0
@@ -394,12 +458,14 @@ public sealed class AppModel
         {
             if (!File.Exists(path)) return false;
             Save(announce: false);                       // keep current state recoverable
-            var (bots, active) = WorkspaceSerializer.Load(File.ReadAllText(path));
+            var (bots, active, groups) = WorkspaceSerializer.Load(File.ReadAllText(path));
             if (bots.Count == 0) return false;
             foreach (var b in Bots) { try { b.Runtime.Stop(); } catch { } }
             Bots.Clear();
             Bots.AddRange(bots);
+            Groups.Clear(); Groups.AddRange(groups);
             Active = Math.Clamp(active, 0, Bots.Count - 1);
+            NormalizeGroups();
             Dirty = true;
             ActiveBot.Log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("arrow-bend-up-left") + " restored snapshot " + Path.GetFileName(path));
             return true;
@@ -413,10 +479,12 @@ public sealed class AppModel
         {
             if (!File.Exists(WorkspacePath)) return false;
             var text = File.ReadAllText(WorkspacePath);
-            var (bots, active) = WorkspaceSerializer.Load(text);
+            var (bots, active, groups) = WorkspaceSerializer.Load(text);
             if (bots.Count == 0) return false;
             Bots.AddRange(bots);
+            Groups.AddRange(groups);
             Active = active;
+            NormalizeGroups();
             _lastPersisted = text;
             ActiveBot.Log.Add(LogLevel.System, "loaded workspace - " + bots.Count + " bot(s).");
             return true;

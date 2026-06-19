@@ -87,6 +87,11 @@ public sealed partial class MainScreen : IScreen
     private float _tabClickTime;
     private Bot? _tabClickBot;
     private Bot? _tabDragBot; private bool _tabDragging; private float _tabDragDownX; private double _titleClickTime = -1;
+    // tab groups: inline-rename target, header double-click tracking, whole-group drag, and the group container
+    // rects laid out this frame (so a tab dropped onto a group's coloured band joins it)
+    private TabGroup? _renamingGroup;
+    private TabGroup? _groupDragG; private bool _groupDragging; private float _groupDragDownX;
+    private readonly List<(TabGroup g, RectF rect)> _groupRects = new();
 
     // run-history viewer
     private bool _historyOpen, _historyJustOpened;

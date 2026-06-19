@@ -15,6 +15,9 @@ public sealed class Bot
     public string Name { get => _name; set { _name = value; if (Runtime != null) Runtime.OwnerName = value; } }
     public NodeGraph Graph = new();
 
+    /// <summary>The tab group this bot belongs to (<see cref="TabGroup.Id"/>), or null when ungrouped.</summary>
+    public string? GroupId;
+
     /// <summary>The bot's server connections (always at least one).</summary>
     public readonly List<IrcSettings> Servers = new() { new IrcSettings() };
     /// <summary>Which server the connection inspector is currently editing.</summary>

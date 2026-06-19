@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Xna.Framework;
@@ -24,16 +25,26 @@ public static class WorkspaceSerializer
         public string format { get; set; } = "ircuitry.workspace.v1";
         public int active { get; set; }
         public List<BotDoc> bots { get; set; } = new();
+        public List<GroupDoc>? groups { get; set; }                 // browser-style tab groups (absent in old files)
     }
 
     private sealed class BotDoc
     {
         public string name { get; set; } = "bot";
+        public string? groupId { get; set; }                        // the tab group this bot belongs to (null = ungrouped)
         public ConnDoc? connection { get; set; }                    // legacy single connection (still read)
         public List<ConnDoc>? servers { get; set; }                 // a bot may hold several servers (absent in old files)
         public Dictionary<string, string> state { get; set; } = new();
         public List<NodeDoc> nodes { get; set; } = new();
         public List<WireDoc> wires { get; set; } = new();
+    }
+
+    private sealed class GroupDoc
+    {
+        public string id { get; set; } = "";
+        public string name { get; set; } = "Group";
+        public int color { get; set; }
+        public bool collapsed { get; set; }
     }
 
     private sealed class ConnDoc
@@ -77,12 +88,16 @@ public static class WorkspaceSerializer
         public int toPin { get; set; }
     }
 
-    public static string Save(IReadOnlyList<Bot> bots, int active)
+    public static string Save(IReadOnlyList<Bot> bots, int active, IReadOnlyList<TabGroup>? groups = null)
     {
         var doc = new Doc { active = active };
+        // only keep groups that actually have a saved member (remote-only or emptied groups are dropped)
+        if (groups != null)
+            doc.groups = groups.Where(g => bots.Any(b => b.GroupId == g.Id))
+                .Select(g => new GroupDoc { id = g.Id, name = g.Name, color = g.ColorIndex, collapsed = g.Collapsed }).ToList();
         foreach (var b in bots)
         {
-            var bd = new BotDoc { name = b.Name, state = new(b.State), servers = new() };
+            var bd = new BotDoc { name = b.Name, groupId = b.GroupId, state = new(b.State), servers = new() };
             foreach (var s in b.Servers) bd.servers.Add(FromSettings(s));
             foreach (var n in b.Graph.Nodes)
                 bd.nodes.Add(new NodeDoc { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, @params = new(n.Params) });
@@ -93,13 +108,15 @@ public static class WorkspaceSerializer
         return JsonSerializer.Serialize(doc, Opts);
     }
 
-    public static (List<Bot> bots, int active) Load(string json)
+    public static (List<Bot> bots, int active, List<TabGroup> groups) Load(string json)
     {
         var doc = JsonSerializer.Deserialize<Doc>(json, Opts) ?? new Doc();
         var bots = new List<Bot>();
+        var groups = (doc.groups ?? new List<GroupDoc>())
+            .Select(g => new TabGroup { Id = g.id, Name = g.name, ColorIndex = g.color, Collapsed = g.collapsed }).ToList();
         foreach (var bd in doc.bots)
         {
-            var bot = new Bot(bd.name);
+            var bot = new Bot(bd.name) { GroupId = string.IsNullOrEmpty(bd.groupId) ? null : bd.groupId };
             bot.Servers.Clear();
             if (bd.servers is { Count: > 0 })
                 foreach (var c in bd.servers) bot.Servers.Add(ToSettings(c));
@@ -121,7 +138,7 @@ public static class WorkspaceSerializer
             bots.Add(bot);
         }
         int active = doc.active >= 0 && doc.active < bots.Count ? doc.active : 0;
-        return (bots, active);
+        return (bots, active, groups);
     }
 
     private static ConnDoc FromSettings(IrcSettings s) => new()
