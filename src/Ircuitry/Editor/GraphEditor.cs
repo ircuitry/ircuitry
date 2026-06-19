@@ -30,6 +30,10 @@ public sealed class GraphEditor
     public Action<string>? Notify;
     public bool Running;
     public bool ShowMinimap = true;
+    // host-set each frame: the rect the bottom-right minimap anchors inside, so it dodges docked panels and
+    // the on-map corner buttons instead of hiding behind them. Falls back to the full canvas when unset.
+    public RectF MinimapArea; private bool _hasMmArea;
+    public void SetMinimapArea(RectF a) { MinimapArea = a; _hasMmArea = true; }
     public bool SnapToGrid;                 // dragged nodes snap to the grid when on
 
     // minimap interaction (the box is a draggable viewport); mapping is captured each draw
@@ -794,7 +798,8 @@ public sealed class GraphEditor
         min -= pad; max += pad;
 
         const float mmW = 158, mmH = 112, marg = 12;
-        var box = new RectF(canvas.Right - mmW - marg, canvas.Bottom - mmH - marg, mmW, mmH);
+        var area = _hasMmArea ? MinimapArea : canvas;   // anchor inside the host-provided safe area (above buttons, left of panes)
+        var box = new RectF(area.Right - mmW - marg, area.Bottom - mmH - marg, mmW, mmH);
         r.RoundFill(box.Offset(0, 3), Theme.WithAlpha(Color.Black, 0.12f), 9);
         r.RoundFill(box, Theme.WithAlpha(Theme.Panel, 0.93f), 9);
         r.RoundOutline(box, Theme.Edge, 9);

@@ -168,6 +168,7 @@ public sealed class DockManager
     };
 
     public Panel? DraggingPanel => _drag;
+    public Panel? ResizingPanel => _resize;
     public Edge CurrentDropHint => _dropHint;
 
     // ---- persistence: one line per panel "id edge size visible fx fy fw fh" ----

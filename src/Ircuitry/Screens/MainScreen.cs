@@ -248,6 +248,29 @@ public sealed partial class MainScreen : IScreen
         return l;
     }
 
+    /// <summary>Pick a resize cursor when the pointer is over a panel's resize border (its inner edge facing the
+    /// map - e.g. the top of a bottom-docked pane - or a floating pane's bottom-right corner), or while a resize
+    /// is in progress. Returns false when no border is involved.</summary>
+    private bool DockResizeCursor(out MouseCursor pick)
+    {
+        pick = MouseCursor.Arrow;
+        var target = _dock.ResizingPanel;
+        if (target == null)
+        {
+            if (Modal || _dock.Dragging) return false;   // a move-drag isn't a resize
+            foreach (var p in _dock.Panels)
+                if (p.Visible && ResizeBorder(p).Contains(In.Mouse)) { target = p; break; }
+        }
+        if (target == null) return false;
+        pick = target.Dock switch
+        {
+            DockManager.Edge.Left or DockManager.Edge.Right => MouseCursor.SizeWE,
+            DockManager.Edge.Top or DockManager.Edge.Bottom => MouseCursor.SizeNS,
+            _ => MouseCursor.SizeNWSE,
+        };
+        return true;
+    }
+
     private static RectF ResizeBorder(DockManager.Panel p)
     {
         const float t = 6f;
@@ -279,6 +302,8 @@ public sealed partial class MainScreen : IScreen
             _dock.BeginDrag(p, m); return;
         }
     }
+
+    private const float MapCornerBtnReserve = 44f;   // vertical band the corner buttons own at the bottom of the visible map
 
     /// <summary>Console toggle + Bot's-eye buttons, locked to the bottom-right of the VISIBLE map: they ride on
     /// the map but slide left/up to dodge any right/bottom-docked panel that would otherwise cover them.</summary>
@@ -830,6 +855,10 @@ public sealed partial class MainScreen : IScreen
         _ui.Enabled = !Modal;   // a modal blocks the widgets underneath it
 
         // ---------- canvas ----------
+        // keep the bottom-right minimap on the VISIBLE map: left of any right-docked pane, and above the
+        // on-map corner buttons - so it's never hidden behind a panel or the Console/Bot's-eye buttons
+        var mmVis = _dock.VisibleMapRect();
+        _editor.SetMinimapArea(new RectF(mmVis.X, mmVis.Y, mmVis.W, MathF.Max(0, mmVis.H - MapCornerBtnReserve)));
         r.Begin(BlendMode.Alpha, _l.Canvas.ToRectangle());
         r.RoundFill(_l.Canvas, Theme.Backdrop, Hud.PanelRadius);
         r.End();
@@ -1077,6 +1106,7 @@ public sealed partial class MainScreen : IScreen
         if (re != 0)
             pick = re switch { 2 or 6 => MouseCursor.SizeNWSE, 4 or 8 => MouseCursor.SizeNESW, 3 or 7 => MouseCursor.SizeNS, _ => MouseCursor.SizeWE };
         else if (Modal) pick = c.Pointer;
+        else if (DockResizeCursor(out var dc)) pick = dc;                  // hovering (or dragging) a panel's resize border
         else if (_editor.IsGrabbing) pick = c.Grab;                       // keep grabbing even if the pointer strays off-canvas
         else if (_consoleResizing || _consoleResizeHot) pick = c.ResizeV;
         else if (_l.Canvas.Contains(In.Mouse)) pick = In.Shift ? c.Crosshair : c.Hand;
