@@ -128,6 +128,10 @@ public sealed partial class MainScreen : IScreen
     private bool _notifOpen, _notifJustOpened;
     private int _notifUnread;        // toasts shown since the history was last opened (for the bell badge)
     private float _notifScroll;
+    // snippet shelf: reusable graph fragments (saved selections you drop back in)
+    private bool _shelfOpen, _shelfDirty = true;
+    private List<(string name, string path)> _shelfSnips = new();
+
     // find-in-graph (Ctrl+F): live node search + jump-to-hit
     private bool _findOpen, _findArm;
     private string _findQuery = "";
@@ -334,6 +338,11 @@ public sealed partial class MainScreen : IScreen
         float cw = bf.MeasureString(cLbl).X + 26;
         if (_ui.Button("map.console", new RectF(rx - cw, y, cw, h), cLbl, con.Visible ? Theme.Lime : Theme.Idle))
         { con.Visible = !con.Visible; SaveDockLayout(); }
+        rx -= cw + 8;
+        string sLbl = Ircuitry.Core.Icons.Glyph("bookmarks-simple") + "  Snippets";
+        float sw = bf.MeasureString(sLbl).X + 26;
+        if (_ui.Button("map.snippets", new RectF(rx - sw, y, sw, h), sLbl, _shelfOpen ? Theme.Berry : Theme.Idle))
+        { _shelfOpen = !_shelfOpen; _shelfDirty = true; }
         r.End();
     }
 
@@ -895,6 +904,7 @@ public sealed partial class MainScreen : IScreen
         r.End();
         DrawPlaybackBar(r);   // slow-motion run playback control (over the canvas)
         DrawFindBar(r);       // find-in-graph (Ctrl+F)
+        DrawShelf(r);         // snippet shelf
 
         // ---------- panel chromes ----------
         bool consoleOn = _dock.Get("console")!.Visible;
@@ -2332,6 +2342,57 @@ public sealed partial class MainScreen : IScreen
             // click anywhere outside the pill + panel collapses it
             if (In.LeftPressed && !pill.Contains(In.Mouse) && !panel.Contains(In.Mouse)) _pbSliderOpen = false;
         }
+    }
+
+    // ---- snippet shelf: save a selection as a reusable fragment; click a chip to drop a fresh copy ----
+    private void SaveSelectionSnippet()
+    {
+        var json = _editor.SerializeSelection();
+        if (json == null) return;
+        var first = _editor.Selection.Select(id => Bot.Graph.Find(id)).FirstOrDefault(x => x != null);
+        int cnt = _editor.Selection.Count;
+        string name = (first?.DisplayTitle ?? "snippet") + (cnt > 1 ? " +" + (cnt - 1) : "");
+        var saved = Ircuitry.App.SnippetStore.Save(json, name);
+        _shelfDirty = true;
+        Notify(Ircuitry.Core.Icons.Glyph("bookmarks-simple") + " Saved snippet: " + saved);
+    }
+
+    private void DrawShelf(Renderer r)
+    {
+        if (!_shelfOpen || Modal) return;
+        if (_shelfDirty) { _shelfSnips = Ircuitry.App.SnippetStore.List(); _shelfDirty = false; }
+        var vis = _dock.VisibleMapRect();
+        const float w = 210, rowH = 32;
+        float h = Math.Min(vis.H - 70, 44 + Math.Max(1, _shelfSnips.Count) * (rowH + 4) + 8);
+        var panel = new RectF(vis.X + 12, vis.Y + 56, w, h);
+        r.Begin();
+        r.RoundFill(panel.Offset(0, 3), Theme.WithAlpha(Color.Black, 0.14f), 11f);
+        r.RoundFill(panel, Theme.WithAlpha(Theme.PanelHi, 0.97f), 11f);
+        r.RoundOutline(panel, Theme.Edge, 11f);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 13), Ircuitry.Core.Icons.Glyph("bookmarks-simple") + "  Snippets", new Vector2(panel.X + 12, panel.Y + 11), Theme.Text);
+        float ty = panel.Y + 40;
+        if (_shelfSnips.Count == 0)
+            foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), "Select nodes, right-click -> Save as snippet.", w - 24))
+            { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(panel.X + 12, ty), Theme.TextFaint); ty += 16; }
+        foreach (var (name, path) in _shelfSnips)
+        {
+            var row = new RectF(panel.X + 6, ty, w - 12, rowH);
+            if (row.Bottom > panel.Bottom - 4) break;
+            bool hot = !Modal && row.Contains(In.Mouse);
+            var del = new RectF(row.Right - 24, row.Y + 5, 20, rowH - 10);
+            bool delHot = del.Contains(In.Mouse);
+            r.RoundFill(row, hot ? Theme.WithAlpha(Theme.Berry, 0.16f) : Theme.PanelLo, 8f);
+            var lf = r.Fonts.Get(FontKind.SansBold, 12);
+            r.Text(lf, r.Ellipsize(lf, name, w - 50), new Vector2(row.X + 10, row.Center.Y - 7), Theme.Text);
+            r.Text(lf, Ircuitry.Core.Icons.Glyph("x"), new Vector2(del.X + 5, del.Center.Y - 7), delHot ? Theme.Alert : Theme.TextFaint);
+            if (hot && In.LeftPressed)
+            {
+                if (delHot) { Ircuitry.App.SnippetStore.Delete(path); _shelfDirty = true; }
+                else { _editor.InsertSnippet(Ircuitry.App.SnippetStore.Read(path), _editor.Cam.ScreenToWorld(vis.Center)); _app.MarkDirty(); }
+            }
+            ty += rowH + 4;
+        }
+        r.End();
     }
 
     // ---- find-in-graph (#6): a floating search bar that jumps the camera to matching nodes ----

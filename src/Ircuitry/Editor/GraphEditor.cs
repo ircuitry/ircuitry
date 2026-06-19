@@ -385,6 +385,27 @@ public sealed class GraphEditor
     /// <summary>Load a whole graph (e.g. a dropped .ircbot) into the current workflow at a screen point.</summary>
     public void InsertGraphAt(NodeGraph g, Vector2 screen) => InsertAtCursor(g.Nodes, g.Connections, Cam.ScreenToWorld(screen));
 
+    /// <summary>The current selection serialized as a reusable .ircbot fragment (for the snippet shelf), or null.</summary>
+    public string? SerializeSelection()
+    {
+        if (Selection.Count == 0) return null;
+        var sel = Selection.ToHashSet();
+        var sub = new NodeGraph();
+        sub.Nodes.AddRange(Graph.Nodes.Where(n => sel.Contains(n.Id)).Select(CloneForClip));
+        sub.Connections.AddRange(Graph.Connections.Where(c => sel.Contains(c.FromNode) && sel.Contains(c.ToNode))
+            .Select(c => new Connection(c.FromNode, c.FromPin, c.ToNode, c.ToPin)));
+        return GraphSerializer.Save(sub, "snippet");
+    }
+
+    /// <summary>Drop a saved snippet (a .ircbot fragment) as a fresh, re-id'd, still-editable copy at a world point.</summary>
+    public void InsertSnippet(string json, Vector2 worldCursor)
+    {
+        var (g, _) = GraphSerializer.Load(json);
+        if (g.Nodes.Count == 0) return;
+        PushUndo();
+        InsertAtCursor(g.Nodes, g.Connections, worldCursor);
+    }
+
     private static NodeGraph? TryLoadClipboardGraph(out List<string> skipped)
     {
         skipped = new List<string>();

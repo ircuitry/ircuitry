@@ -49,6 +49,7 @@ public sealed partial class MainScreen
             Item(Ircuitry.Core.Icons.Glyph("bookmarks"), "Duplicate" + suffix, "Ctrl+D", true, () => { _editor.DuplicateSelection(); _app.MarkDirty(); });
             Item(Ircuitry.Core.Icons.Glyph("tray"), "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
             Item(Ircuitry.Core.Icons.Glyph("cake"), "Bake into a node…", "", _editor.SelectionCanBake, () => { _saveNodeName = "My Node"; _saveNodeIcon = "puzzle-piece"; _saveNodeCat = "Logic"; _saveNodeDesc = ""; _saveNodeAsTool = false; _saveNodeOpen = true; _saveNodeJustOpened = true; _ui.Focus = "savenode.name"; });
+            Item(Ircuitry.Core.Icons.Glyph("bookmarks-simple"), "Save as snippet", "", true, SaveSelectionSnippet);
             var only = n == 1 ? Bot.Graph.Find(_editor.Selection.First()) : null;
             if (only != null && NodeCatalog.IsCustom(only.TypeId))
                 Item(Ircuitry.Core.Icons.Glyph("pencil"), "Edit node…", "", true, () => OpenNodeBuilderForEdit(only.TypeId));
