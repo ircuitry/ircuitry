@@ -12,6 +12,7 @@ public sealed class Node
     public bool Muted;                                // disabled - skipped during execution
     public bool StreamAsTool;                         // stream this node as a bot-tools workflow step
     public string Title = "";                         // optional human label; blank = use Def.Title
+    public int ColorTag = -1;                         // a cozy colour-tag index (-1 = none) for grouping a subsystem
     public Dictionary<string, string> Params = new();
 
     /// <summary>Resolved at load/spawn time from the catalog. Not serialized.</summary>

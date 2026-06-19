@@ -77,6 +77,18 @@ public static class Theme
         _ => Idle,
     };
 
+    /// <summary>A cozy palette for per-node colour tags (and anywhere else a small named-colour set helps).
+    /// Index 0..TagCount-1; persisted by index so a theme can remap the actual colours.</summary>
+    public const int TagCount = 7;
+    public static Color Tag(int i) => (((i % TagCount) + TagCount) % TagCount) switch
+    {
+        0 => Cyan, 1 => Amber, 2 => Lime, 3 => Berry, 4 => Sky, 5 => Violet, _ => Teal,
+    };
+    public static string TagName(int i) => (((i % TagCount) + TagCount) % TagCount) switch
+    {
+        0 => "Cyan", 1 => "Amber", 2 => "Lime", 3 => "Berry", 4 => "Sky", 5 => "Violet", _ => "Teal",
+    };
+
     public static Color Mix(Color a, Color b, float t)
     {
         t = MathHelper.Clamp(t, 0f, 1f);

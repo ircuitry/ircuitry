@@ -31,6 +31,7 @@ public static class GraphSerializer
         public bool muted { get; set; }
         public bool? streamAsTool { get; set; }
         public string title { get; set; } = "";
+        public int colorTag { get; set; } = -1;
         public Dictionary<string, string> @params { get; set; } = new();
     }
 
@@ -46,7 +47,7 @@ public static class GraphSerializer
     {
         var doc = new Doc { name = name };
         foreach (var n in g.Nodes)
-            doc.nodes.Add(new NodeRec { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, @params = new(n.Params) });
+            doc.nodes.Add(new NodeRec { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, colorTag = n.ColorTag, @params = new(n.Params) });
         foreach (var c in g.Connections)
             doc.connections.Add(new ConnRec { from = c.FromNode, fromPin = c.FromPin, to = c.ToNode, toPin = c.ToPin });
         return JsonSerializer.Serialize(doc, Opts);
@@ -73,7 +74,7 @@ public static class GraphSerializer
                 if (!string.IsNullOrEmpty(rec.type) && !skippedTypes.Contains(rec.type)) skippedTypes.Add(rec.type);
                 continue;
             }
-            var n = new Node(rec.id, rec.type) { Def = def, Pos = new Vector2(rec.x, rec.y), Muted = rec.muted, StreamAsTool = rec.streamAsTool ?? def.StreamByDefault, Title = rec.title ?? "" };
+            var n = new Node(rec.id, rec.type) { Def = def, Pos = new Vector2(rec.x, rec.y), Muted = rec.muted, StreamAsTool = rec.streamAsTool ?? def.StreamByDefault, Title = rec.title ?? "", ColorTag = rec.colorTag };
             foreach (var p in def.Params) n.Params[p.Key] = rec.@params.TryGetValue(p.Key, out var v) ? v : p.Default;
             g.Nodes.Add(n);
             live.Add(n.Id);

@@ -1,0 +1,10 @@
+# Basic Apache config to route requests to upload.php
+# If you're not using Apache, you can delete this.
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^$ /upload.php [L]
+  RewriteRule ^upload$ /upload.php [L]
+</IfModule>

@@ -2365,6 +2365,26 @@ public sealed partial class MainScreen : IScreen
         if (nt != n.Title) { n.Title = nt; _app.MarkDirty(); }
         y += 38;
 
+        // colour tag - group a subsystem at a glance (rendered as a stripe on the card + minimap)
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), "TAG", new Vector2(x, y), Theme.TextDim); y += 18;
+        {
+            const float sw = 22, gap = 6;
+            float sx = x;
+            var noneR = new RectF(sx, y, sw, sw);
+            r.RoundOutline(noneR, n.ColorTag < 0 ? Theme.Text : Theme.Edge, 6f);
+            r.TextCentered(r.Fonts.Get(FontKind.SansBold, 11), Ircuitry.Core.Icons.Glyph("x"), noneR, Theme.TextDim);
+            if (!Modal && noneR.Contains(In.Mouse) && In.LeftPressed && n.ColorTag != -1) { n.ColorTag = -1; _app.MarkDirty(); }
+            sx += sw + gap + 6;
+            for (int t = 0; t < Theme.TagCount; t++)
+            {
+                var sr = new RectF(sx, y, sw, sw); sx += sw + gap;
+                r.RoundFill(sr, Theme.Tag(t), 6f);
+                if (n.ColorTag == t) r.RoundOutline(sr.Inflate(2, 2), Theme.Text, 8f);
+                if (!Modal && sr.Contains(In.Mouse) && In.LeftPressed && n.ColorTag != t) { n.ColorTag = t; _app.MarkDirty(); }
+            }
+            y += sw + 12;
+        }
+
         // enable/disable (mute) - disabled nodes are skipped when the bot runs
         bool enabled = !n.Muted;
         bool ne = _ui.Toggle($"insp.mute.{n.Id}", new RectF(x, y, w, 26), enabled, enabled ? "node enabled" : "node muted (skipped)");

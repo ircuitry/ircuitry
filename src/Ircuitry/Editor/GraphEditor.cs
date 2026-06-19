@@ -116,7 +116,7 @@ public sealed class GraphEditor
 
     // ---- clipboard ----
     private static Node CloneForClip(Node n) =>
-        new(n.Id, n.TypeId) { Def = n.Def, Pos = n.Pos, Muted = n.Muted, StreamAsTool = n.StreamAsTool, Title = n.Title, Params = new Dictionary<string, string>(n.Params) };
+        new(n.Id, n.TypeId) { Def = n.Def, Pos = n.Pos, Muted = n.Muted, StreamAsTool = n.StreamAsTool, Title = n.Title, ColorTag = n.ColorTag, Params = new Dictionary<string, string>(n.Params) };
 
     public void CopySelection()
     {
@@ -377,6 +377,7 @@ public sealed class GraphEditor
             n.Muted = src.Muted;
             n.StreamAsTool = src.StreamAsTool;
             n.Title = src.Title;
+            n.ColorTag = src.ColorTag;
             map[src.Id] = n.Id;
             Selection.Add(n.Id);
         }
@@ -814,7 +815,7 @@ public sealed class GraphEditor
         {
             var l = NodeLayout.For(n);
             var a = Map(l.Card.Pos); var b = Map(new Vector2(l.Card.Right, l.Card.Bottom));
-            var cat = Theme.Category(n.Def.Category);
+            var cat = n.ColorTag >= 0 ? Theme.Tag(n.ColorTag) : Theme.Category(n.Def.Category);
             var col = Selection.Contains(n.Id) ? cat : Theme.WithAlpha(cat, n.Muted ? 0.35f : 0.8f);
             r.Fill(new RectF(a.X, a.Y, MathF.Max(2.5f, b.X - a.X), MathF.Max(2.5f, b.Y - a.Y)), col);
         }
@@ -1254,10 +1255,15 @@ public sealed class GraphEditor
             r.Fill(new RectF(card.X, card.Y + hh, card.W, rad), Theme.WithAlpha(Theme.Mix(cat, Color.White, 0.5f), 0.45f * ff));
         }
 
-        var edge = selected ? cat : Theme.Edge;
+        // a colour tag paints the card border + a little corner flag, so a subsystem reads at a glance
+        bool tagged = n.ColorTag >= 0;
+        var tagCol = tagged ? Theme.Tag(n.ColorTag) : Theme.Edge;
+        var edge = selected ? cat : tagged ? tagCol : Theme.Edge;
         if (fire > 0.01f) edge = Theme.Mix(edge, Color.White, fire * 0.8f);
         r.RoundOutline(card, edge, rad);
+        if (tagged && !selected) r.RoundOutline(card.Inflate(1.5f, 1.5f), Theme.WithAlpha(tagCol, 0.4f), rad + 1.5f);
         if (selected) r.RoundOutline(card.Inflate(2f, 2f), Theme.WithAlpha(cat, 0.55f), rad + 2f);
+        if (tagged) r.Disc(new Vector2(card.Right - 7 * z, card.Y + 7 * z), 3.4f * z, tagCol);
 
         // cute icon + title (display face)
         if (z > 0.42f)

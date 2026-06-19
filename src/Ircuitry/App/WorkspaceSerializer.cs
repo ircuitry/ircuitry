@@ -77,6 +77,7 @@ public static class WorkspaceSerializer
         public bool muted { get; set; }
         public bool? streamAsTool { get; set; }
         public string title { get; set; } = "";
+        public int colorTag { get; set; } = -1;
         public Dictionary<string, string> @params { get; set; } = new();
     }
 
@@ -100,7 +101,7 @@ public static class WorkspaceSerializer
             var bd = new BotDoc { name = b.Name, groupId = b.GroupId, state = new(b.State), servers = new() };
             foreach (var s in b.Servers) bd.servers.Add(FromSettings(s));
             foreach (var n in b.Graph.Nodes)
-                bd.nodes.Add(new NodeDoc { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, @params = new(n.Params) });
+                bd.nodes.Add(new NodeDoc { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, colorTag = n.ColorTag, @params = new(n.Params) });
             foreach (var c in b.Graph.Connections)
                 bd.wires.Add(new WireDoc { from = c.FromNode, fromPin = c.FromPin, to = c.ToNode, toPin = c.ToPin });
             doc.bots.Add(bd);
@@ -127,7 +128,7 @@ public static class WorkspaceSerializer
             foreach (var rec in bd.nodes)
             {
                 if (!NodeCatalog.TryGet(rec.type, out var def)) continue;
-                var n = new Node(rec.id, rec.type) { Def = def, Pos = new Vector2(rec.x, rec.y), Muted = rec.muted, StreamAsTool = rec.streamAsTool ?? def.StreamByDefault, Title = rec.title ?? "" };
+                var n = new Node(rec.id, rec.type) { Def = def, Pos = new Vector2(rec.x, rec.y), Muted = rec.muted, StreamAsTool = rec.streamAsTool ?? def.StreamByDefault, Title = rec.title ?? "", ColorTag = rec.colorTag };
                 foreach (var p in def.Params) n.Params[p.Key] = rec.@params.TryGetValue(p.Key, out var v) ? v : p.Default;
                 bot.Graph.Nodes.Add(n);
                 live.Add(n.Id);
