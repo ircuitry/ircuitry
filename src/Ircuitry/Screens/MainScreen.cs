@@ -339,14 +339,10 @@ public sealed partial class MainScreen : IScreen
                 for (int col = -2; col <= 2; col++)
                     r.Disc(new Vector2(gx + col * 5, gy + row * 4), 1.15f, grip);
         }
-        // drop-edge highlight while dragging a panel to a new edge (hint computed in Update's DockInputTick)
+        // the dragged panel rides live at its real drop target (positioned in Layout) - no separate landing ghost.
+        // just give it a "lifted" accent border so it reads as the one being moved.
         var dp = _dock.DraggingPanel;
-        if (dp != null)
-        {
-            if (_dock.CurrentDropHint != DockManager.Edge.Float)
-                r.RoundFill(_dock.DropRect(_dock.CurrentDropHint), Theme.WithAlpha(Theme.Sky, 0.22f), 10f);
-            r.RoundFill(dp.Rect, Theme.WithAlpha(Theme.Sky, 0.16f), 10f); r.RoundOutline(dp.Rect, Theme.WithAlpha(Theme.Sky, 0.8f), 10f);
-        }
+        if (dp != null) r.RoundOutline(dp.Rect, Theme.WithAlpha(Theme.Sky, 0.9f), Hud.PanelRadius);
         r.End();
     }
 

@@ -51,9 +51,12 @@ public sealed class DockManager
     {
         _work = work;
         RectF rem = work;
+        // the panel being dragged previews at its LIVE drop target, so the arrangement is WYSIWYG: it docks into
+        // the real strip near an edge, or floats under the cursor over the canvas - no separate landing ghost.
+        Edge Eff(Panel p) => p == _drag ? _dropHint : p.Dock;
         foreach (var edge in new[] { Edge.Left, Edge.Right, Edge.Top, Edge.Bottom })
         {
-            var on = _panels.Where(p => p.Visible && p.Dock == edge).OrderBy(p => p.Order).ToList();
+            var on = _panels.Where(p => p.Visible && Eff(p) == edge).OrderBy(p => p == _drag ? int.MaxValue : p.Order).ToList();
             if (on.Count == 0) continue;
             bool side = edge is Edge.Left or Edge.Right;
             // clamp each panel against the FULL work area (so a panel doesn't shrink as `rem` shrinks under it)
@@ -86,9 +89,9 @@ public sealed class DockManager
             };
         }
         Map = rem;
-        foreach (var p in _panels.Where(p => p.Visible && p.Dock == Edge.Float))
+        foreach (var p in _panels.Where(p => p.Visible && Eff(p) == Edge.Float))
         {
-            // keep a floating panel on-screen
+            // keep a floating panel on-screen (the dragged one rides under the cursor via FloatRect, set in Tick)
             float w = Math.Clamp(p.FloatRect.W, 160, work.W), h = Math.Clamp(p.FloatRect.H, 120, work.H);
             float x = Math.Clamp(p.FloatRect.X, work.X, work.Right - w), y = Math.Clamp(p.FloatRect.Y, work.Y, work.Bottom - h);
             p.Rect = p.FloatRect = new RectF(x, y, w, h);
