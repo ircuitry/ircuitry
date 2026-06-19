@@ -221,7 +221,14 @@ public sealed partial class MainScreen : IScreen
     }
 
     private string DockFile => System.IO.Path.Combine(AppModel.WorkspaceDir, "dock-layout.txt");
-    private void LoadDockLayout() { try { if (System.IO.File.Exists(DockFile)) _dock.Deserialize(System.IO.File.ReadAllText(DockFile)); } catch { } }
+    private void LoadDockLayout()
+    {
+        try { if (System.IO.File.Exists(DockFile)) _dock.Deserialize(System.IO.File.ReadAllText(DockFile)); } catch { }
+        // Library + Inspector are always-on (you dock/float them, never hide them); only the console toggles.
+        // This also heals layouts saved while the old close-x had hidden a panel, which left it stuck off-screen.
+        _dock.Get("library")!.Visible = true;
+        _dock.Get("inspector")!.Visible = true;
+    }
     private void SaveDockLayout() { try { System.IO.Directory.CreateDirectory(AppModel.WorkspaceDir); System.IO.File.WriteAllText(DockFile, _dock.Serialize()); } catch { } }
 
     /// <summary>Build the frame layout from the dock: a full-bleed map with panels overlaying it.</summary>
