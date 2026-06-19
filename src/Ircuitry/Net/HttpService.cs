@@ -10,7 +10,9 @@ namespace Ircuitry.Net;
 /// <summary>Synchronous HTTP used by the HTTP Request node (runs on the bot thread, bounded by a timeout).</summary>
 public static class Http
 {
-    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(20) };
+    // per-request timeout is applied via a CancellationToken in Send (so AI calls can run minutes while a plain
+    // GET stays snappy), so the shared client itself must not impose its own 100s default.
+    private static readonly HttpClient Client = new() { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
     private static readonly HttpClient DlClient = new() { Timeout = TimeSpan.FromMinutes(15) };
 
     /// <summary>
@@ -42,7 +44,7 @@ public static class Http
         catch { return false; }
     }
 
-    public static (int status, string body) Send(string method, string url, IEnumerable<(string key, string val)> headers, string? body)
+    public static (int status, string body) Send(string method, string url, IEnumerable<(string key, string val)> headers, string? body, int timeoutSeconds = 30)
     {
         try
         {
@@ -60,9 +62,14 @@ public static class Http
             if (body != null && method.ToUpperInvariant() != "GET")
                 req.Content = new StringContent(body, Encoding.UTF8, contentType);
 
-            using var resp = Client.Send(req);
-            string text = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 1, 1800)));
+            using var resp = Client.Send(req, cts.Token);
+            string text = resp.Content.ReadAsStringAsync(cts.Token).GetAwaiter().GetResult();
             return ((int)resp.StatusCode, text);
+        }
+        catch (OperationCanceledException)
+        {
+            return (0, $"request timed out after {timeoutSeconds}s");
         }
         catch (Exception ex)
         {
@@ -80,7 +87,7 @@ public static class Http
 /// </summary>
 public static class Ai
 {
-    public static string Chat(string baseUrl, string apiKey, string model, string system, string prompt, int maxTokens, out string error)
+    public static string Chat(string baseUrl, string apiKey, string model, string system, string prompt, int maxTokens, out string error, int timeoutSeconds = 180)
     {
         error = "";
         if (apiKey.Length == 0) apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
@@ -104,7 +111,7 @@ public static class Ai
         var headers = new List<(string, string)>();
         if (apiKey.Length > 0) headers.Add(("Authorization", "Bearer " + apiKey));
 
-        var (status, body) = Http.Send("POST", url, headers, JsonSerializer.Serialize(payload));
+        var (status, body) = Http.Send("POST", url, headers, JsonSerializer.Serialize(payload), timeoutSeconds);
         if (status != 200) { error = $"API {status}: {Truncate(body, 200)}"; return ""; }
 
         try
@@ -140,7 +147,7 @@ public static class Ai
     /// </summary>
     public static string ChatWithTools(string baseUrl, string apiKey, string model, string system, string prompt,
         int maxTokens, List<ToolDef> tools, Func<string, Dictionary<string, string>, string> execTool, out string error,
-        int maxRounds = 6, Action<string, string, string>? onTool = null)
+        int maxRounds = 6, Action<string, string, string>? onTool = null, int timeoutSeconds = 180)
     {
         error = "";
         if (apiKey.Length == 0) apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
@@ -183,7 +190,7 @@ public static class Ai
             };
             if (toolSpecs != null) payload["tools"] = toolSpecs;
 
-            var (status, body) = Http.Send("POST", url, headers, JsonSerializer.Serialize(payload));
+            var (status, body) = Http.Send("POST", url, headers, JsonSerializer.Serialize(payload), timeoutSeconds);
             if (status != 200) { error = $"API {status}: {Truncate(body, 200)}"; return ""; }
 
             JsonElement msg;

@@ -948,6 +948,7 @@ public static class NodeCatalog
                     P("system", "System prompt", ParamType.Multiline, "You are a witty IRC bot named ircuitry. Reply in one short sentence.", ""),
                     P("prompt", "Prompt", ParamType.Multiline, "{nick} said: {message}", "supports {nick} {message} {args}"),
                     P("maxTokens", "Max tokens", ParamType.Int, "300", "300"),
+                    P("timeout", "Timeout (seconds)", ParamType.Int, "120", "how long to wait for the model (AI can be slow)"),
                 },
                 SummaryParam = "model",
                 Exec = c =>
@@ -1032,8 +1033,9 @@ public static class NodeCatalog
 
                     // baseUrl/model are Resolve()d (not apiKey - that carries {{secret}} handled downstream) so a
                     // composite can expose them as {tokens}; e.g. the SuperAI recipe sets model = "{model}".
+                    int aiTimeout = Math.Clamp(c.ParamInt("timeout", 120), 5, 1800);
                     if (defs.Count == 0)
-                        reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err);
+                        reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err, aiTimeout);
                     else
                         reply = Ai.ChatWithTools(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
                             (name, args) =>
@@ -1049,7 +1051,7 @@ public static class NodeCatalog
                                 c.SetVar("__tool_result", "");
                                 c.RunNode(tn);          // runs the tool's sub-flow synchronously
                                 return c.Var("__tool_result");
-                            }, out err);
+                            }, out err, timeoutSeconds: aiTimeout);
 
                     if (err.Length > 0) c.Log("AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);
@@ -1174,6 +1176,7 @@ public static class NodeCatalog
                     P("allowCommands", "Allow running commands", ParamType.Bool, "true", ""),
                     P("maxTokens", "Max tokens", ParamType.Int, "1500", "1500"),
                     P("maxSteps", "Max tool steps", ParamType.Int, "40", "how many read/edit/run steps the AI may take before stopping"),
+                    P("timeout", "Timeout per step (seconds)", ParamType.Int, "180", "AI can be slow; 180 = 3 min per model call"),
                     P("filehostUrl", "Filehost URL", ParamType.Text, "https://0x0.st", "where the finished codebase is uploaded"),
                     P("filehostField", "Filehost file field", ParamType.Text, "file", "file · fileToUpload (catbox) · image"),
                     PL("filehostFields", "Filehost extra fields (optional)", true, "Add field"),
@@ -1289,7 +1292,8 @@ public static class NodeCatalog
                             return "(unknown tool: " + name + ")";
                         }, out var err,
                         maxRounds: Math.Clamp(c.ParamInt("maxSteps", 40), 1, 200),
-                        onTool: (name, argsJson, res) => c.Log(Ircuitry.Core.Icons.Glyph("wrench") + " " + name + Brief(argsJson, 80) + "  -> " + Brief(res, 100), LogLevel.Action));
+                        onTool: (name, argsJson, res) => c.Log(Ircuitry.Core.Icons.Glyph("wrench") + " " + name + Brief(argsJson, 80) + "  -> " + Brief(res, 100), LogLevel.Action),
+                        timeoutSeconds: Math.Clamp(c.ParamInt("timeout", 180), 5, 1800));
 
                     if (err.Length > 0) c.Log("Programmer AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);
@@ -1374,6 +1378,7 @@ public static class NodeCatalog
                     P("file", "File path", ParamType.Text, "", "pic.png (under ~/ircuitry/files) or /abs/pic.png", visibleWhen: n => n.GetParam("send") == "file (multipart)"),
                     P("headers", "Headers", ParamType.Multiline, "", "Authorization: Bearer ..."),
                     P("body", "Body / form fields", ParamType.Multiline, "", "{ ... } for POST  ·  or key=value lines for multipart"),
+                    P("timeout", "Timeout (seconds)", ParamType.Int, "30", "how long to wait before giving up"),
                 },
                 SummaryParam = "url",
                 Exec = c =>
@@ -1404,7 +1409,7 @@ public static class NodeCatalog
 
                     var method = c.Param("method");
                     var body = method == "POST" ? c.Resolve(c.Param("body")) : null;
-                    var (status, resp) = Http.Send(method, url, headers, body);
+                    var (status, resp) = Http.Send(method, url, headers, body, Math.Clamp(c.ParamInt("timeout", 30), 1, 1800));
                     c.SetOut(1, resp);
                     c.SetOut(2, status.ToString());
                     if (status == 0) c.Log("HTTP error: " + resp, LogLevel.Error);
