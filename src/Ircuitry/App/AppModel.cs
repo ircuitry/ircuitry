@@ -292,10 +292,51 @@ public sealed class AppModel
         if (index >= 0 && index < Bots.Count) Active = index;
     }
 
+    // ---- per-bot rollback timeline: an in-session history of graph versions, captured on save when a bot's
+    // behaviour actually changed, deduped by signature and bounded. The whole-workspace snapshots above cover
+    // durable, cross-restart recovery; this is the fine-grained "undo my last hour" scrubber. ----
+    private const int TimelineMax = 50;
+
+    /// <summary>Add the bot's current graph to its timeline if it changed since the last version (or always,
+    /// when a manual <paramref name="note"/> is given).</summary>
+    public void CaptureTimeline(Bot b, string note = "")
+    {
+        try
+        {
+            long sig = b.Graph.BehaviorSignature();
+            if (note.Length == 0 && b.Timeline.Count > 0 && b.Timeline[^1].Sig == sig) return;
+            b.Timeline.Add(new GraphVersion
+            {
+                Time = DateTime.Now,
+                Data = Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.Name),
+                Nodes = b.Graph.Nodes.Count, Wires = b.Graph.Connections.Count, Sig = sig, Note = note,
+            });
+            while (b.Timeline.Count > TimelineMax) b.Timeline.RemoveAt(0);
+        }
+        catch { /* never let history capture break a save */ }
+    }
+
+    /// <summary>Roll a bot's graph back to a captured version. The current state is captured first (so the
+    /// rollback is itself undoable). A running bot keeps running on its frozen graph until you Apply.</summary>
+    public bool RestoreTimeline(Bot b, GraphVersion v)
+    {
+        try
+        {
+            CaptureTimeline(b, "before rollback");
+            var (g, _) = Ircuitry.Graph.GraphSerializer.Load(v.Data);
+            b.Graph.ReplaceWith(g);
+            Dirty = true;
+            b.Log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("arrow-bend-up-left") + " rolled back to " + v.Time.ToString("HH:mm:ss") + " (" + v.Nodes + " nodes)");
+            return true;
+        }
+        catch (Exception ex) { b.Log.Add(LogLevel.Error, "rollback failed: " + ex.Message); return false; }
+    }
+
     public bool Save(bool announce = true)
     {
         try
         {
+            foreach (var b in Bots) if (!b.IsRemote) CaptureTimeline(b);   // grow each bot's rollback timeline
             Directory.CreateDirectory(WorkspaceDir);
             // keep one backup of the previous save as a safety net
             if (File.Exists(WorkspacePath)) { try { File.Copy(WorkspacePath, WorkspacePath + ".bak", true); } catch { } }

@@ -120,6 +120,9 @@ public sealed partial class MainScreen : IScreen
     // fleet health board: a live status row per bot (local + remote)
     private bool _fleetOpen, _fleetJustOpened;
     private float _fleetScroll;
+    // per-bot rollback timeline
+    private bool _timelineOpen, _timelineJustOpened;
+    private float _timelineScroll;
     // achievements
     private float _achLastTick = -1f, _achEvalAt = -1f;
     private readonly Queue<Ircuitry.Core.AchDef> _achToasts = new();
@@ -230,7 +233,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _timelineOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -756,6 +759,17 @@ public sealed partial class MainScreen : IScreen
         _evalOpen = true; _evalJustOpened = true;
     }
 
+    public void DebugShowTimeline()
+    {
+        _l = DockLayout();
+        DebugDemoShot();
+        _app.CaptureTimeline(Bot, "started");
+        Bot.Graph.Nodes.RemoveAt(Bot.Graph.Nodes.Count - 1);
+        _app.CaptureTimeline(Bot, "removed a node");
+        _app.CaptureTimeline(Bot, "checkpoint");
+        _timelineOpen = true; _timelineJustOpened = true;
+    }
+
     private bool _demoShotFit;
     // Build a clean, credential-free showcase graph for marketing screenshots.
     public void DebugDemoShot()
@@ -835,7 +849,7 @@ public sealed partial class MainScreen : IScreen
             {
                 if (_appearanceOpen) CloseAppearance();
                 else if (_themeInstallOpen) CancelThemeInstall();
-                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; _timelineOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
             }
         }
         else if (_renamingBot != null)
@@ -1104,6 +1118,11 @@ public sealed partial class MainScreen : IScreen
         {
             _ui.Enabled = true;
             DrawFleetModal(r);
+        }
+        else if (_timelineOpen)
+        {
+            _ui.Enabled = true;
+            DrawTimelineModal(r);
         }
         else if (_achOpen)
         {
@@ -1473,6 +1492,7 @@ public sealed partial class MainScreen : IScreen
         Item("puzzle-piece", "Community nodes…", "", true, OpenNodeManager);
         Item("check-circle", "Eval bench…", "", true, () => { _evalOpen = true; _evalJustOpened = true; _evalScroll = 0; });
         Item("heartbeat", "Fleet health…", "", true, () => { _fleetOpen = true; _fleetJustOpened = true; _fleetScroll = 0; });
+        Item("clock-counter-clockwise", "Rollback timeline…", "", true, () => { _app.CaptureTimeline(Bot); _timelineOpen = true; _timelineJustOpened = true; _timelineScroll = 0; });
         Item("cloud", "Connect to server…", "", true, OpenRemote);
         Item("palette", "Appearance…", "", true, OpenAppearance);
         Sep();
@@ -3394,6 +3414,94 @@ public sealed partial class MainScreen : IScreen
         if (b.IsRemote) { b.Remote?.StartStop(b.RemoteName, !(b.Remote?.BotRunning(b.RemoteName) ?? false)); return; }
         if (b.Runtime.Running) b.Runtime.Stop(); else b.Runtime.Start(b.Graph, b.Servers);
     }
+
+    // ===================================================================
+    //  Per-bot rollback timeline - scrub back to an earlier version of this bot's graph
+    // ===================================================================
+    private void DrawTimelineModal(Renderer r)
+    {
+        var b = Bot;
+        var versions = b.Timeline;   // oldest -> newest
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = MathF.Min(880, _vw * 0.92f), ph = MathF.Min(700, _vh * 0.9f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Rollback timeline - " + b.Name, Theme.Berry);
+        r.TextRight(r.Fonts.Get(FontKind.Mono, 12), versions.Count + (versions.Count == 1 ? " version" : " versions"), panel.Right - 18, panel.Y + 13, Theme.TextFaint);
+        r.End();
+
+        float top = panel.Y + Hud.HeaderH + 12, btnY = panel.Bottom - 46;
+        var listRect = new RectF(panel.X + 16, top, pw - 32, btnY - top - 10);
+        r.Begin();
+        r.RoundFill(listRect, Theme.PanelLo, 8); r.RoundOutline(listRect, Theme.Edge, 8);
+        r.End();
+
+        long curSig = b.Graph.BehaviorSignature();
+        if (versions.Count == 0)
+        {
+            r.Begin();
+            r.TextCenteredX(r.Fonts.Get(FontKind.SansBold, 15), "No versions yet", panel.Center.X, listRect.Center.Y - 14, Theme.TextDim);
+            r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 13), "Edits are captured automatically as you work. Checkpoint now to start.", panel.Center.X, listRect.Center.Y + 8, Theme.TextFaint);
+            r.End();
+        }
+        else
+        {
+            const float rowH = 52f;
+            float total = versions.Count * rowH;
+            _timelineScroll = ClampScroll("timeline", Wheel("timeline", _timelineScroll, listRect), total, listRect.H);
+            r.Begin(BlendMode.Alpha, listRect.ToRectangle());
+            var tf = r.Fonts.Get(FontKind.SansBold, 13);
+            var sf = r.Fonts.Get(FontKind.Mono, 11);
+            var now = DateTime.Now;
+            int restoreAt = -1;
+            float y = listRect.Y + 4 - _timelineScroll;
+            for (int idx = versions.Count - 1; idx >= 0; idx--)   // newest first
+            {
+                var v = versions[idx];
+                var row = new RectF(listRect.X + 4, y, listRect.W - 8, rowH - 6);
+                if (row.Bottom >= listRect.Y && row.Y <= listRect.Bottom)
+                {
+                    bool isCurrent = v.Sig == curSig && idx == versions.Count - 1;
+                    bool hover = row.Contains(In.Mouse) && listRect.Contains(In.Mouse);
+                    r.RoundFill(row, hover ? Theme.PanelHi : Theme.Panel, 7);
+                    if (isCurrent) r.RoundOutline(row, Theme.WithAlpha(Theme.Berry, 0.7f), 7);
+                    // timeline dot + connector
+                    r.Disc(new Vector2(row.X + 14, row.Center.Y), isCurrent ? 5.5f : 4f, isCurrent ? Theme.Berry : Theme.TextDim);
+
+                    r.Text(tf, v.Time.ToString("HH:mm:ss"), new Vector2(row.X + 30, row.Y + 6), Theme.Text);
+                    r.Text(sf, Ago(now - v.Time), new Vector2(row.X + 110, row.Y + 8), Theme.TextFaint);
+                    string stats = v.Nodes + " nodes  ·  " + v.Wires + " wires" + (v.Note.Length > 0 ? "  ·  " + v.Note : "") + (isCurrent ? "  ·  current" : "");
+                    r.Text(sf, r.Ellipsize(sf, stats, row.W - 150), new Vector2(row.X + 30, row.Y + 26), isCurrent ? Theme.Berry : Theme.TextDim);
+
+                    var rr = new RectF(row.Right - 96, row.Y + 9, 88, rowH - 24);
+                    if (!isCurrent && _ui.Button("tl.restore." + idx, rr, Ircuitry.Core.Icons.Glyph("arrow-bend-up-left") + " restore", Theme.Berry)) restoreAt = idx;
+                }
+                y += rowH;
+            }
+            r.End();
+            if (restoreAt >= 0)
+            {
+                _app.RestoreTimeline(b, versions[restoreAt]);
+                _editor.Selection.Clear();
+                _timelineOpen = false;
+                Notify(Ircuitry.Core.Icons.Glyph("arrow-bend-up-left") + " Rolled back" + (b.Runtime.Running ? " - press Apply to push to the live bot" : ""));
+            }
+        }
+
+        r.Begin();
+        if (_ui.Button("tl.checkpoint", new RectF(panel.X + 16, btnY, 150, 34), Ircuitry.Core.Icons.Glyph("camera") + "  CHECKPOINT", Theme.Idle))
+            _app.CaptureTimeline(b, "checkpoint");
+        if (_ui.Button("tl.close", new RectF(panel.Right - 16 - 100, btnY, 100, 34), "CLOSE", Theme.Cyan, primary: true)) _timelineOpen = false;
+        r.End();
+
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_timelineJustOpened) _timelineOpen = false;
+        _timelineJustOpened = false;
+    }
+
+    private static string Ago(TimeSpan d) =>
+        d.TotalSeconds < 60 ? "just now" :
+        d.TotalMinutes < 60 ? (int)d.TotalMinutes + "m ago" :
+        d.TotalHours < 24 ? (int)d.TotalHours + "h ago" : (int)d.TotalDays + "d ago";
 
     /// <summary>A short connection label + colour for the fleet board, for either a local or remote bot.</summary>
     private static (string text, Color color) FleetConn(Bot b)
