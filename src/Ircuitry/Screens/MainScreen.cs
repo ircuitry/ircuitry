@@ -117,6 +117,9 @@ public sealed partial class MainScreen : IScreen
     private string _serverLinkExisting = "";
     private bool _networkOpen, _networkJustOpened;
     private float _networkScroll;
+    // fleet health board: a live status row per bot (local + remote)
+    private bool _fleetOpen, _fleetJustOpened;
+    private float _fleetScroll;
     // achievements
     private float _achLastTick = -1f, _achEvalAt = -1f;
     private readonly Queue<Ircuitry.Core.AchDef> _achToasts = new();
@@ -227,7 +230,7 @@ public sealed partial class MainScreen : IScreen
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
+    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -734,6 +737,25 @@ public sealed partial class MainScreen : IScreen
         _networkOpen = true; _networkJustOpened = true;
     }
 
+    public void DebugShowFleet()
+    {
+        _l = DockLayout();
+        DebugDemoShot();
+        var b2 = _app.AddBot("greeter"); b2.Name = "welcomer"; b2.Settings.Host = "irc.libera.chat";
+        b2.Runtime.AddTokens(8200, 1400); b2.Runtime.RecordNodeError("n1", "Ask AI", "API 401: unauthorized");
+        var b3 = _app.AddBot("pingpong"); b3.Name = "pong-bot"; b3.Settings.Host = "irc.oftc.net";
+        _fleetOpen = true; _fleetJustOpened = true;
+    }
+
+    public void DebugShowEval()
+    {
+        _l = DockLayout();
+        DebugDemoShot();
+        Bot.Evals.Add(new Ircuitry.App.EvalCase { Message = "!ping", Expect = "pong" });
+        Bot.Evals.Add(new Ircuitry.App.EvalCase { Message = "hello", Expect = "", Mode = Ircuitry.App.EvalMatch.NoReply });
+        _evalOpen = true; _evalJustOpened = true;
+    }
+
     private bool _demoShotFit;
     // Build a clean, credential-free showcase graph for marketing screenshots.
     public void DebugDemoShot()
@@ -813,7 +835,7 @@ public sealed partial class MainScreen : IScreen
             {
                 if (_appearanceOpen) CloseAppearance();
                 else if (_themeInstallOpen) CancelThemeInstall();
-                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
             }
         }
         else if (_renamingBot != null)
@@ -1077,6 +1099,11 @@ public sealed partial class MainScreen : IScreen
         {
             _ui.Enabled = true;
             DrawNetworkModal(r);
+        }
+        else if (_fleetOpen)
+        {
+            _ui.Enabled = true;
+            DrawFleetModal(r);
         }
         else if (_achOpen)
         {
@@ -1445,6 +1472,7 @@ public sealed partial class MainScreen : IScreen
         Item("trophy", "Achievements", "", true, () => { _achOpen = true; _achJustOpened = true; _achScroll = 0; });
         Item("puzzle-piece", "Community nodes…", "", true, OpenNodeManager);
         Item("check-circle", "Eval bench…", "", true, () => { _evalOpen = true; _evalJustOpened = true; _evalScroll = 0; });
+        Item("heartbeat", "Fleet health…", "", true, () => { _fleetOpen = true; _fleetJustOpened = true; _fleetScroll = 0; });
         Item("cloud", "Connect to server…", "", true, OpenRemote);
         Item("palette", "Appearance…", "", true, OpenAppearance);
         Sep();
@@ -3238,6 +3266,152 @@ public sealed partial class MainScreen : IScreen
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_networkJustOpened) _networkOpen = false;
         _networkJustOpened = false;
         r.End();
+    }
+
+    // ===================================================================
+    //  Fleet health board - a live status row per bot (local + remote)
+    // ===================================================================
+    private void DrawFleetModal(Renderer r)
+    {
+        r.Begin();
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
+        float pw = MathF.Min(1060, _vw * 0.95f), ph = MathF.Min(720, _vh * 0.9f);
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Fleet health", Theme.Lime);
+
+        int online = _app.Bots.Count(RunningOf);
+        long totErr = _app.Bots.Where(b => !b.IsRemote).Sum(b => (long)b.Runtime.ErrorCount);
+        long totTok = _app.Bots.Where(b => !b.IsRemote).Sum(b => b.Runtime.TokensTotal);
+        string summary = _app.Bots.Count + " bots  ·  " + online + " online" + (totErr > 0 ? "  ·  " + totErr + " errors" : "") + (totTok > 0 ? "  ·  " + FmtTokens(totTok) + " tok" : "");
+        r.TextRight(r.Fonts.Get(FontKind.Mono, 12), summary, panel.Right - 18, panel.Y + 13, totErr > 0 ? Theme.Alert : Theme.TextFaint);
+        r.End();
+
+        float top = panel.Y + Hud.HeaderH + 12, btnY = panel.Bottom - 46;
+        float cx = panel.X + 16, cw = pw - 32;
+        // column anchors (relative to cx)
+        float connX = cx + 0.30f * cw, errX = cx + 0.50f * cw, tokX = cx + 0.60f * cw, queX = cx + 0.72f * cw, lastX = cx + 0.81f * cw;
+        float actW = 150, actX = panel.Right - 16 - actW;
+        var listRect = new RectF(cx, top + 20, cw, btnY - (top + 20) - 10);
+
+        // column header
+        r.Begin();
+        var hf = r.Fonts.Get(FontKind.SansBold, 10);
+        r.Text(hf, "BOT", new Vector2(cx + 20, top), Theme.TextFaint);
+        r.Text(hf, "CONNECTION", new Vector2(connX, top), Theme.TextFaint);
+        r.Text(hf, "ERR", new Vector2(errX, top), Theme.TextFaint);
+        r.Text(hf, "TOKENS", new Vector2(tokX, top), Theme.TextFaint);
+        r.Text(hf, "QUEUE", new Vector2(queX, top), Theme.TextFaint);
+        r.Text(hf, "LAST", new Vector2(lastX, top), Theme.TextFaint);
+        r.RoundFill(listRect, Theme.PanelLo, 8); r.RoundOutline(listRect, Theme.Edge, 8);
+        r.End();
+
+        const float rowH = 50f;
+        float total = _app.Bots.Count * rowH;
+        _fleetScroll = ClampScroll("fleet", Wheel("fleet", _fleetScroll, listRect), total, listRect.H);
+
+        r.Begin(BlendMode.Alpha, listRect.ToRectangle());
+        var nf = r.Fonts.Get(FontKind.SansBold, 13);
+        var sf = r.Fonts.Get(FontKind.Mono, 10);
+        var vf = r.Fonts.Get(FontKind.Mono, 12);
+        int openBot = -1, toggleBot = -1, errBot = -1;
+        float y = listRect.Y - _fleetScroll;
+        for (int i = 0; i < _app.Bots.Count; i++)
+        {
+            var b = _app.Bots[i];
+            var row = new RectF(listRect.X + 4, y + 3, listRect.W - 8, rowH - 6);
+            if (row.Bottom >= listRect.Y && row.Y <= listRect.Bottom)
+            {
+                bool isActive = i == _app.Active;
+                bool hover = row.Contains(In.Mouse) && listRect.Contains(In.Mouse);
+                r.RoundFill(row, isActive ? Theme.Mix(Theme.Panel, Theme.Lime, 0.18f) : hover ? Theme.PanelHi : Theme.Panel, 7);
+                if (isActive) r.RoundOutline(row, Theme.WithAlpha(Theme.Lime, 0.7f), 7);
+
+                bool running = RunningOf(b);
+                var (cText, cCol) = FleetConn(b);
+                Hud.SoftDot(r, new Vector2(row.X + 12, row.Y + 16), 4.5f, cCol);
+                r.Text(nf, r.Ellipsize(nf, b.Name, connX - (cx + 24) - 8), new Vector2(cx + 24, row.Y + 5), Theme.Text);
+                r.Text(sf, b.IsRemote ? Ircuitry.Core.Icons.Glyph("cloud") + " remote" : Ircuitry.Core.Icons.Glyph("desktop") + " local", new Vector2(cx + 24, row.Y + 26), Theme.TextFaint);
+
+                r.Text(vf, r.Ellipsize(vf, cText, errX - connX - 8), new Vector2(connX, row.Y + 16), cCol);
+
+                if (b.IsRemote)
+                {
+                    r.Text(vf, "-", new Vector2(errX, row.Y + 16), Theme.TextFaint);
+                    r.Text(vf, "-", new Vector2(tokX, row.Y + 16), Theme.TextFaint);
+                    r.Text(vf, "-", new Vector2(queX, row.Y + 16), Theme.TextFaint);
+                    r.Text(vf, "-", new Vector2(lastX, row.Y + 16), Theme.TextFaint);
+                }
+                else
+                {
+                    int errN = b.Runtime.ErrorCount;
+                    var errRect = new RectF(errX - 4, row.Y + 13, 44, 20);
+                    bool errHot = errN > 0 && errRect.Contains(In.Mouse) && listRect.Contains(In.Mouse);
+                    r.Text(vf, errN > 0 ? errN.ToString() : "0", new Vector2(errX, row.Y + 16), errN > 0 ? Theme.Alert : Theme.TextFaint);
+                    if (errHot && In.LeftPressed) errBot = i;
+
+                    r.Text(vf, FmtTokens(b.Runtime.TokensTotal), new Vector2(tokX, row.Y + 16), b.Runtime.TokensTotal > 0 ? Theme.TextDim : Theme.TextFaint);
+                    int q = b.Runtime.OutQueueDepth;
+                    r.Text(vf, running ? q.ToString() : "-", new Vector2(queX, row.Y + 16), q > 6 ? Theme.Warn : Theme.TextDim);
+                    var lr = b.Runtime.LastRun;
+                    r.Text(sf, lr != null ? lr.Time.ToString("HH:mm:ss") : "-", new Vector2(lastX, row.Y + 18), Theme.TextDim);
+                }
+
+                // actions: run/stop + open
+                var runR = new RectF(actX, row.Y + 9, 70, rowH - 24);
+                var openR = new RectF(actX + 78, row.Y + 9, 64, rowH - 24);
+                if (_ui.Button("fleet.run." + i, runR, Ircuitry.Core.Icons.Glyph(running ? "stop" : "play") + (running ? " stop" : " run"), running ? Theme.Alert : Theme.Ok)) toggleBot = i;
+                if (_ui.Button("fleet.open." + i, openR, "open", Theme.Idle)) openBot = i;
+
+                // clicking the name area (not the buttons) also opens the bot
+                var nameZone = new RectF(row.X, row.Y, connX - row.X, row.H);
+                if (hover && In.LeftPressed && nameZone.Contains(In.Mouse)) openBot = i;
+            }
+            y += rowH;
+        }
+        r.End();
+
+        // act on deferred clicks (outside the scissor batch)
+        if (toggleBot >= 0) ToggleBotRun(_app.Bots[toggleBot]);
+        if (errBot >= 0) { _app.SetActive(errBot); _editor.Selection.Clear(); _errTrayOpen = true; _fleetOpen = false; }
+        if (openBot >= 0) { _app.SetActive(openBot); _editor.Selection.Clear(); _fleetOpen = false; }
+
+        r.Begin();
+        var startAll = new RectF(cx, btnY, 110, 34);
+        var stopAll = new RectF(startAll.Right + 10, btnY, 110, 34);
+        if (_ui.Button("fleet.startall", startAll, "START ALL", Theme.Ok)) foreach (var b in _app.Bots) if (!RunningOf(b)) ToggleBotRun(b);
+        if (_ui.Button("fleet.stopall", stopAll, "STOP ALL", Theme.Idle)) foreach (var b in _app.Bots) if (RunningOf(b)) ToggleBotRun(b);
+        var closeR = new RectF(panel.Right - 16 - 100, btnY, 100, 34);
+        if (_ui.Button("fleet.close", closeR, "CLOSE", Theme.Cyan, primary: true)) _fleetOpen = false;
+        r.End();
+
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_fleetJustOpened) _fleetOpen = false;
+        _fleetJustOpened = false;
+    }
+
+    /// <summary>Start or stop one bot (remote -> server, local -> its runtime).</summary>
+    private static void ToggleBotRun(Bot b)
+    {
+        if (b.IsRemote) { b.Remote?.StartStop(b.RemoteName, !(b.Remote?.BotRunning(b.RemoteName) ?? false)); return; }
+        if (b.Runtime.Running) b.Runtime.Stop(); else b.Runtime.Start(b.Graph, b.Servers);
+    }
+
+    /// <summary>A short connection label + colour for the fleet board, for either a local or remote bot.</summary>
+    private static (string text, Color color) FleetConn(Bot b)
+    {
+        if (b.IsRemote)
+        {
+            bool linked = b.Remote?.Connected == true;
+            if (!linked) return ("link down", Theme.Alert);
+            return b.Remote!.BotRunning(b.RemoteName) ? ("live (remote)", Theme.Ok) : ("idle (remote)", Theme.Idle);
+        }
+        return b.Runtime.State switch
+        {
+            IrcState.Connected => ("live " + Ircuitry.Core.Icons.Glyph("caret-right") + " " + b.Runtime.CurrentNick, Theme.Ok),
+            IrcState.Connecting => ("connecting", Theme.Warn),
+            IrcState.Registering => ("registering", Theme.Warn),
+            IrcState.Error => ("error", Theme.Alert),
+            _ => b.Runtime.Running ? ("starting", Theme.Warn) : ("offline", Theme.Idle),
+        };
     }
 
     /// <summary>A cozy thought-bubble above a channel card showing the latest line, fading by recency.</summary>

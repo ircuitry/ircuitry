@@ -75,6 +75,9 @@ public sealed partial class MainScreen
             r.Text(nf, n, new Vector2(c.X - nf.MeasureString(n).X / 2f, c.Y - nf.MeasureString(n).Y / 2f), Theme.TextInk);
         }
 
+        var fleetR = Btn(38, 14);   // fleet health board (every bot's live status); reddens when any local bot has errors
+        if (IconBtn(r, fleetR, Ircuitry.Core.Icons.Glyph("heartbeat"), 16, _app.Bots.Any(b => !b.IsRemote && b.Runtime.ErrorCount > 0) ? Theme.Alert : (Color?)null)) { _fleetOpen = true; _fleetJustOpened = true; _fleetScroll = 0; }
+
         var netR = Btn(38, 14);   // app-global network map (every bot + server + channel)
         if (IconBtn(r, netR, Ircuitry.Core.Icons.Glyph("map-trifold"), 16)) { _networkOpen = true; _networkJustOpened = true; }
         var histR = Btn(38);

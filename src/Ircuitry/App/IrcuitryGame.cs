@@ -187,6 +187,8 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showsecretpick") >= 0) ms?.DebugOpenSecretPick();
         if (Array.IndexOf(_args, "--showservers") >= 0) ms?.DebugShowServers();
         if (Array.IndexOf(_args, "--shownetwork") >= 0) ms?.DebugShowNetwork();
+        if (Array.IndexOf(_args, "--showfleet") >= 0) ms?.DebugShowFleet();
+        if (Array.IndexOf(_args, "--showeval") >= 0) ms?.DebugShowEval();
         if (Array.IndexOf(_args, "--showach") >= 0) ms?.DebugShowAchievements();
         if (Array.IndexOf(_args, "--showircv3") >= 0) ms?.DebugOpenIrcv3Cat();
         if (Array.IndexOf(_args, "--showfilemenu") >= 0) ms?.DebugOpenFileMenu();
