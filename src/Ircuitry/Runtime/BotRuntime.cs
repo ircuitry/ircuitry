@@ -28,6 +28,7 @@ public sealed class BotRuntime
     // so a heal flow (Watchdog -> Reconnect) can bring a dropped connection back.
     private System.Threading.Thread? _wdThread;
     private volatile bool _wdRun;
+    private volatile int _wdGen;   // generation token so a stale watchdog thread from a previous Start exits promptly
     private readonly Dictionary<string, DateTime> _wdLast = new();
 
     private readonly ConcurrentDictionary<string, DateTime> _activity = new();
@@ -182,17 +183,20 @@ public sealed class BotRuntime
     // ----- watchdog/auto-heal ticker -----
     private void EnsureWatchdog()
     {
-        if (_wdThread is { IsAlive: true }) return;
+        // always (re)arm: a previous Start's thread may still be sleeping/dying, so a plain IsAlive check would
+        // leave us with no live watchdog after a stop/start. The generation token makes any stale thread exit.
         _wdRun = true;
-        _wdThread = new System.Threading.Thread(WatchdogLoop) { IsBackground = true, Name = "watchdog:" + OwnerName };
+        int gen = ++_wdGen;
+        _wdThread = new System.Threading.Thread(() => WatchdogLoop(gen)) { IsBackground = true, Name = "watchdog:" + OwnerName };
         _wdThread.Start();
     }
 
-    private void WatchdogLoop()
+    private void WatchdogLoop(int gen)
     {
-        while (_wdRun)
+        while (_wdRun && gen == _wdGen)
         {
             System.Threading.Thread.Sleep(1000);
+            if (!_wdRun || gen != _wdGen) break;
             var g = _runGraph;
             if (g == null) continue;
             List<Node> wds;
@@ -205,8 +209,14 @@ public sealed class BotRuntime
             foreach (var n in wds)
             {
                 int interval = Math.Max(5, int.TryParse(n.GetParam("seconds"), out var s) ? s : 30);
-                if (!_wdLast.TryGetValue(n.Id, out var t)) { _wdLast[n.Id] = now; continue; }   // wait one interval first
-                if ((now - t).TotalSeconds >= interval) { _wdLast[n.Id] = now; try { host.FireNode(n, WatchdogVars()); } catch { } }
+                bool due;
+                lock (_wdLast)   // shared with Stop()'s clear
+                {
+                    if (!_wdLast.TryGetValue(n.Id, out var t)) { _wdLast[n.Id] = now; continue; }   // wait one interval first
+                    due = (now - t).TotalSeconds >= interval;
+                    if (due) _wdLast[n.Id] = now;
+                }
+                if (due) { try { host.FireNode(n, WatchdogVars()); } catch { } }
             }
         }
     }

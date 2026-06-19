@@ -578,11 +578,15 @@ public sealed partial class MainScreen : IScreen
         _installOpen = true; _installJustOpened = true;
     }
 
-    /// <summary>Scan a community node's composite subgraph for its real powers (the "can't lie" trust card).</summary>
+    /// <summary>Scan a community node's composite subgraph for its real powers (the "can't lie" trust card).
+    /// A non-composite custom node carries a raw code/script blob instead of a subgraph - that's the
+    /// highest-trust case, so report "Runs code" rather than scanning an (empty) subgraph and calling it benign.</summary>
     private static List<Ircuitry.Graph.Capability> NodeCaps(NodeDef def)
     {
+        if (def.SubgraphProvider == null)
+            return new List<Ircuitry.Graph.Capability> { new("code", "Runs code", "executes a raw script blob on this machine - review it before installing", true) };
         NodeGraph sub;
-        try { sub = def.SubgraphProvider?.Invoke() ?? new NodeGraph(); } catch { sub = new NodeGraph(); }
+        try { sub = def.SubgraphProvider.Invoke() ?? new NodeGraph(); } catch { sub = new NodeGraph(); }
         return Ircuitry.Graph.Capabilities.Scan(sub);
     }
 
