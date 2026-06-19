@@ -316,6 +316,7 @@ public sealed partial class MainScreen
             return _tabDrawX[b] = cur;
         }
 
+        int n0 = bots.Count;   // closing a tab (the ×) mutates Bots mid-draw - bail before our stale indices bite
         int dragK = -1;
         for (int k = 0; k < elems.Count; k++)
         {
@@ -324,7 +325,9 @@ public sealed partial class MainScreen
             if (slot.Right < gutter.X - 2 || slot.X > gutter.X + viewW + 2) continue;
             if (elems[k].kind == 1) DrawGroupHeader(r, elems[k].g!, slot, gf, clock, gutter, viewW, noDrag);
             else DrawOneTab(r, elems[k].bot, slot, tf, clock, gutter, viewW, noDrag);
+            if (bots.Count != n0) break;   // a tab just closed itself; the rest of the plan is stale
         }
+        if (bots.Count != n0) { r.End(); _tabDragBot = null; _tabDragging = false; return; }
         if (dragK >= 0)
             DrawOneTab(r, elems[dragK].bot, new RectF(DrawX(dragK), top, ws[dragK], tabH), tf, clock, gutter, viewW, noDrag, lifted: true);
 
