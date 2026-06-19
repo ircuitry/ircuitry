@@ -161,6 +161,7 @@ public sealed class ServerConn : IRuntimeSink
                     if ((now - kv.Value).TotalSeconds >= 4) { _client.TagMsg(kv.Key, "+typing=active"); _typing[kv.Key] = now; }
 
                 ExpireApprovals(DateTime.UtcNow);   // deny any human-in-the-loop gate that has timed out
+                SweepTempBans();                    // lift any temp bans whose TTL elapsed (survives restart via State)
             }
         })
         { IsBackground = true, Name = "bot-timer:" + Label };
@@ -241,6 +242,7 @@ public sealed class ServerConn : IRuntimeSink
             bool isbot = m.Tags.ContainsKey("bot") || m.Tags.ContainsKey("draft/bot");
             string msgid = m.Tag("msgid"); if (msgid.Length == 0) msgid = m.Tag("draft/msgid");
             vars["account"] = account;
+            vars["host"] = m.Host ?? "";             // for the Ban Mask node to build host/domain masks
             vars["isbot"] = isbot ? "true" : "false";
             vars["msgid"] = msgid;
             vars["__reply"] = msgid;                 // correlate replies to the triggering message (+reply)
@@ -549,6 +551,23 @@ public sealed class ServerConn : IRuntimeSink
             for (int i = _pending.Count - 1; i >= 0; i--)
                 if (_pending[i].HasTimeout && utcNow >= _pending[i].Expires) { (due ??= new()).Add(_pending[i]); _pending.RemoveAt(i); }
         if (due != null) foreach (var p in due) ResumeApproval(p, 1, "(timed out)", "");
+    }
+
+    // auto-lift temp bans (State key "__tempban|<channel><mask>" = expiry unix sec). Only the server
+    // actually in the channel lifts it; the entry persists in State so a restart still cleans it up.
+    private void SweepTempBans()
+    {
+        foreach (var (key, val) in _owner.StateWithPrefix("__tempban|"))
+        {
+            if (!long.TryParse(val, out var exp) || DateTimeOffset.UtcNow.ToUnixTimeSeconds() < exp) continue;
+            var rest = key.Substring("__tempban|".Length);
+            int i = rest.IndexOf('\u0001');
+            if (i < 0) { _owner.RemoveState(key); continue; }
+            string channel = rest[..i], mask = rest[(i + 1)..];
+            if (!_session.InChannel(channel)) continue;          // a different server owns this channel
+            _client.SendRaw($"MODE {channel} -b {mask}");
+            _owner.RemoveState(key);
+        }
     }
 
     private static string Summarize(string? family, Dictionary<string, string> v)

@@ -107,6 +107,31 @@ public static class NodeCatalog
 
     private static string JsonStr(string s) => System.Text.Json.JsonSerializer.Serialize(s);
 
+    /// <summary>Build an IRC ban mask from a nick + host + account at a chosen breadth (for the Ban Mask node).</summary>
+    private static string BanMask(string breadth, string nick, string host, string account)
+    {
+        nick = nick.Trim(); host = host.Trim(); account = account.Trim();
+        string Nk() => (nick.Length > 0 ? nick : "*") + "!*@*";
+        string Hs() => host.Length > 0 ? "*!*@" + host : Nk();
+        string Dm() => host.Length > 0 ? "*!*@" + DomainOf(host) : Nk();
+        return breadth switch
+        {
+            "nick" => Nk(),
+            "host" => Hs(),
+            "domain" => Dm(),
+            "account" => account.Length > 0 ? "$a:" + account : Hs(),
+            _ => account.Length > 0 ? "$a:" + account : host.Length > 0 ? Dm() : Nk(),   // smart
+        };
+    }
+
+    private static string DomainOf(string h)
+    {
+        if (h.Length == 0) return "*";
+        if (Regex.IsMatch(h, @"^\d{1,3}(\.\d{1,3}){3}$")) return h[..h.LastIndexOf('.')] + ".*";   // IPv4 -> mask last octet
+        var parts = h.Split('.');
+        return parts.Length >= 3 ? "*." + string.Join('.', parts[^2..]) : h;                      // keep the last two labels
+    }
+
     /// <summary>Render HTML (e.g. a ZIM article body) down to readable plain text - drop scripts/styles, turn
     /// block tags into line breaks, strip the rest, decode entities, and tidy whitespace.</summary>
     private static string StripHtml(string html)
@@ -444,6 +469,41 @@ public static class NodeCatalog
                 Description = "Fires when the bot is invited to a channel. Outputs who invited it and the channel. Wire into Join (gated on a trusted nick) to accept invites.",
                 Outputs = new[] { Ex("then"), Us("by"), Ch("channel") },
                 Exec = c => { c.SetOut(1, c.Var("nick")); c.SetOut(2, c.Var("channel")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "irc.banmask", Icon = "shield-slash", Title = "Ban Mask", Subtitle = "irc", Category = NodeCategory.Ircv3,
+                Description = "Builds a sensible IRC ban mask from a nick + their host/account at a chosen breadth (nick, host, domain, or $a:account extban). 'smart' uses the account if known, else a domain mask, else the nick. host/account default to the triggering event's values; feed the mask into Temp Ban or a Raw MODE +b.",
+                Inputs = new[] { Us("nick"), Tx("host"), Tx("account") },
+                Outputs = new[] { Tx("mask") },
+                Params = new[] { P("breadth", "Breadth", ParamType.Choice, "smart", "", new[] { "smart", "nick", "host", "domain", "account" }) },
+                SummaryParam = "breadth",
+                Exec = c => c.SetOut(0, BanMask(c.Param("breadth"), c.InOr(0, c.Var("nick")), c.InOr(1, c.Var("host")), c.InOr(2, c.Var("account")))),
+            },
+            new()
+            {
+                TypeId = "irc.tempban", Icon = "timer", Title = "Temp Ban", Subtitle = "irc", Category = NodeCategory.Action,
+                Description = "Sets a channel ban (+b mask) and automatically lifts it after N minutes. The pending ban is stored in the bot's state, so it is still lifted after a restart. Wire a Ban Mask into 'mask'.",
+                Inputs = new[] { Ex(), Ch("channel"), Tx("mask") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("channel", "Channel", ParamType.Text, "", "#room (blank = the triggering channel)"),
+                    P("minutes", "Lift after (minutes)", ParamType.Int, "30", "30"),
+                },
+                SummaryParam = "minutes",
+                Exec = c =>
+                {
+                    string channel = c.InOr(1, c.Resolve(c.Param("channel"))); if (channel.Length == 0) channel = c.Var("channel");
+                    string mask = c.InOr(2, "");
+                    if (channel.Length == 0 || mask.Length == 0) { c.Log("Temp Ban: need a channel and a mask", LogLevel.Error); c.Pulse(0); return; }
+                    int mins = Math.Max(1, c.ParamInt("minutes", 30));
+                    c.Raw($"MODE {channel} +b {mask}");
+                    long exp = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + mins * 60L;
+                    c.SetState("__tempban|" + channel + "\u0001" + mask, exp.ToString());
+                    c.Log($"Temp Ban: +b {mask} on {channel} for {mins}m", LogLevel.Action);
+                    c.Pulse(0);
+                },
             },
             new()
             {

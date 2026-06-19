@@ -260,6 +260,9 @@ public sealed class BotRuntime
 
     public string GetState(string key) => _state.TryGetValue(key, out var v) ? v : "";
     public void SetState(string key, string value) => _state[key] = value;
+    public void RemoveState(string key) => _state.TryRemove(key, out _);
+    public System.Collections.Generic.List<(string key, string value)> StateWithPrefix(string prefix)
+        => _state.Where(kv => kv.Key.StartsWith(prefix, System.StringComparison.Ordinal)).Select(kv => (kv.Key, kv.Value)).ToList();
 
     // ---- run history (newest last, bounded at 1000) ----
     public List<RunRecord> History() { lock (_historyLock) return new List<RunRecord>(_history); }
