@@ -43,37 +43,49 @@ public sealed class DockManager
 
     public void Add(Panel p) { _panels.Add(p); }
 
-    /// <summary>Place panels for this viewport. Map is the full work area; docked panels carve strips off the
-    /// edges (overlaying the map); floating panels use their own rect.</summary>
+    /// <summary>Place panels for this viewport by sequentially CARVING a shrinking 'remaining' rect: Left then
+    /// Right take full-height side strips, then Top then Bottom take bands spanning only the width BETWEEN the
+    /// side strips. Map is whatever is left - the true uncovered central region (never overlapping a panel).
+    /// Floating panels use their own rect.</summary>
     public void Layout(RectF work)
     {
         _work = work;
-        // group docked panels per edge, in Order
-        Map = work;
+        RectF rem = work;
         foreach (var edge in new[] { Edge.Left, Edge.Right, Edge.Top, Edge.Bottom })
         {
             var on = _panels.Where(p => p.Visible && p.Dock == edge).OrderBy(p => p.Order).ToList();
             if (on.Count == 0) continue;
-            // share the edge's cross-length equally among stacked panels
+            bool side = edge is Edge.Left or Edge.Right;
+            // clamp each panel against the FULL work area (so a panel doesn't shrink as `rem` shrinks under it)
+            foreach (var p in on) p.Size = Math.Clamp(p.Size, 120, (side ? work.W : work.H) * 0.8f);
+            float band = on.Max(p => p.Size);   // the strip this edge carves off `rem`
             float n = on.Count;
             for (int i = 0; i < on.Count; i++)
             {
                 var p = on[i];
-                p.Size = Math.Clamp(p.Size, 120, (edge is Edge.Left or Edge.Right ? work.W : work.H) * 0.8f);
-                if (edge is Edge.Left or Edge.Right)
+                if (side)
                 {
-                    float h = work.H / n, y = work.Y + h * i;
-                    float x = edge == Edge.Left ? work.X : work.Right - p.Size;
+                    float h = rem.H / n, y = rem.Y + h * i;             // stacked side panels split the height
+                    float x = edge == Edge.Left ? rem.X : rem.Right - p.Size;
                     p.Rect = new RectF(x, y, p.Size, h);
                 }
                 else
                 {
-                    float w = work.W / n, x = work.X + w * i;
-                    float y = edge == Edge.Top ? work.Y : work.Bottom - p.Size;
+                    float w = rem.W / n, x = rem.X + w * i;             // top/bottom bands span the carved width
+                    float y = edge == Edge.Top ? rem.Y : rem.Bottom - p.Size;
                     p.Rect = new RectF(x, y, w, p.Size);
                 }
             }
+            // shrink the remaining map area so later edges - and Map itself - dodge this strip
+            rem = edge switch
+            {
+                Edge.Left  => new RectF(rem.X + band, rem.Y, MathF.Max(0, rem.W - band), rem.H),
+                Edge.Right => new RectF(rem.X, rem.Y, MathF.Max(0, rem.W - band), rem.H),
+                Edge.Top   => new RectF(rem.X, rem.Y + band, rem.W, MathF.Max(0, rem.H - band)),
+                _          => new RectF(rem.X, rem.Y, rem.W, MathF.Max(0, rem.H - band)),
+            };
         }
+        Map = rem;
         foreach (var p in _panels.Where(p => p.Visible && p.Dock == Edge.Float))
         {
             // keep a floating panel on-screen
@@ -85,33 +97,13 @@ public sealed class DockManager
 
     public bool OverPanel(Vector2 m) => _panels.Any(p => p.Visible && p.Rect.Contains(m));
 
-    /// <summary>The bottom-right of the visible map - i.e. the work corner minus any right/bottom docked panel,
-    /// so corner buttons sit on the map and dodge a panel that would cover them.</summary>
-    public Vector2 VisibleMapCorner()
-    {
-        float right = _work.Right, bottom = _work.Bottom;
-        foreach (var p in _panels.Where(p => p.Visible && p.Dock != Edge.Float))
-        {
-            if (p.Dock == Edge.Right) right = MathF.Min(right, p.Rect.X);
-            if (p.Dock == Edge.Bottom) bottom = MathF.Min(bottom, p.Rect.Y);
-        }
-        return new Vector2(right, bottom);
-    }
+    /// <summary>The bottom-right of the carved Map, so corner buttons sit on the visible map and dodge any
+    /// right/bottom docked panel that would cover them.</summary>
+    public Vector2 VisibleMapCorner() => new(Map.Right, Map.Bottom);
 
-    /// <summary>The sub-rect of the map not covered by any edge-docked panel - where on-map HUD (the info card,
-    /// zoom readout, corner buttons) should live so it dodges the panels instead of hiding behind them.</summary>
-    public RectF VisibleMapRect()
-    {
-        float l = _work.X, t = _work.Y, rgt = _work.Right, b = _work.Bottom;
-        foreach (var p in _panels.Where(p => p.Visible && p.Dock != Edge.Float))
-        {
-            if (p.Dock == Edge.Left) l = MathF.Max(l, p.Rect.Right);
-            else if (p.Dock == Edge.Right) rgt = MathF.Min(rgt, p.Rect.X);
-            else if (p.Dock == Edge.Top) t = MathF.Max(t, p.Rect.Bottom);
-            else if (p.Dock == Edge.Bottom) b = MathF.Min(b, p.Rect.Y);
-        }
-        return new RectF(l, t, MathF.Max(0, rgt - l), MathF.Max(0, b - t));
-    }
+    /// <summary>The sub-rect of the map not covered by any edge-docked panel (the carved Map) - where on-map HUD
+    /// (info card, zoom readout, slow-mo pill, minimap, corner buttons) lives so it dodges the panels.</summary>
+    public RectF VisibleMapRect() => Map;
 
     /// <summary>Begin dragging a panel by its header (called when the header is pressed).</summary>
     public void BeginDrag(Panel p, Vector2 mouse) { _drag = p; _dragOff = new Vector2(mouse.X - p.Rect.X, mouse.Y - p.Rect.Y); }

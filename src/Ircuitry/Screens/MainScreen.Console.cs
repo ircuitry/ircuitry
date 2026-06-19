@@ -36,7 +36,7 @@ public sealed partial class MainScreen
     private void DrawConsole(Renderer r)
     {
         var p = _l.Console;
-        ConsoleResizeHandle(r, p);
+        // (console resizing is owned by the dock system now - drag its top border, like any docked panel)
 
         var content = new RectF(p.X + 8, p.Y + Hud.HeaderH + 2, p.W - 16, p.H - Hud.HeaderH - 8);
         RebuildConsoleRows(r, content.W);
@@ -249,29 +249,4 @@ public sealed partial class MainScreen
         r.End();
     }
 
-    private void ConsoleResizeHandle(Renderer r, RectF p)
-    {
-        float cx = p.X + p.W / 2f;
-        var grab = new RectF(cx - 28, p.Y - 5, 56, 12);
-        var hit = grab.Inflate(8, 8);
-        bool hot = _consoleResizing || (!Modal && hit.Contains(In.Mouse));
-        _consoleResizeHot = hot;   // let the frame's cursor logic show the vertical-resize pointer here
-
-        if (!Modal)
-        {
-            if (In.LeftPressed && hit.Contains(In.Mouse))
-            { _consoleResizing = true; _consoleResizeStartH = _l.Console.H; _consoleResizeStartY = In.Mouse.Y; }
-            if (_consoleResizing)
-            {
-                if (In.LeftDown)
-                    _consoleH = Math.Clamp(_consoleResizeStartH + (_consoleResizeStartY - In.Mouse.Y), 120f, _vh * 0.72f);
-                else _consoleResizing = false;
-            }
-        }
-
-        r.Begin();
-        r.RoundFill(grab, hot ? Theme.Lime : Theme.Edge, 6f);
-        for (int i = -1; i <= 1; i++) r.Disc(new Vector2(cx + i * 8, p.Y + 1), 1.7f, Theme.PanelHi);
-        r.End();
-    }
 }

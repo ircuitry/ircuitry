@@ -718,7 +718,7 @@ public partial class MainScreen
 
     public void DebugOpenRemote()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH); OpenRemote();
+        _l = DockLayout(); OpenRemote();
         var u = System.Environment.GetEnvironmentVariable("IRCUITRY_REMOTE_URL");
         var t = System.Environment.GetEnvironmentVariable("IRCUITRY_REMOTE_TOKEN");
         if (!string.IsNullOrEmpty(u)) { _rmUrl = u; _rmToken = t ?? ""; ConnectRemote(); }   // headless connected-view check

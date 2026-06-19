@@ -47,7 +47,7 @@ public sealed partial class MainScreen
         _ircWinOpen = true; _ircWinJustOpened = true;
     }
 
-    public void DebugOpenIrcWindow() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenIrcWindow(); }
+    public void DebugOpenIrcWindow() { _l = DockLayout(); OpenIrcWindow(); }
     public bool DebugAutoIrcChannel;   // screenshot helper: auto-select the first channel once it exists
 
     private void ConsoleViewButton(Renderer r)

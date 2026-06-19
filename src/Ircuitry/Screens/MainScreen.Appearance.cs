@@ -27,7 +27,7 @@ public partial class MainScreen
 
     private static readonly string[] FontOptions = { "Default", "Rounded", "Mono", "Custom" };
 
-    public void DebugOpenAppearance() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenAppearance(); _aprTab = 1; }
+    public void DebugOpenAppearance() { _l = DockLayout(); OpenAppearance(); _aprTab = 1; }
     public void DebugThemeInstall() => StageThemeInstall("{\"format\":\"ircuitry.theme.v1\",\"name\":\"Midnight Berry\",\"description\":\"A cozy dark theme with berry accents and a soft glow.\",\"author\":\"ircuitry\",\"category\":\"Dark\",\"dark\":true,\"colors\":{\"void\":\"#241F2E\",\"backdrop\":\"#2A2438\",\"panel\":\"#322B43\",\"panelHi\":\"#3B3350\",\"panelLo\":\"#272034\",\"hairline\":\"#473C5C\",\"edge\":\"#5A4C76\",\"text\":\"#EDE6FA\",\"textDim\":\"#B9ADD3\",\"cyan\":\"#7FD6E4\",\"amber\":\"#F2B86A\",\"magenta\":\"#F08AB0\",\"violet\":\"#B79EE8\",\"lime\":\"#9BD36A\",\"berry\":\"#C88ED6\"},\"knobs\":{\"glow\":1.4,\"glass\":true,\"opacity\":0.94}}");
 
     public void OpenAppearance()

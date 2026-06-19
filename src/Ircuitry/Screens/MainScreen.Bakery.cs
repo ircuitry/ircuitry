@@ -28,7 +28,7 @@ public partial class MainScreen
 
     public void OpenBakery()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         _bakeryOpen = true; _bakeryJustOpened = true;
         _bakeSel.Clear(); _bakeConf.Clear(); _bakeSelKey = ""; _bakeConn = 0; _bakeName = "";
     }

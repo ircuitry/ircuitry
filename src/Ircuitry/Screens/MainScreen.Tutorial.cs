@@ -25,7 +25,7 @@ public sealed partial class MainScreen
     /// <summary>Debug/screenshot hook: jump to a step with the prerequisite nodes already built.</summary>
     public void DebugTutorialStep(int step)
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         ResetTut();
         _tut.Begin();
         if (step >= 2) { var c = _editor.Spawn(NodeCatalog.Get("event.command"), new Vector2(-160, 0)); c.SetParam("command", step >= 5 ? "hello" : ""); _tutCmdId = c.Id; }

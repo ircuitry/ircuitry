@@ -782,17 +782,18 @@ public sealed class GraphEditor
     private void DrawMinimap(Renderer r, RectF canvas)
     {
         _mmActive = false;
-        if (Graph.Nodes.Count < 2 || canvas.W < 360 || canvas.H < 300) return;
+        if (canvas.W < 360 || canvas.H < 300) return;   // only suppressed on a tiny viewport, not on an empty graph
 
+        var vtl = Cam.ScreenToWorld(new Vector2(canvas.Left, canvas.Top));
+        var vbr = Cam.ScreenToWorld(new Vector2(canvas.Right, canvas.Bottom));
         var min = new Vector2(float.MaxValue); var max = new Vector2(float.MinValue);
         foreach (var n in Graph.Nodes)
         {
             var l = NodeLayout.For(n);
             min = Vector2.Min(min, l.Card.Pos); max = Vector2.Max(max, new Vector2(l.Card.Right, l.Card.Bottom));
         }
+        if (Graph.Nodes.Count == 0) { min = vtl; max = vbr; }   // empty graph: bound the content by the viewport so the box still draws
         _mmContentMin = min; _mmContentMax = max;   // node bbox before we fold in the (movable) viewport
-        var vtl = Cam.ScreenToWorld(new Vector2(canvas.Left, canvas.Top));
-        var vbr = Cam.ScreenToWorld(new Vector2(canvas.Right, canvas.Bottom));
         min = Vector2.Min(min, vtl); max = Vector2.Max(max, vbr);
         var pad = (max - min) * 0.05f + new Vector2(24);
         min -= pad; max += pad;

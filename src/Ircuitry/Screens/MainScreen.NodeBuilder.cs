@@ -31,15 +31,15 @@ public partial class MainScreen
 
     private static readonly string[] NbCategories = { "Action", "Data", "Logic", "Ai", "Filter", "Storage", "Code" };
 
-    public void DebugOpenNodeBuilder() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenNodeBuilder(); }
+    public void DebugOpenNodeBuilder() { _l = DockLayout(); OpenNodeBuilder(); }
     public void DebugOpenMaxBuilder()
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH); OpenNodeBuilder(); _nbMax = true;
+        _l = DockLayout(); OpenNodeBuilder(); _nbMax = true;
         var n = _nbEditor!.Spawn(NodeCatalog.Get("action.reply"), new Vector2(0, 230));
         n.SetParam("message", "hello {nick}");
         _nbEditor.Selection.Clear(); _nbEditor.Selection.Add(n.Id);
     }
-    public void DebugOpenComposite() { _l = Layout.Compute(_vw, _vh, _consoleH); OpenNodeBuilder(); _nbTitle = "Shout"; }
+    public void DebugOpenComposite() { _l = DockLayout(); OpenNodeBuilder(); _nbTitle = "Shout"; }
 
     public void OpenNodeBuilder()
     {
@@ -50,7 +50,7 @@ public partial class MainScreen
     /// <summary>Re-open an installed custom node to edit its recipe in the mini editor.</summary>
     public void OpenNodeBuilderForEdit(string typeId)
     {
-        _l = Layout.Compute(_vw, _vh, _consoleH);
+        _l = DockLayout();
         try
         {
             var path = System.IO.Path.Combine(NodeCatalog.CustomDir, typeId + ".ircnode");

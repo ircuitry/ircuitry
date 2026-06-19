@@ -33,13 +33,9 @@ public sealed partial class MainScreen : IScreen
     private Vector2 _dragStart;
     private bool _dragging;
     private float _paletteScroll;
-    // event console: user-resizable height (0 = default), scrollable full history, and the read-only IRC window
-    private float _consoleH;
+    // event console: scroll position. Sizing + resizing are owned by the dock system (drag its top border).
     private readonly DockManager _dock = new();
     private float _consoleScroll;
-    private bool _consoleResizing;
-    private bool _consoleResizeHot;     // mouse over the console resize handle this frame (for the resize cursor)
-    private float _consoleResizeStartH, _consoleResizeStartY;
     private float _inspScroll;        // inspector panel scroll (the connection panel can run long)
     private string _inspKey = "";     // what the inspector is showing, to reset scroll on change
     private string _nodeTestId = "", _nodeTestResult = "";   // last "test this node" result
@@ -865,7 +861,7 @@ public sealed partial class MainScreen : IScreen
         _editor.Draw(r, _l.Canvas, In, clock);
         DrawRemotePeers(r);   // co-editors' live cursors + soft locks, over the canvas
         r.Begin();
-        if (Bot.Graph.Nodes.Count == 0) EmptyHint(r, _l.Canvas, clock);
+        if (Bot.Graph.Nodes.Count == 0) EmptyHint(r, _dock.VisibleMapRect(), clock);
         CanvasFrame(r, _l.Canvas);
         r.End();
         DrawPlaybackBar(r);   // slow-motion run playback control (over the canvas)
@@ -1108,7 +1104,6 @@ public sealed partial class MainScreen : IScreen
         else if (Modal) pick = c.Pointer;
         else if (DockResizeCursor(out var dc)) pick = dc;                  // hovering (or dragging) a panel's resize border
         else if (_editor.IsGrabbing) pick = c.Grab;                       // keep grabbing even if the pointer strays off-canvas
-        else if (_consoleResizing || _consoleResizeHot) pick = c.ResizeV;
         else if (_l.Canvas.Contains(In.Mouse)) pick = In.Shift ? c.Crosshair : c.Hand;
         else pick = c.Pointer;
         try { Mouse.SetCursor(pick); } catch { }
@@ -2224,7 +2219,7 @@ public sealed partial class MainScreen : IScreen
 
     private void PlaybackLayout(out RectF pill, out RectF iconP, out RectF toggleR, out RectF delayBtn, out RectF slot, out RectF panel)
     {
-        var c = _l.Canvas;
+        var c = _dock.VisibleMapRect();   // ride the visible map so a left-docked Library never covers the pill
         bool on = Ircuitry.Core.Playback.SlowMo;
         float slotW = on ? (_app.ActiveBot.Runtime.PlaybackPending >= 4 ? 116f : 56f) : 0f;
         const float h = 30, iconW = 22, toggleW = 100, delayW = 66, gap = 8;
