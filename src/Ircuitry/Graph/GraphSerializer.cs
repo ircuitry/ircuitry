@@ -20,6 +20,20 @@ public static class GraphSerializer
         public string name { get; set; } = "untitled";
         public List<NodeRec> nodes { get; set; } = new();
         public List<ConnRec> connections { get; set; } = new();
+        public List<FrameRec>? frames { get; set; }   // sticky notes / region frames (absent in old files)
+    }
+
+    private sealed class FrameRec
+    {
+        public string id { get; set; } = "";
+        public float x { get; set; }
+        public float y { get; set; }
+        public float w { get; set; } = 300;
+        public float h { get; set; } = 190;
+        public string title { get; set; } = "Note";
+        public string body { get; set; } = "";
+        public int color { get; set; }
+        public bool collapsed { get; set; }
     }
 
     private sealed class NodeRec
@@ -50,6 +64,8 @@ public static class GraphSerializer
             doc.nodes.Add(new NodeRec { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, colorTag = n.ColorTag, @params = new(n.Params) });
         foreach (var c in g.Connections)
             doc.connections.Add(new ConnRec { from = c.FromNode, fromPin = c.FromPin, to = c.ToNode, toPin = c.ToPin });
+        if (g.Frames.Count > 0)
+            doc.frames = g.Frames.Select(f => new FrameRec { id = f.Id, x = f.Pos.X, y = f.Pos.Y, w = f.Size.X, h = f.Size.Y, title = f.Title, body = f.Body, color = f.ColorIndex, collapsed = f.Collapsed }).ToList();
         return JsonSerializer.Serialize(doc, Opts);
     }
 
@@ -85,6 +101,10 @@ public static class GraphSerializer
             // route through Connect so single-wire-input and pin-kind/range rules are enforced
             g.Connect(c.from, c.fromPin, c.to, c.toPin);
         }
+        if (doc.frames != null)
+            foreach (var fr in doc.frames)
+                g.Frames.Add(new Frame(string.IsNullOrEmpty(fr.id) ? Frame.Create(Vector2.Zero).Id : fr.id)
+                { Pos = new Vector2(fr.x, fr.y), Size = new Vector2(fr.w, fr.h), Title = fr.title ?? "Note", Body = fr.body ?? "", ColorIndex = fr.color, Collapsed = fr.collapsed });
         return (g, doc.name);
     }
 

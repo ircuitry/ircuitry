@@ -61,6 +61,7 @@ public sealed partial class MainScreen
         else
         {
             Item("+", "Add node here…", "2×click", true, () => OpenQuickAdd(_ctxAnchor));
+            Item(Ircuitry.Core.Icons.Glyph("note"), "Add sticky note", "", true, () => { _editor.AddFrame(world); _app.MarkDirty(); });
             Item(Ircuitry.Core.Icons.Glyph("tray"), "Paste here", "Ctrl+V", canPaste, () => { _editor.PasteAtCursor(world); _app.MarkDirty(); });
             Item(Ircuitry.Core.Icons.Glyph("square"), "Select all", "Ctrl+A", hasNodes, () => _editor.SelectAll());
             Sep();

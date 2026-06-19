@@ -2365,14 +2365,16 @@ public sealed partial class MainScreen : IScreen
         var p = _l.Inspector;
         var content = new RectF(p.X + 4, p.Y + Hud.HeaderH + 2, p.W - 8, p.H - Hud.HeaderH - 6);
         // reset scroll when the inspected thing changes (node id, or which server is selected)
-        string key = (_editor.SelectedSingle?.Id ?? "conn") + ":" + Bot.SelectedServer;
+        string key = (_editor.SelectedFrame?.Id ?? _editor.SelectedSingle?.Id ?? "conn") + ":" + Bot.SelectedServer;
         if (key != _inspKey) { _inspKey = key; _inspScroll = 0; }
         if (!Modal) _inspScroll = Wheel("insp", _inspScroll, content);
 
         r.Begin(BlendMode.Alpha, content.ToRectangle());
         var scrolled = content.Offset(0, -_inspScroll);   // shift content up by the scroll amount; the scissor still clips to the panel
         var sel = _editor.SelectedSingle;
-        float bottom = sel != null ? DrawNodeInspector(r, scrolled, sel) : DrawConnectionInspector(r, scrolled);
+        float bottom = _editor.SelectedFrame is { } fr ? DrawFrameInspector(r, scrolled, fr)
+                     : sel != null ? DrawNodeInspector(r, scrolled, sel)
+                     : DrawConnectionInspector(r, scrolled);
         r.End();
 
         // clamp scroll to the content height we just measured
@@ -2399,6 +2401,32 @@ public sealed partial class MainScreen : IScreen
             new Vector2(x, y + 4), hover ? Theme.Text : Theme.TextFaint);
         y += 26;
         return hover && In.LeftPressed ? !expanded : expanded;
+    }
+
+    private float DrawFrameInspector(Renderer r, RectF c, Ircuitry.Graph.Frame f)
+    {
+        float x = c.X + 14, w = c.W - 28, y = c.Y + 14;
+        r.Disc(new Vector2(x + 5, y + 11), 5f, Theme.Tag(f.ColorIndex));
+        r.Text(r.Fonts.Get(FontKind.SansBold, 18), "Sticky note", new Vector2(x + 18, y), Theme.Text); y += 26;
+        r.Text(r.Fonts.Get(FontKind.Mono, 11), "annotation · does not run", new Vector2(x + 18, y), Theme.TextFaint); y += 24;
+
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), "TITLE", new Vector2(x, y), Theme.TextDim); y += 18;
+        var nt = _ui.TextField("frame.title", new RectF(x, y, w, 30), f.Title, "Note");
+        if (nt != f.Title) { f.Title = nt; _app.MarkDirty(); }
+        y += 38;
+
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), "TEXT", new Vector2(x, y), Theme.TextDim); y += 18;
+        var nb = _ui.TextArea("frame.body", new RectF(x, y, w, 120), f.Body, "what this part of the workflow does…");
+        if (nb != f.Body) { f.Body = nb; _app.MarkDirty(); }
+        y += 130;
+
+        r.Text(r.Fonts.Get(FontKind.SansBold, 12), "COLOUR", new Vector2(x, y), Theme.TextDim); y += 18;
+        { float sx = x; for (int t = 0; t < Theme.TagCount; t++) { var sr = new RectF(sx, y, 22, 22); sx += 28; r.RoundFill(sr, Theme.Tag(t), 6f); if (f.ColorIndex == t) r.RoundOutline(sr.Inflate(2, 2), Theme.Text, 8f); if (!Modal && sr.Contains(In.Mouse) && In.LeftPressed && f.ColorIndex != t) { f.ColorIndex = t; _app.MarkDirty(); } } y += 34; }
+
+        if (_ui.Button("frame.collapse", new RectF(x, y, w / 2 - 4, 32), Ircuitry.Core.Icons.Glyph(f.Collapsed ? "caret-down" : "caret-up") + (f.Collapsed ? "  Expand" : "  Collapse"), Theme.Idle)) { f.Collapsed = !f.Collapsed; _app.MarkDirty(); }
+        if (_ui.Button("frame.delete", new RectF(x + w / 2 + 4, y, w / 2 - 4, 32), Ircuitry.Core.Icons.Glyph("trash") + "  Delete", Theme.Alert)) { _editor.DeleteFrame(f.Id); _app.MarkDirty(); }
+        y += 42;
+        return y;
     }
 
     private float DrawNodeInspector(Renderer r, RectF c, Node n)

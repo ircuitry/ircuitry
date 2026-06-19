@@ -56,7 +56,18 @@ public sealed class GraphEditor
     public bool CanRedo => _redo.Count > 0;
     public bool CanPaste => _clipNodes is { Count: > 0 };
 
-    private enum Mode { Idle, Panning, DragNodes, DragWire, Box }
+    private enum Mode { Idle, Panning, DragNodes, DragWire, Box, DragFrame, ResizeFrame }
+
+    // sticky notes / region frames (#7): the selected frame (annotation, surfaced in the inspector) + drag state
+    private string? _frameSel;
+    private Vector2 _frameDragOff, _frameStartSize;
+    private readonly Dictionary<string, Vector2> _frameContained = new();   // node id -> offset, for group-move
+    public Frame? SelectedFrame => _frameSel == null ? null : Graph.Frames.FirstOrDefault(f => f.Id == _frameSel);
+    public Frame AddFrame(Vector2 worldPos) { var f = Frame.Create(worldPos - new Vector2(150, 15)); Graph.Frames.Add(f); _frameSel = f.Id; Selection.Clear(); return f; }
+    public void DeleteFrame(string id) { Graph.Frames.RemoveAll(f => f.Id == id); if (_frameSel == id) _frameSel = null; }
+    private const float FrameHandle = 16f;
+    private string? FrameTitleAt(Vector2 mw) { for (int i = Graph.Frames.Count - 1; i >= 0; i--) if (Graph.Frames[i].TitleBar.Contains(mw)) return Graph.Frames[i].Id; return null; }
+    private string? FrameHandleAt(Vector2 mw) { for (int i = Graph.Frames.Count - 1; i >= 0; i--) { var f = Graph.Frames[i]; if (!f.Collapsed && new RectF(f.Pos.X + f.Size.X - FrameHandle, f.Pos.Y + f.Size.Y - FrameHandle, FrameHandle, FrameHandle).Contains(mw)) return f.Id; } return null; }
 
     /// <summary>True while the user is actively panning the canvas or dragging nodes (for a "grab" cursor).</summary>
     public bool IsGrabbing => _mode is Mode.Panning or Mode.DragNodes;
@@ -547,10 +558,36 @@ public sealed class GraphEditor
             case Mode.Box:
                 if (input.LeftReleased) { CommitBox(mw, input.Shift); _mode = Mode.Idle; }
                 break;
+
+            case Mode.DragFrame:
+            {
+                var fr = SelectedFrame;
+                if (fr == null) { _mode = Mode.Idle; break; }
+                var np = mw - _frameDragOff;
+                if ((np - fr.Pos).LengthSquared() > 1) Dragged = true;
+                fr.Pos = SnapToGrid ? SnapPos(np) : np;
+                foreach (var kv in _frameContained) { var n = Graph.Find(kv.Key); if (n != null) n.Pos = fr.Pos + kv.Value; }   // carry nodes on the frame
+                if (input.LeftReleased) { CommitFrameDrag(); _mode = Mode.Idle; }
+                break;
+            }
+
+            case Mode.ResizeFrame:
+            {
+                var fr = SelectedFrame;
+                if (fr == null) { _mode = Mode.Idle; break; }
+                var d = mw - _dragStartWorld;
+                if (d.LengthSquared() > 1) Dragged = true;
+                fr.Size = new Vector2(MathF.Max(Frame.MinW, _frameStartSize.X + d.X), MathF.Max(Frame.MinH, _frameStartSize.Y + d.Y));
+                if (input.LeftReleased) { CommitFrameDrag(); _mode = Mode.Idle; }
+                break;
+            }
         }
 
         if (!uiCapturing && _mode == Mode.Idle && (input.KeyPressed(Keys.Delete) || input.KeyPressed(Keys.Back)))
-            DeleteSelection();
+        {
+            if (_frameSel != null) { PushUndo(); DeleteFrame(_frameSel); }
+            else DeleteSelection();
+        }
         if (!uiCapturing && input.Ctrl)
         {
             if (input.KeyPressed(Keys.A)) { Selection.Clear(); foreach (var n in Graph.Nodes) Selection.Add(n.Id); }
@@ -611,10 +648,17 @@ public sealed class GraphEditor
         return Vector2.Distance(p, a + ab * t);
     }
 
+    private void CommitFrameDrag()
+    {
+        if (Dragged && _preDrag != null) { _undo.Add(_preDrag); if (_undo.Count > 60) _undo.RemoveAt(0); _redo.Clear(); }
+        _preDrag = null;
+    }
+
     private void BeginLeftPress(InputState input, Vector2 mw)
     {
         Dragged = false;
         _wireUndo = false;
+        _frameSel = null;            // any press resets frame selection unless a frame is hit below
         var port = HitPort(input.Mouse);
         if (port.HasValue)
         {
@@ -652,6 +696,21 @@ public sealed class GraphEditor
             _dragStartWorld = mw;
             _dragOrigin.Clear();
             foreach (var id in Selection) { var n = Graph.Find(id); if (n != null) _dragOrigin[id] = n.Pos; }
+        }
+        else if (FrameHandleAt(mw) is { } rfId)   // bottom-right corner of a frame = resize
+        {
+            var fr = Graph.Frames.First(f => f.Id == rfId);
+            _frameSel = rfId; Selection.Clear();
+            _mode = Mode.ResizeFrame; _preDrag = Serialize(); _frameStartSize = fr.Size; _dragStartWorld = mw;
+        }
+        else if (FrameTitleAt(mw) is { } tfId)    // frame title bar = select + move (carrying the nodes on it)
+        {
+            var fr = Graph.Frames.First(f => f.Id == tfId);
+            _frameSel = tfId; Selection.Clear();
+            Graph.Frames.Remove(fr); Graph.Frames.Add(fr);   // bring to front
+            _mode = Mode.DragFrame; _preDrag = Serialize(); _frameDragOff = mw - fr.Pos; _dragStartWorld = mw;
+            _frameContained.Clear();
+            foreach (var n in Graph.Nodes) if (fr.FullRect.Contains(NodeLayout.For(n).Card.Center)) _frameContained[n.Id] = n.Pos - fr.Pos;
         }
         else if (input.Shift)        // Shift + drag on empty space = box-select (additive)
         {
@@ -704,6 +763,41 @@ public sealed class GraphEditor
         return null;
     }
 
+    private void DrawFrames(Renderer r)
+    {
+        float z = Cam.Zoom;
+        foreach (var f in Graph.Frames)
+        {
+            var col = Theme.Tag(f.ColorIndex);
+            bool sel = _frameSel == f.Id;
+            var rect = ScreenRect(f.Rect);
+            if (!f.Collapsed)
+            {
+                r.RoundFill(rect, Theme.WithAlpha(col, 0.10f), 10f);
+                r.RoundOutline(rect, Theme.WithAlpha(col, sel ? 0.95f : 0.45f), 10f);
+            }
+            var tb = ScreenRect(f.TitleBar);
+            r.RoundFill(tb, Theme.WithAlpha(col, sel ? 0.95f : 0.82f), 10f);
+            if (z > 0.4f)
+            {
+                var tf = r.Fonts.Get(FontKind.SansBold, Math.Clamp((int)(13 * z), 8, 18));
+                r.Text(tf, r.Ellipsize(tf, f.Title.Length > 0 ? f.Title : "Note", tb.W - 14 * z), new Vector2(tb.X + 8 * z, tb.Center.Y - tf.MeasureString("Xg").Y / 2f), Theme.TextInk);
+            }
+            if (!f.Collapsed && f.Body.Length > 0 && z > 0.5f)
+            {
+                var bf = r.Fonts.Get(FontKind.Sans, Math.Clamp((int)(12 * z), 8, 15));
+                float lh = bf.MeasureString("Xg").Y + 2 * z, ty = tb.Bottom + 6 * z;
+                foreach (var line in f.Body.Split('\n'))
+                {
+                    if (ty + lh > rect.Bottom - 4 * z) break;
+                    r.Text(bf, r.Ellipsize(bf, line, rect.W - 16 * z), new Vector2(rect.X + 8 * z, ty), Theme.WithAlpha(Theme.Text, 0.82f));
+                    ty += lh;
+                }
+            }
+            if (sel && !f.Collapsed) r.Disc(new Vector2(rect.Right - 8, rect.Bottom - 8), 3.2f, col);   // resize-handle hint
+        }
+    }
+
     private (string node, int pin, bool input)? HitPort(Vector2 screen)
     {
         const float R = 11f;
@@ -727,6 +821,7 @@ public sealed class GraphEditor
 
         r.Begin(BlendMode.Alpha, scissor);
         DrawGrid(r, canvas);
+        DrawFrames(r);          // sticky notes / region frames sit behind everything
         RefreshRouteCache();
         // draw quiet wires first, then any in-use (lit) wire on top, so the active path is never hidden
         foreach (var c in Graph.Connections) if (WireHeat(c) <= 0.02f) DrawWire(r, c, clock);

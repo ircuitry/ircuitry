@@ -37,6 +37,7 @@ public static class WorkspaceSerializer
         public Dictionary<string, string> state { get; set; } = new();
         public List<NodeDoc> nodes { get; set; } = new();
         public List<WireDoc> wires { get; set; } = new();
+        public List<FrameDoc>? frames { get; set; }
     }
 
     private sealed class GroupDoc
@@ -89,6 +90,19 @@ public static class WorkspaceSerializer
         public int toPin { get; set; }
     }
 
+    private sealed class FrameDoc
+    {
+        public string id { get; set; } = "";
+        public float x { get; set; }
+        public float y { get; set; }
+        public float w { get; set; } = 300;
+        public float h { get; set; } = 190;
+        public string title { get; set; } = "Note";
+        public string body { get; set; } = "";
+        public int color { get; set; }
+        public bool collapsed { get; set; }
+    }
+
     public static string Save(IReadOnlyList<Bot> bots, int active, IReadOnlyList<TabGroup>? groups = null)
     {
         var doc = new Doc { active = active };
@@ -104,6 +118,8 @@ public static class WorkspaceSerializer
                 bd.nodes.Add(new NodeDoc { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, colorTag = n.ColorTag, @params = new(n.Params) });
             foreach (var c in b.Graph.Connections)
                 bd.wires.Add(new WireDoc { from = c.FromNode, fromPin = c.FromPin, to = c.ToNode, toPin = c.ToPin });
+            if (b.Graph.Frames.Count > 0)
+                bd.frames = b.Graph.Frames.Select(f => new FrameDoc { id = f.Id, x = f.Pos.X, y = f.Pos.Y, w = f.Size.X, h = f.Size.Y, title = f.Title, body = f.Body, color = f.ColorIndex, collapsed = f.Collapsed }).ToList();
             doc.bots.Add(bd);
         }
         return JsonSerializer.Serialize(doc, Opts);
@@ -136,6 +152,10 @@ public static class WorkspaceSerializer
             foreach (var w in bd.wires)
                 if (live.Contains(w.from) && live.Contains(w.to))
                     bot.Graph.Connect(w.from, w.fromPin, w.to, w.toPin);
+            if (bd.frames != null)
+                foreach (var fr in bd.frames)
+                    bot.Graph.Frames.Add(new Frame(string.IsNullOrEmpty(fr.id) ? Frame.Create(Vector2.Zero).Id : fr.id)
+                    { Pos = new Vector2(fr.x, fr.y), Size = new Vector2(fr.w, fr.h), Title = fr.title ?? "Note", Body = fr.body ?? "", ColorIndex = fr.color, Collapsed = fr.collapsed });
             bots.Add(bot);
         }
         int active = doc.active >= 0 && doc.active < bots.Count ? doc.active : 0;

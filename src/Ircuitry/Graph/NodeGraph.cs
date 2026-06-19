@@ -9,6 +9,7 @@ public sealed class NodeGraph
 {
     public readonly List<Node> Nodes = new();
     public readonly List<Connection> Connections = new();
+    public readonly List<Frame> Frames = new();       // sticky notes / region frames - annotation only, never run
 
     public Node? Find(string id) => Nodes.FirstOrDefault(n => n.Id == id);
 
@@ -101,12 +102,13 @@ public sealed class NodeGraph
 
     public IEnumerable<Node> Triggers => Nodes.Where(n => n.Def.IsTrigger);
 
-    public void Clear() { Nodes.Clear(); Connections.Clear(); }
+    public void Clear() { Nodes.Clear(); Connections.Clear(); Frames.Clear(); }
 
     /// <summary>Replace this graph's contents in place (keeps the reference stable for undo/redo).</summary>
     public void ReplaceWith(NodeGraph other)
     {
         Nodes.Clear(); Nodes.AddRange(other.Nodes);
         Connections.Clear(); Connections.AddRange(other.Connections);
+        Frames.Clear(); Frames.AddRange(other.Frames);
     }
 }
