@@ -190,6 +190,10 @@ public static class NodeCatalog
         return new string(raw.Select(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_').ToArray());
     }
 
+    /// <summary>A node-tool's description for the calling AI: a per-node 'toolDescription' param when set (so a
+    /// sub-agent Ask AI can describe itself), else the node's static description.</summary>
+    private static string ToolDesc(Node n) => n.GetParam("toolDescription") is { Length: > 0 } d ? d : n.Def.Description;
+
     // Serializes fetched history as a JSON array with friendly lowercase keys, so {item.text}/{item.id} work
     // when wired into For Each, and an AI can read it directly.
     private static string HistoryJson(System.Collections.Generic.IReadOnlyList<Ircuitry.Core.RecentMsg> msgs)
@@ -1121,7 +1125,7 @@ public static class NodeCatalog
                 Category = NodeCategory.Action,
                 Description = "Generates a reply via any OpenAI-compatible API (OpenAI, Ollama, LM Studio, OpenRouter, Groq, vLLM…). Wire AI Tool nodes into 'tools' to let the model fetch data / act. Wire 'reply' into a Send Reply.",
                 Inputs = new[] { Ex(), Tx("prompt"), To("tools", multi: true) },
-                Outputs = new[] { Ex("then"), Tx("reply"), Ex("over budget") },
+                Outputs = new[] { Ex("then"), Tx("reply"), Ex("over budget"), To("tool") },
                 Params = new[]
                 {
                     P("baseUrl", "Base URL", ParamType.Text, "https://api.openai.com/v1", "http://localhost:11434/v1 · openrouter · groq …"),
@@ -1131,6 +1135,10 @@ public static class NodeCatalog
                     P("prompt", "Prompt", ParamType.Multiline, "{nick} said: {message}", "supports {nick} {message} {args}"),
                     P("maxTokens", "Max tokens", ParamType.Int, "300", "300"),
                     P("timeout", "Timeout (seconds)", ParamType.Int, "120", "how long to wait for the model (AI can be slow)"),
+                    // sub-agent: wire this Ask AI's 'tool' output into ANOTHER Ask AI's 'tools' to make it a tool
+                    // that agent can call - agents all the way down. These only matter when used that way.
+                    P("name", "Tool name (as sub-agent)", ParamType.Text, "", "e.g. researcher - only used when wired as another AI's tool"),
+                    P("toolDescription", "Tool description (as sub-agent)", ParamType.Text, "", "what this agent does, shown to the calling AI"),
                 },
                 SummaryParam = "model",
                 Exec = c =>
@@ -1138,7 +1146,9 @@ public static class NodeCatalog
                     // #18: a spend cap stops the model call before it costs anything - take the over-budget branch
                     if (c.AiOverBudget) { c.Log("Ask AI: over the token budget - skipped the model call", LogLevel.System); c.Pulse(2); return; }
 
-                    var prompt = c.InOr(1, c.Resolve(c.Param("prompt")));
+                    // when this Ask AI is invoked AS a tool by another agent, the caller's request arrives as {arg.prompt}
+                    string subReq = c.Var("__arg.prompt");
+                    var prompt = c.InOr(1, subReq.Length > 0 ? subReq : c.Resolve(c.Param("prompt")));
                     string err;
                     string reply;
 
@@ -1210,7 +1220,7 @@ public static class NodeCatalog
                                 foreach (var pin in tn.Inputs)
                                     if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0)
                                         a.Add((pin.Name, pin.Name));   // arg name = input pin name
-                                defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a));
+                                defs.Add(new Ai.ToolDef(nm, ToolDesc(tn), a));
                                 nodeTools[nm] = tn;
                             }
                         }
@@ -1562,7 +1572,7 @@ public static class NodeCatalog
                                 var a = new List<(string, string)>();
                                 foreach (var pin in tn.Inputs)
                                     if (pin.Kind != PinKind.Exec && pin.Kind != PinKind.Tool && pin.Name.Length > 0) a.Add((pin.Name, pin.Name));
-                                defs.Add(new Ai.ToolDef(nm, tn.Def.Description, a)); nodeTools[nm] = tn;
+                                defs.Add(new Ai.ToolDef(nm, ToolDesc(tn), a)); nodeTools[nm] = tn;
                             }
                         }
                     }

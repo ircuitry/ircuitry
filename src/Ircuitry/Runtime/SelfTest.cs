@@ -132,6 +132,7 @@ public static class SelfTest
         fails += LiveStreamTest();
         fails += AiLoopTest();
         fails += AiToolsTest();
+        fails += SubAgentTest();
         fails += DynamicAiArgsTest();
         fails += SuperAiTest();
         fails += SuperAiCompositeTest();
@@ -979,6 +980,64 @@ public static class SelfTest
         bool finalOk = s.Sent.Count == 1 && s.Sent[0].text == "final answer";
         return Expect("ai-tools-call-loop", ranToolWithArg && finalOk && reqs >= 2,
             $"logs=[{string.Join(",", s.Logs)}] {Dump(s)} reqs={reqs}");
+    }
+
+    /// <summary>Agents all the way down: an Ask AI wired (via its 'tool' output) into another Ask AI's 'tools'
+    /// is callable as a sub-agent - the parent calls it, it runs its own model turn, and its reply comes back.</summary>
+    private static int SubAgentTest()
+    {
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("subagent (skipped: " + ex.Message + ")", true, ""); }
+
+        bool stop = false, subCalled = false; int reqs = 0;
+        string parentToolCall = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"helper","arguments":"{\"prompt\":\"please help\"}"}}]}}]}""";
+        string parentFinal = """{"choices":[{"message":{"content":"final from parent"}}]}""";
+        string subFinal = """{"choices":[{"message":{"content":"SUBRESULT"}}]}""";
+        var server = new Thread(() =>
+        {
+            try
+            {
+                while (!stop)
+                {
+                    var ctx = listener.GetContext();
+                    Interlocked.Increment(ref reqs);
+                    string b; using (var sr = new StreamReader(ctx.Request.InputStream)) b = sr.ReadToEnd();
+                    string resp;
+                    if (b.Contains("\"model\":\"sub\"")) { subCalled = true; resp = subFinal; }   // the sub-agent's own turn
+                    else if (b.Contains("tool_call_id")) resp = parentFinal;                       // parent, after the tool result
+                    else resp = parentToolCall;                                                    // parent, first turn -> call helper
+                    var bytes = Encoding.UTF8.GetBytes(resp);
+                    ctx.Response.ContentType = "application/json";
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                    ctx.Response.Close();
+                }
+            }
+            catch { }
+        }) { IsBackground = true };
+        server.Start();
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ai");
+        var parent = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+        parent.SetParam("baseUrl", $"http://localhost:{port}/v1"); parent.SetParam("apiKey", "t"); parent.SetParam("model", "parent");
+        var sub = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(100, 200));
+        sub.SetParam("baseUrl", $"http://localhost:{port}/v1"); sub.SetParam("apiKey", "t"); sub.SetParam("model", "sub");
+        sub.SetParam("name", "helper"); sub.SetParam("toolDescription", "a helper sub-agent");
+        var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(600, 0));
+        g.Connect(cmd.Id, 0, parent.Id, 0);    // exec
+        g.Connect(parent.Id, 0, reply.Id, 0);  // then -> reply
+        g.Connect(parent.Id, 1, reply.Id, 1);  // parent reply text -> reply.message
+        g.Connect(sub.Id, 3, parent.Id, 2);    // sub-agent's TOOL output -> parent 'tools'
+
+        var s = new FakeSink();
+        GraphExecutor.Fire(g, s, cmd, Vars("!ai do it", "u", "#c"));
+        stop = true; try { listener.Stop(); } catch { }
+
+        bool finalOk = s.Sent.Count == 1 && s.Sent[0].text == "final from parent";
+        return Expect("subagent-recursive", subCalled && finalOk && reqs >= 3, $"subCalled={subCalled} {Dump(s)} reqs={reqs}");
     }
 
     /// <summary>SuperAI is now a composite .ircnode built from real nodes. This proves the tool primitives it

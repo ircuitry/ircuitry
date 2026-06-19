@@ -48,6 +48,7 @@ public static class GraphExecutor
         public readonly Action<NodeTrace>? OnNode;   // fired the instant a node finishes (live bot-tools streaming)
         private int _steps;
         private readonly int _depth;                 // subflow nesting depth (recursion guard)
+        public int ToolDepth;                        // AI-tool / sub-agent nesting depth (agents-as-tools recursion guard)
 
         public Run(NodeGraph g, IRuntimeSink sink, Dictionary<string, string> vars, RunRecord? trace, Action<NodeTrace>? onNode, int depth = 0)
         { Graph = g; Sink = sink; Vars = vars; Trace = trace; OnNode = onNode; _depth = depth; }
@@ -310,6 +311,10 @@ public static class GraphExecutor
 
         public string InvokeNodeTool(Node node, Dictionary<string, string> args)
         {
+            // sub-agents can wire each other as tools (agents all the way down); bound the nesting so a runaway
+            // mutual-call chain can't blow the stack.
+            if (_run.ToolDepth >= 8) return "(agent tool nesting too deep - aborted)";
+            _run.ToolDepth++;
             // bind the model's args as __arg.* then restore - so a later tool call / node never sees stale args
             var saved = new Dictionary<string, (bool had, string? val)>();
             foreach (var kv in args)
@@ -334,6 +339,7 @@ public static class GraphExecutor
             }
             finally
             {
+                _run.ToolDepth--;
                 foreach (var kv in saved)
                     if (kv.Value.had) _run.Vars[kv.Key] = kv.Value.val!; else _run.Vars.Remove(kv.Key);
             }
