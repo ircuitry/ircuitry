@@ -644,6 +644,38 @@ public sealed class GraphEditor
     private static string WireKey(Connection c) => $"{c.FromNode}:{c.FromPin}>{c.ToNode}:{c.ToPin}";
 
     // the connection whose routed path passes closest to the cursor, within a small screen threshold
+    /// <summary>The connection whose route passes under <paramref name="screen"/> (for drop-on-wire splicing), or null.</summary>
+    public Connection? WireUnder(Vector2 screen)
+    {
+        Connection? best = null; float bestD = 11f;
+        foreach (var c in Graph.Connections)
+        {
+            var a = Graph.Find(c.FromNode); var b = Graph.Find(c.ToNode);
+            if (a == null || b == null || c.FromPin >= a.Outputs.Length || c.ToPin >= b.Inputs.Length) continue;
+            var world = WorldRoute(c);
+            for (int i = 1; i < world.Count; i++)
+            {
+                float d = DistToSegment(screen, Cam.WorldToScreen(world[i - 1]), Cam.WorldToScreen(world[i]));
+                if (d < bestD) { bestD = d; best = c; }
+            }
+        }
+        return best;
+    }
+
+    /// <summary>Drop a new node onto a wire: spawn it and re-route source -> new -> destination (the first
+    /// pin-kind-compatible pins on each side), so it's spliced inline.</summary>
+    public Node SpliceOnWire(Connection c, NodeDef def, Vector2 world)
+    {
+        PushUndo();
+        string srcN = c.FromNode; int srcP = c.FromPin, dstP = c.ToPin; string dstN = c.ToNode;
+        var n = Spawn(def, world);
+        Graph.Disconnect(c);
+        for (int i = 0; i < n.Inputs.Length; i++) if (Graph.Connect(srcN, srcP, n.Id, i)) break;    // source -> new
+        for (int j = 0; j < n.Outputs.Length; j++) if (Graph.Connect(n.Id, j, dstN, dstP)) break;   // new -> destination
+        Selection.Clear(); Selection.Add(n.Id);
+        return n;
+    }
+
     private string? NearestWire(Vector2 screen)
     {
         string? best = null; float bestD = 10f;   // px
@@ -751,7 +783,12 @@ public sealed class GraphEditor
     private void CommitWire(Vector2 screenMouse)
     {
         var port = HitPort(screenMouse);
-        if (port == null) return;
+        if (port == null)
+        {
+            // released on empty canvas while dragging FROM an output: offer to add a node already wired from it
+            if (_wireFromOutput) GhostAdd = (_wireNode, _wirePin, Cam.ScreenToWorld(screenMouse) + new Vector2(40, 0));
+            return;
+        }
         var (tn, tp, tInput) = port.Value;
         bool willConnect = (_wireFromOutput && tInput) || (!_wireFromOutput && !tInput);
         if (willConnect && !_wireUndo) PushUndo();

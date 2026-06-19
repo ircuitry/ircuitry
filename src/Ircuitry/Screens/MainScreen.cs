@@ -749,8 +749,9 @@ public sealed partial class MainScreen : IScreen
     {
         if (_ghostWireFrom is not { } from) return;
         _ghostWireFrom = null;
+        // wire the source output into the first pin-kind-compatible input (Connect enforces the rules)
         for (int i = 0; i < target.Inputs.Length; i++)
-            if (target.Inputs[i].Kind == Ircuitry.Graph.PinKind.Exec) { Bot.Graph.Connect(from.node, from.pin, target.Id, i); return; }
+            if (Bot.Graph.Connect(from.node, from.pin, target.Id, i)) return;
     }
 
     public void DebugSpawnSelect(string typeId)
@@ -2223,7 +2224,13 @@ public sealed partial class MainScreen : IScreen
             // on a panel (or just clicking a library entry) should land the node in the centre of the VISIBLE map
             bool overMap = _l.Canvas.Contains(In.Mouse) && !_dock.OverPanel(In.Mouse);
             bool spawned = false;
-            if (overMap) { SpawnNode(_dragDef, _editor.Cam.ScreenToWorld(In.Mouse)); spawned = true; }
+            if (overMap)
+            {
+                var wire = _editor.WireUnder(In.Mouse);   // dropping a node onto a wire splices it inline
+                if (wire != null) _editor.SpliceOnWire(wire, _dragDef, _editor.Cam.ScreenToWorld(In.Mouse));
+                else SpawnNode(_dragDef, _editor.Cam.ScreenToWorld(In.Mouse));
+                spawned = true;
+            }
             else if (!_dragging) { _editor.Spawn(_dragDef, _editor.Cam.ScreenToWorld(_dock.VisibleMapRect().Center)); spawned = true; }
             if (spawned) _app.MarkDirty();
             _dragDef = null; _dragging = false;
