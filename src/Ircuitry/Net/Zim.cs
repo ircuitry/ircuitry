@@ -74,11 +74,13 @@ public sealed class ZimArchive : IDisposable
     public static ZimArchive Open(string path)
     {
         var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        ZimArchive z;
-        try { z = new ZimArchive(fs); }
-        catch { fs.Dispose(); throw; }
-        z.ContentNamespace = z.DetectContentNamespace();
-        return z;
+        try
+        {
+            var z = new ZimArchive(fs);
+            z.ContentNamespace = z.DetectContentNamespace();   // can throw on a corrupt archive - keep it inside the guard
+            return z;
+        }
+        catch { fs.Dispose(); throw; }   // never leak the handle on a bad/corrupt file
     }
 
     public void Dispose() { _br.Dispose(); _fs.Dispose(); }
@@ -152,8 +154,10 @@ public sealed class ZimArchive : IDisposable
             EnsureCluster((int)e.Cluster);
             var data = _cacheData!;
             int off = _cacheExtended ? 8 : 4;
+            if (data.Length < off) return Array.Empty<byte>();                       // no offset table at all
             long count = (off == 8 ? (long)BitConverter.ToUInt64(data, 0) : BitConverter.ToUInt32(data, 0)) / off - 1;
-            if (e.Blob >= count) return Array.Empty<byte>();
+            if (count < 0 || e.Blob + 1L > count) return Array.Empty<byte>();
+            if ((e.Blob + 2L) * off > data.Length) return Array.Empty<byte>();        // the two offsets must be inside the data
             long start = ReadClusterOffset(data, (int)e.Blob, off);
             long end = ReadClusterOffset(data, (int)e.Blob + 1, off);
             if (start < 0 || end > data.Length || end < start) return Array.Empty<byte>();
@@ -307,7 +311,8 @@ public sealed class ZimArchive : IDisposable
     {
         var bytes = new List<byte>(32);
         int b;
-        while ((b = _fs.ReadByte()) > 0) bytes.Add((byte)b);
+        // length-cap: urls/titles are short - a corrupt dirent pointer into binary data must not allocate forever
+        while (bytes.Count < 64 * 1024 && (b = _fs.ReadByte()) > 0) bytes.Add((byte)b);
         return Encoding.UTF8.GetString(bytes.ToArray());
     }
 
@@ -323,16 +328,19 @@ public sealed class ZimArchive : IDisposable
 
         _fs.Position = (long)_clusterPtrPos + cluster * 8L;
         long cOff = (long)_br.ReadUInt64();
+        if (cOff < 0 || cOff >= _fileLen) throw new InvalidDataException("bad cluster offset");
         long cEnd = cluster + 1 < ClusterCount ? (long)_br.ReadUInt64()
                   : (_checksumPos > (ulong)cOff ? (long)_checksumPos : _fileLen);
-        if (cEnd <= cOff) cEnd = _fileLen;
+        if (cEnd <= cOff || cEnd > _fileLen) cEnd = _fileLen;     // out-of-order / corrupt pointer -> fall back to EOF
 
         _fs.Position = cOff;
         byte info = _br.ReadByte();
         int comp = info & 0x0F;
         _cacheExtended = (info & 0x10) != 0;
-        int compLen = (int)Math.Min(cEnd - cOff - 1, int.MaxValue);
-        byte[] raw = _br.ReadBytes(compLen);
+        // a corrupt end-bound can't make us allocate gigabytes; real clusters are a few MB. (For compressed
+        // clusters the decompressor stops at the frame end anyway, so an over-read is merely ignored.)
+        int compLen = (int)Math.Min(cEnd - cOff - 1, 96L * 1024 * 1024);
+        byte[] raw = _br.ReadBytes(Math.Max(0, compLen));
 
         _cacheData = comp switch
         {

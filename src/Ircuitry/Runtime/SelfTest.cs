@@ -1906,7 +1906,21 @@ public static class SelfTest
 
     /// <summary>Hand-build a minimal ZIM (raw + zstd cluster) and round-trip open / title-search / read through
     /// the managed reader - the binary parsing (header, dirents, pointer lists, cluster blob slicing) is the risk.</summary>
-    private static int ZimTest() => ZimCase("zim-read-raw", false) + ZimCase("zim-read-zstd", true);
+    private static int ZimTest()
+    {
+        int fails = ZimCase("zim-read-raw", false) + ZimCase("zim-read-zstd", true);
+        // a corrupt archive must fail cleanly (throw), never crash / hang / leak the handle
+        string p = Path.Combine(Path.GetTempPath(), "irc-zimbad-" + Guid.NewGuid().ToString("N") + ".zim");
+        try
+        {
+            File.WriteAllBytes(p, new byte[] { 9, 8, 7, 6, 5, 4, 3, 2, 1, 0 });
+            bool threw = false;
+            try { using var z = Ircuitry.Net.ZimArchive.Open(p); } catch { threw = true; }
+            fails += Expect("zim-corrupt-clean", threw, "garbage should throw, not crash");
+        }
+        finally { try { File.Delete(p); } catch { } }
+        return fails;
+    }
 
     private static int ZimCase(string name, bool zstd)
     {
