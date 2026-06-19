@@ -11,13 +11,14 @@ public sealed record Capability(string Icon, string Label, string Detail, bool C
 /// its name or description. This statically scans a graph and reports those powers truthfully.</summary>
 public static class Capabilities
 {
-    public static List<Capability> Scan(NodeGraph g)
+    public static List<Capability> Scan(NodeGraph g, System.Collections.Generic.IEnumerable<string>? extraParamValues = null)
     {
         var found = new Dictionary<string, Capability>();
         void Add(string key, string icon, string label, string detail, bool caution)
         { if (!found.ContainsKey(key)) found[key] = new Capability(icon, label, detail, caution); }
 
-        bool usesSecret = false;
+        // the composite node's OWN exposed params can also reference secrets, not just its inner nodes
+        bool usesSecret = extraParamValues != null && extraParamValues.Any(v => v != null && v.Contains("{{secret"));
         foreach (var n in g.Nodes)
         {
             string t = n.TypeId;
@@ -33,6 +34,8 @@ public static class Capabilities
                 Add("file", "folder", "Reads & writes files", "touches files on this machine", true);
             if (t.StartsWith("sql.") || t.StartsWith("db."))
                 Add("db", "database", "Database access", "reads/writes a local database", true);
+            if (t.StartsWith("kv."))
+                Add("kv", "package", "Key-value storage", "reads/writes a local key-value store", false);
             if (t.StartsWith("dcc."))
                 Add("dcc", "download-simple", "File transfer (DCC)", "sends/receives files over IRC", true);
 

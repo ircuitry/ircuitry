@@ -477,6 +477,9 @@ public static partial class ControlServer
                     vars = new Dictionary<string, string>(b.State),
                     nodes = b.Graph.Nodes.Count,
                     wires = b.Graph.Connections.Count,
+                    tokens = b.Runtime.TokensTotal,        // fleet health: AI tokens spent
+                    errors = b.Runtime.ErrorCount,         // node errors attributed
+                    queue = b.Runtime.OutQueueDepth,       // outgoing send backlog
                     graph = JsonDocument.Parse(Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.Name)).RootElement.Clone(),
                     servers = b.Servers.Select(s => new { s.Label, s.Host, s.Port, tls = s.UseTls, s.Nick, s.Channels, s.RealName, s.ConnectOnStartup }).ToArray(),
                     acl = AclView(c, b.Name),

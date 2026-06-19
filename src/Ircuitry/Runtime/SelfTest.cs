@@ -175,6 +175,7 @@ public static class SelfTest
         fails += CacheTest();
         fails += WatchdogTest();
         fails += CapabilitiesTest();
+        fails += FixesTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -215,6 +216,78 @@ public static class SelfTest
         var s2 = new FakeSink();
         GraphExecutor.Fire(g, s2, msg, Vars("hello world", "alice", "#x"));
         fails += Expect("mod-in-clean", s2.Sent.Count == 1 && s2.Sent[0] == ("#x", "ok"), Dump(s2));
+
+        return fails;
+    }
+
+    /// <summary>Coverage for the gap-audit fixes: token-meter cap gating + same-cap-no-reset, semantic cache
+    /// cosine lookup, workspace round-trip of evals/colorTag/frames, and the Moderate Out block/redact branches.</summary>
+    private static int FixesTest()
+    {
+        int fails = 0;
+
+        // ---- AI spend cap gating (BotRuntime token meter) ----
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+        fails += Expect("tok-uncapped", !rt.AiOverBudget, "no cap set");
+        rt.AddTokens(40, 30);
+        fails += Expect("tok-total", rt.TokensTotal == 70, rt.TokensTotal.ToString());
+        rt.SetTokenBudget(100, 0);                 // a genuinely new cap resets the window to 0
+        fails += Expect("tok-cap-fresh", !rt.AiOverBudget, "fresh window");
+        rt.AddTokens(60, 50);                      // window now 110 >= 100
+        fails += Expect("tok-over", rt.AiOverBudget, "over the cap");
+        rt.SetTokenBudget(100, 0);                 // re-applying the SAME cap must NOT reset (the reconnect-storm fix)
+        fails += Expect("tok-same-cap-no-reset", rt.AiOverBudget, "still over after re-applying same cap");
+        rt.SetTokenBudget(1000000, 0);             // a different cap resets the window
+        fails += Expect("tok-new-cap-reset", !rt.AiOverBudget, "");
+        rt.SetTokenBudget(0, 0); rt.AddTokens(999999, 0);
+        fails += Expect("tok-zero-unlimited", !rt.AiOverBudget, "cap 0 = unlimited");
+
+        // ---- semantic cache cosine lookup ----
+        string j = AiCache.Put("", "alpha", "replyA", new[] { 1f, 0f, 0f }, 50);
+        fails += Expect("cache-sem-hit", AiCache.Lookup(j, "beta", new[] { 0.9f, 0.1f, 0f }, 0.9) is { } sh && sh.reply == "replyA", "near vector should match");
+        fails += Expect("cache-sem-miss", AiCache.Lookup(j, "beta", new[] { 0f, 1f, 0f }, 0.9) == null, "orthogonal vector should miss");
+
+        // ---- workspace round-trip: evals + colorTag + frames survive save/load ----
+        var b = new Ircuitry.App.Bot("rt");
+        b.Evals.Add(new Ircuitry.App.EvalCase { Message = "!ping", Expect = "pong", Mode = Ircuitry.App.EvalMatch.Contains });
+        b.Evals.Add(new Ircuitry.App.EvalCase { Message = "hi", Mode = Ircuitry.App.EvalMatch.NoReply });
+        var cn = b.Graph.Add(NodeCatalog.Get("event.command"), new Vector2(0, 0)); cn.ColorTag = 3;
+        var fr = Frame.Create(new Vector2(10, 20)); fr.Title = "note"; fr.Body = "body"; b.Graph.Frames.Add(fr);
+        var (rtBots, _, _) = Ircuitry.App.WorkspaceSerializer.Load(Ircuitry.App.WorkspaceSerializer.Save(new[] { b }, 0, null));
+        var lb = rtBots[0];
+        fails += Expect("ws-evals", lb.Evals.Count == 2 && lb.Evals[0].Expect == "pong" && lb.Evals[1].Mode == Ircuitry.App.EvalMatch.NoReply, lb.Evals.Count.ToString());
+        fails += Expect("ws-colortag", lb.Graph.Nodes.Count == 1 && lb.Graph.Nodes[0].ColorTag == 3, "");
+        fails += Expect("ws-frames", lb.Graph.Frames.Count == 1 && lb.Graph.Frames[0].Title == "note" && lb.Graph.Frames[0].Body == "body", "");
+
+        // ---- Moderate Out: block vs redact branches ----
+        var g = new NodeGraph();
+        var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+        var src = N(g, "data.random", 120, 150); src.SetParam("options", "buy spam now");
+        var mo = N(g, "mod.out", 240, 0); mo.SetParam("blockWords", "spam"); mo.SetParam("onFlag", "block");
+        var clean = N(g, "action.reply", 460, 0);
+        var flag = N(g, "action.reply", 460, 140); flag.SetParam("message", "BLOCKED");
+        g.Connect(cmd.Id, 0, mo.Id, 0);     // exec
+        g.Connect(src.Id, 0, mo.Id, 1);     // text input
+        g.Connect(mo.Id, 0, clean.Id, 0);   // clean
+        g.Connect(mo.Id, 2, clean.Id, 1);   // safe text -> clean reply message
+        g.Connect(mo.Id, 1, flag.Id, 0);    // flagged
+        var sb = new FakeSink();
+        GraphExecutor.Fire(g, sb, cmd, Vars("!x", "u", "#c"));
+        fails += Expect("modout-block", sb.Sent.Count == 1 && sb.Sent[0] == ("#c", "BLOCKED"), Dump(sb));
+        mo.SetParam("onFlag", "redact");
+        var sr = new FakeSink();
+        GraphExecutor.Fire(g, sr, cmd, Vars("!x", "u", "#c"));
+        fails += Expect("modout-redact", sr.Sent.Count == 1 && sr.Sent[0] == ("#c", "buy **** now"), Dump(sr));
+
+        // ---- try-before-install sandbox: network and code are blocked when the per-thread dry-run flag is set ----
+        Ircuitry.Net.Http.DryRun = true;
+        var (st, body) = Ircuitry.Net.Http.Send("GET", "http://example.invalid/x", System.Array.Empty<(string, string)>(), null, 5);
+        Ircuitry.Net.Http.DryRun = false;
+        fails += Expect("dryrun-blocks-net", st == 0 && body.Contains("dry run"), st + " " + body);
+        Ircuitry.Net.CodeRunner.DryRun = true;
+        var (cout, cerr) = Ircuitry.Net.CodeRunner.Run("python", "print(1)", new Dictionary<string, string>(), 5);
+        Ircuitry.Net.CodeRunner.DryRun = false;
+        fails += Expect("dryrun-blocks-code", cerr == null && cout.Contains("dry run"), cout + " / " + cerr);
 
         return fails;
     }

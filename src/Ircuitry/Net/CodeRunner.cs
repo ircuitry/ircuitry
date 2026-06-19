@@ -25,8 +25,13 @@ public static class CodeRunner
     /// Set on a shared server; off locally so a user's own file-touching scripts keep working.</summary>
     public static volatile bool ConfineFs;
 
+    /// <summary>When set (per-thread), code is NOT executed - it returns a stub. Sandboxes try-before-install so
+    /// an untrusted community node can't run code on your machine while you preview it.</summary>
+    [ThreadStatic] public static bool DryRun;
+
     public static (string output, string? error) Run(string language, string code, Dictionary<string, string> ctx, int timeoutSec)
     {
+        if (DryRun) return ("[dry run - code not executed while trying this before install]", null);
         if (Disabled) return ("", "code execution is disabled on this server (--no-code)");
         bool py = language.StartsWith("py", StringComparison.OrdinalIgnoreCase);
         string exe = py ? "python3" : "node";

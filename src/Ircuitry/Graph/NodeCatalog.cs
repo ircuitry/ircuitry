@@ -1194,7 +1194,7 @@ public static class NodeCatalog
                                 c.SetVar("__tool_result", "");
                                 c.RunNode(tn);          // runs the tool's sub-flow synchronously
                                 return c.Var("__tool_result");
-                            }, out err, timeoutSeconds: aiTimeout, onUsage: c.RecordTokens);
+                            }, out err, timeoutSeconds: aiTimeout, onUsage: c.RecordTokens, shouldStop: () => c.AiOverBudget);
 
                     if (err.Length > 0) c.Log("AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);
@@ -1532,7 +1532,7 @@ public static class NodeCatalog
                         }, out var err,
                         maxRounds: Math.Clamp(c.ParamInt("maxSteps", 40), 1, 200),
                         onTool: (name, argsJson, res) => c.Log(Ircuitry.Core.Icons.Glyph("wrench") + " " + name + Brief(argsJson, 80) + "  -> " + Brief(res, 100), LogLevel.Action),
-                        timeoutSeconds: Math.Clamp(c.ParamInt("timeout", 180), 5, 1800), onUsage: c.RecordTokens);
+                        timeoutSeconds: Math.Clamp(c.ParamInt("timeout", 180), 5, 1800), onUsage: c.RecordTokens, shouldStop: () => c.AiOverBudget);
 
                     if (err.Length > 0) c.Log("Programmer AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);

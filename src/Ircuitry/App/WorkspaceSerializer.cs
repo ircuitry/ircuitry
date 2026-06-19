@@ -123,7 +123,11 @@ public static class WorkspaceSerializer
                 .Select(g => new GroupDoc { id = g.Id, name = g.Name, color = g.ColorIndex, collapsed = g.Collapsed }).ToList();
         foreach (var b in bots)
         {
-            var bd = new BotDoc { name = b.Name, groupId = b.GroupId, state = new(b.State), servers = new() };
+            // the AI response cache ("aicache/*") is regenerable runtime data and can be large (semantic mode
+            // stores embedding vectors) - keep it out of the workspace file so saves stay small and fast
+            var state = b.State.Where(kv => !kv.Key.StartsWith("aicache/", StringComparison.Ordinal))
+                               .ToDictionary(kv => kv.Key, kv => kv.Value);
+            var bd = new BotDoc { name = b.Name, groupId = b.GroupId, state = state, servers = new() };
             foreach (var s in b.Servers) bd.servers.Add(FromSettings(s));
             foreach (var n in b.Graph.Nodes)
                 bd.nodes.Add(new NodeDoc { id = n.Id, type = n.TypeId, x = n.Pos.X, y = n.Pos.Y, muted = n.Muted, streamAsTool = n.StreamAsTool, title = n.Title, colorTag = n.ColorTag, @params = new(n.Params) });

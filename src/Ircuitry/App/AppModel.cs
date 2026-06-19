@@ -312,6 +312,7 @@ public sealed class AppModel
                 Nodes = b.Graph.Nodes.Count, Wires = b.Graph.Connections.Count, Sig = sig, Note = note,
             });
             while (b.Timeline.Count > TimelineMax) b.Timeline.RemoveAt(0);
+            TimelineStore.Save(b.Name, b.Timeline);   // persist so rollback history survives a restart
         }
         catch { /* never let history capture break a save */ }
     }
@@ -524,6 +525,7 @@ public sealed class AppModel
             if (bots.Count == 0) return false;
             Bots.AddRange(bots);
             Groups.AddRange(groups);
+            foreach (var b in bots) b.Timeline.AddRange(TimelineStore.Load(b.Name));   // restore rollback history
             Active = active;
             NormalizeGroups();
             _lastPersisted = text;

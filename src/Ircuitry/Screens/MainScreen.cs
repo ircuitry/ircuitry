@@ -587,7 +587,7 @@ public sealed partial class MainScreen : IScreen
             return new List<Ircuitry.Graph.Capability> { new("code", "Runs code", "executes a raw script blob on this machine - review it before installing", true) };
         NodeGraph sub;
         try { sub = def.SubgraphProvider.Invoke() ?? new NodeGraph(); } catch { sub = new NodeGraph(); }
-        return Ircuitry.Graph.Capabilities.Scan(sub);
+        return Ircuitry.Graph.Capabilities.Scan(sub, def.Params?.Select(p => p.Default));
     }
 
     // Stage a community workflow for a confirm (mirrors the node install): it becomes a new bot tab.
@@ -3355,8 +3355,8 @@ public sealed partial class MainScreen : IScreen
         Hud.Panel(r, panel, "Fleet health", Theme.Lime);
 
         int online = _app.Bots.Count(RunningOf);
-        long totErr = _app.Bots.Where(b => !b.IsRemote).Sum(b => (long)b.Runtime.ErrorCount);
-        long totTok = _app.Bots.Where(b => !b.IsRemote).Sum(b => b.Runtime.TokensTotal);
+        long totErr = _app.Bots.Sum(b => (long)(b.IsRemote ? (b.Remote?.BotInfo(b.RemoteName)?.Errors ?? 0) : b.Runtime.ErrorCount));
+        long totTok = _app.Bots.Sum(b => b.IsRemote ? (b.Remote?.BotInfo(b.RemoteName)?.Tokens ?? 0L) : b.Runtime.TokensTotal);
         string summary = _app.Bots.Count + " bots  ·  " + online + " online" + (totErr > 0 ? "  ·  " + totErr + " errors" : "") + (totTok > 0 ? "  ·  " + FmtTokens(totTok) + " tok" : "");
         r.TextRight(r.Fonts.Get(FontKind.Mono, 12), summary, panel.Right - 18, panel.Y + 13, totErr > 0 ? Theme.Alert : Theme.TextFaint);
         r.End();
@@ -3411,10 +3411,20 @@ public sealed partial class MainScreen : IScreen
 
                 if (b.IsRemote)
                 {
-                    r.Text(vf, "-", new Vector2(errX, row.Y + 16), Theme.TextFaint);
-                    r.Text(vf, "-", new Vector2(tokX, row.Y + 16), Theme.TextFaint);
-                    r.Text(vf, "-", new Vector2(queX, row.Y + 16), Theme.TextFaint);
-                    r.Text(vf, "-", new Vector2(lastX, row.Y + 16), Theme.TextFaint);
+                    var ri = b.Remote?.BotInfo(b.RemoteName);   // server-reported fleet-health metrics
+                    if (ri == null)
+                    {
+                        r.Text(vf, "-", new Vector2(errX, row.Y + 16), Theme.TextFaint);
+                        r.Text(vf, "-", new Vector2(tokX, row.Y + 16), Theme.TextFaint);
+                        r.Text(vf, "-", new Vector2(queX, row.Y + 16), Theme.TextFaint);
+                    }
+                    else
+                    {
+                        r.Text(vf, ri.Errors > 0 ? ri.Errors.ToString() : "0", new Vector2(errX, row.Y + 16), ri.Errors > 0 ? Theme.Alert : Theme.TextFaint);
+                        r.Text(vf, FmtTokens(ri.Tokens), new Vector2(tokX, row.Y + 16), ri.Tokens > 0 ? Theme.TextDim : Theme.TextFaint);
+                        r.Text(vf, running ? ri.Queue.ToString() : "-", new Vector2(queX, row.Y + 16), ri.Queue > 6 ? Theme.Warn : Theme.TextDim);
+                    }
+                    r.Text(vf, "-", new Vector2(lastX, row.Y + 16), Theme.TextFaint);   // last-run time isn't shipped over the wire
                 }
                 else
                 {
@@ -4309,16 +4319,42 @@ public sealed partial class MainScreen : IScreen
             ["args"] = "", ["command"] = "", ["account"] = "", ["isbot"] = "false",
             ["msgid"] = "test-msg", ["__reply"] = "test-msg",
         };
+        // try-before-install runs untrusted community code: sandbox it so it can't hit the network or run code
+        bool dry = _testEphemeral != null;
+        if (dry) { Ircuitry.Net.Http.DryRun = true; Ircuitry.Net.CodeRunner.DryRun = true; }
         RunRecord? fired = null;
-        foreach (var node in graph.Nodes)
+        try
         {
-            if (node.Def.TriggerEvent != "message") continue;
-            var rec = new RunRecord { Time = DateTime.Now, Trigger = node.DisplayTitle, Icon = node.Def.Icon, Summary = _testMsg };
-            GraphExecutor.Fire(graph, sink, node, new Dictionary<string, string>(baseVars), rec);
-            rec.Fired = rec.Nodes.Count > 0 && rec.Nodes[0].Pulsed.Count > 0;
-            rec.Actions = sink.Sent.Count;
-            if (rec.Fired && fired == null) fired = rec;
+            foreach (var node in graph.Nodes)
+            {
+                if (node.Def.TriggerEvent != "message") continue;
+                var rec = new RunRecord { Time = DateTime.Now, Trigger = node.DisplayTitle, Icon = node.Def.Icon, Summary = _testMsg };
+                GraphExecutor.Fire(graph, sink, node, new Dictionary<string, string>(baseVars), rec);
+                rec.Fired = rec.Nodes.Count > 0 && rec.Nodes[0].Pulsed.Count > 0;
+                rec.Actions = sink.Sent.Count;
+                if (rec.Fired && fired == null) fired = rec;
+            }
+            // also dry-run any Watchdog trigger so an auto-heal flow can be exercised here (Reconnect is a no-op
+            // on the dry-run sink). Health vars reflect the bot's current state.
+            bool conn = !Bot.IsRemote && Bot.Runtime.State == IrcState.Connected;
+            var wdVars = new Dictionary<string, string>(baseVars)
+            {
+                ["connected"] = conn ? "true" : "false",
+                ["down"] = conn ? "0" : "1",
+                ["queue"] = (Bot.IsRemote ? 0 : Bot.Runtime.OutQueueDepth).ToString(),
+                ["errors"] = (Bot.IsRemote ? 0 : Bot.Runtime.ErrorCount).ToString(),
+            };
+            foreach (var node in graph.Nodes)
+            {
+                if (node.Def.TriggerEvent != "watchdog") continue;
+                var rec = new RunRecord { Time = DateTime.Now, Trigger = node.DisplayTitle, Icon = node.Def.Icon, Summary = "watchdog: " + (conn ? "healthy" : "1 down") };
+                GraphExecutor.Fire(graph, sink, node, new Dictionary<string, string>(wdVars), rec);
+                rec.Fired = rec.Nodes.Count > 0 && rec.Nodes[0].Pulsed.Count > 0;
+                rec.Actions = sink.Sent.Count;
+                if (rec.Fired && fired == null) fired = rec;
+            }
         }
+        finally { if (dry) { Ircuitry.Net.Http.DryRun = false; Ircuitry.Net.CodeRunner.DryRun = false; } }
         _testRec = fired;
         _testSent.AddRange(sink.Sent);
     }
@@ -4350,7 +4386,7 @@ public sealed partial class MainScreen : IScreen
         _installOpen = false; _wfInstallOpen = false;
         _testOpen = true; _testJustOpened = true;
         RunTest();
-        _testReplayNote = Ircuitry.Core.Icons.Glyph("flask") + " Trying \"" + name + "\" - nothing is installed or saved.";
+        _testReplayNote = Ircuitry.Core.Icons.Glyph("flask") + " Trying \"" + name + "\" - sandboxed: no IRC sent, network and code blocked, nothing installed or saved.";
     }
 
     /// <summary>Tear down an ephemeral try: drop the throwaway graph and unregister a node type that was only

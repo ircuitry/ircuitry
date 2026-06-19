@@ -706,7 +706,7 @@ public sealed class ServerConn : IRuntimeSink
     public void RecordTokens(int input, int output) => _owner.AddTokens(input, output);
     public bool AiOverBudget => _owner.AiOverBudget;
     public void SetTokenBudget(int maxTokens, double windowSeconds) => _owner.SetTokenBudget(maxTokens, windowSeconds);
-    public void Reconnect(string server) => _owner.ReconnectServer(server.Length > 0 ? server : _cfg.DisplayName);
+    public void Reconnect(string server) => _owner.ReconnectServer(server);   // blank = every down server (multi-server heal)
     public int OutQueueDepth => _client.OutQueueDepth;
     public void Join(string channel) => _client.Join(channel);
     public void Part(string channel, string reason) => _client.Part(channel, reason);

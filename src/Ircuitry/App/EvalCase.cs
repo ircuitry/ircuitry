@@ -30,9 +30,11 @@ public sealed class EvalCase
             case EvalMatch.Regex:
                 try
                 {
-                    var rx = new System.Text.RegularExpressions.Regex(Expect, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    // a match timeout stops a catastrophic-backtracking pattern from freezing the bench
+                    var rx = new System.Text.RegularExpressions.Regex(Expect, System.Text.RegularExpressions.RegexOptions.IgnoreCase, System.TimeSpan.FromMilliseconds(200));
                     return sent.Any(s => rx.IsMatch(s)) ? (true, "regex matched") : (false, "no line matched the pattern");
                 }
+                catch (System.Text.RegularExpressions.RegexMatchTimeoutException) { return (false, "regex timed out (too complex)"); }
                 catch (System.Exception e) { return (false, "bad regex: " + e.Message); }
             default: // Contains
                 return sent.Any(s => s.Contains(Expect, System.StringComparison.OrdinalIgnoreCase)) ? (true, "contains match") : (false, "no line contained the expected text");

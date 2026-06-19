@@ -160,15 +160,24 @@ public sealed class BotRuntime
         target?.Stop();
     }
 
-    /// <summary>Auto-heal: bring a dropped server back. Blank/unknown name = the first one. A server that is
-    /// still connected (or mid-connect) is left untouched; only a fully-closed one is recreated.</summary>
+    /// <summary>Auto-heal: bring dropped servers back. Blank name = every server that is currently down; a name
+    /// targets that one. A server still connected (or mid-connect) is left untouched - only a fully-closed one is
+    /// recreated - so this is safe to call on a multi-server bot where some links are healthy.</summary>
     public void ReconnectServer(string name)
     {
-        ServerConn? target; NodeGraph? g;
-        lock (_connLock) { target = _conns.FirstOrDefault(c => name.Length == 0 || c.Matches(name) || c.Label == name) ?? _conns.FirstOrDefault(); g = _runGraph; }
-        if (target == null || g == null || target.Running) return;   // Running stays true until the socket fully closes
-        _log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("plugs-connected") + " watchdog reconnecting " + target.Label);
-        ConnectServer(g, target.Config);   // removes the dead conn and starts a fresh one
+        List<ServerConn> targets; NodeGraph? g;
+        lock (_connLock)
+        {
+            g = _runGraph;
+            // Running stays true until the socket fully closes, so !Running == fully down
+            targets = _conns.Where(c => !c.Running && (name.Length == 0 || c.Matches(name) || c.Label == name)).ToList();
+        }
+        if (g == null) return;
+        foreach (var t in targets)
+        {
+            _log.Add(LogLevel.System, Ircuitry.Core.Icons.Glyph("plugs-connected") + " watchdog reconnecting " + t.Label);
+            ConnectServer(g, t.Config);   // removes the dead conn and starts a fresh one
+        }
     }
 
     public void Stop()
@@ -451,11 +460,16 @@ public sealed class BotRuntime
 
     public void SetTokenBudget(int maxTokens, double windowSeconds)
     {
+        long cap = Math.Max(0, maxTokens);
+        double win = Math.Max(0, windowSeconds);
         lock (_tokLock)
         {
-            _tokCap = Math.Max(0, maxTokens);
-            _tokWindowSec = Math.Max(0, windowSeconds);
-            _tokWindow = 0; _tokWindowStart = DateTime.UtcNow;   // a fresh cap starts a fresh window
+            // Re-applying the SAME cap (e.g. an AI Spend Cap node re-run on every reconnect) must NOT reset the
+            // running window, or a flapping bot would never actually hit its budget. Only a real change resets.
+            if (cap == _tokCap && win == _tokWindowSec) return;
+            _tokCap = cap;
+            _tokWindowSec = win;
+            _tokWindow = 0; _tokWindowStart = DateTime.UtcNow;   // a genuinely new cap starts a fresh window
             TokenRevision++;
         }
     }

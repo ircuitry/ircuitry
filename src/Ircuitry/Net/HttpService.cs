@@ -44,8 +44,13 @@ public static class Http
         catch { return false; }
     }
 
+    /// <summary>When set (per-thread), all outbound requests are blocked and return a stub. Used to sandbox
+    /// try-before-install so an untrusted community node can't phone home while you preview it.</summary>
+    [ThreadStatic] public static bool DryRun;
+
     public static (int status, string body) Send(string method, string url, IEnumerable<(string key, string val)> headers, string? body, int timeoutSeconds = 30)
     {
+        if (DryRun) return (0, "[dry run - network blocked while trying this before install]");
         try
         {
             using var req = new HttpRequestMessage(new HttpMethod(method.ToUpperInvariant()), url);
@@ -92,9 +97,13 @@ public static class Ai
     {
         if (onUsage == null) return;
         if (!root.TryGetProperty("usage", out var u) || u.ValueKind != JsonValueKind.Object) return;
+        // tolerate numbers that arrive as floats ("12.0") or as JSON strings ("12"), not just plain ints
+        int AsInt(JsonElement e) =>
+            e.ValueKind == JsonValueKind.Number ? (e.TryGetInt32(out var iv) ? iv : (int)Math.Round(e.GetDouble())) :
+            e.ValueKind == JsonValueKind.String && int.TryParse(e.GetString(), out var sv) ? sv : 0;
         int Read(string a, string b) =>
-            u.TryGetProperty(a, out var x) && x.TryGetInt32(out var xv) ? xv :
-            u.TryGetProperty(b, out var y) && y.TryGetInt32(out var yv) ? yv : 0;
+            u.TryGetProperty(a, out var x) ? AsInt(x) :
+            u.TryGetProperty(b, out var y) ? AsInt(y) : 0;
         int pin = Read("prompt_tokens", "input_tokens");
         int pout = Read("completion_tokens", "output_tokens");
         if (pin > 0 || pout > 0) onUsage(pin, pout);
@@ -193,7 +202,8 @@ public static class Ai
     /// </summary>
     public static string ChatWithTools(string baseUrl, string apiKey, string model, string system, string prompt,
         int maxTokens, List<ToolDef> tools, Func<string, Dictionary<string, string>, string> execTool, out string error,
-        int maxRounds = 6, Action<string, string, string>? onTool = null, int timeoutSeconds = 180, Action<int, int>? onUsage = null)
+        int maxRounds = 6, Action<string, string, string>? onTool = null, int timeoutSeconds = 180, Action<int, int>? onUsage = null,
+        Func<bool>? shouldStop = null)
     {
         error = "";
         if (apiKey.Length == 0) apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
@@ -228,6 +238,9 @@ public static class Ai
         int rounds = Math.Max(1, maxRounds);
         for (int round = 0; round < rounds; round++)
         {
+            // re-check the spend cap between rounds so a long tool loop can't keep burning tokens past budget
+            if (round > 0 && shouldStop != null && shouldStop())
+            { error = "stopped early: AI token budget reached mid-task"; return ""; }
             var payload = new Dictionary<string, object?>
             {
                 ["model"] = model.Length > 0 ? model : "gpt-4o-mini",
