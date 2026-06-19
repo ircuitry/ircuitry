@@ -794,8 +794,18 @@ public sealed class ServerConn : IRuntimeSink
             case "members": return string.Join(",", _session.Members(channel).Select(m => m.prefix + m.nick));
             case "count": return _session.MemberCount(channel).ToString();
             case "joined": return _session.InChannel(channel) ? "true" : "false";
+            case "filehost": return _session.Filehost;   // IRCv3 draft/FILEHOST upload URL
             default: return "";
         }
+    }
+
+    public (bool ok, string result) FilehostUpload(string filePath)
+    {
+        string url = _session.Filehost;
+        if (url.Length == 0) return (false, "this server doesn't advertise a file host (IRCv3 draft/FILEHOST)");
+        string token = _client.RequestFilehostToken(8000);   // spec: Bearer token from the FILEHOST TOKEN command
+        var (ok, link, err) = Ircuitry.Net.Upload.PostFilehost(url, filePath, token);
+        return ok ? (true, link) : (false, err);
     }
 
     public IReadOnlyList<RecentMsg> RequestHistory(string target, string sub, int count, int timeoutMs)

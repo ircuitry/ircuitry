@@ -36,6 +36,10 @@ public interface IRuntimeSink
     /// <summary>Auto-heal: (re)connect a dropped server (blank = the current one). No-op without a live runtime.</summary>
     void Reconnect(string server) { }
 
+    /// <summary>Upload a file to the server's IRCv3 draft/FILEHOST endpoint (gets a token, POSTs the body, returns
+    /// the link). Returns (ok, link-or-error). False without a live connection or an advertised filehost.</summary>
+    (bool ok, string result) FilehostUpload(string filePath) => (false, "no file host on this connection");
+
     /// <summary>Accept a DCC file offer (active connect, or passive listen + reverse offer) and download to
     /// <paramref name="savePath"/> on a background worker. No-op on sinks without a live server (dry runs/tests).</summary>
     void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath) { }

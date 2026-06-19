@@ -6,6 +6,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Ircuitry.Irc;
 
@@ -287,6 +288,9 @@ public sealed class IrcClient
         if (m.Is("PING")) { SendNow("PONG :" + m.Trailing); }
         else if (m.Is("CAP")) HandleCap(m);
         else if (m.Is("AUTHENTICATE")) HandleAuthenticate(m);
+        else if (m.Is("FILEHOST")) HandleFilehost(m);
+        else if (m.Is("FAIL") && m.P(0).Equals("FILEHOST", StringComparison.OrdinalIgnoreCase))
+            lock (_fhLock) _fhTcs?.TrySetResult(null);   // a failed FILEHOST TOKEN request
         else if (m.IsNumeric(out int num)) HandleNumeric(num, m);
 
         // surface everything to the runtime (it filters PRIVMSG/JOIN/etc.)
@@ -377,5 +381,31 @@ public sealed class IrcClient
         if (_capEnded) return;
         _capEnded = true;
         SendNow("CAP END");
+    }
+
+    // ---- IRCv3 draft/FILEHOST: get a short-lived upload token via the FILEHOST TOKEN command ----
+    private TaskCompletionSource<string?>? _fhTcs;
+    private readonly object _fhLock = new();
+
+    private void HandleFilehost(IrcMessage m)
+    {
+        // :server FILEHOST TOKEN <token>
+        if (m.P(0).Equals("TOKEN", StringComparison.OrdinalIgnoreCase))
+            lock (_fhLock) _fhTcs?.TrySetResult(m.P(1));
+    }
+
+    /// <summary>Request a short-lived FILEHOST upload token (blocks the calling worker until the reply, a FAIL,
+    /// or the timeout). Returns "" if unsupported/failed - the caller can still try an anonymous upload.</summary>
+    public string RequestFilehostToken(int timeoutMs)
+    {
+        if (State != IrcState.Connected) return "";
+        TaskCompletionSource<string?> tcs;
+        lock (_fhLock) tcs = _fhTcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try { SendNow("FILEHOST TOKEN"); }
+        catch { lock (_fhLock) if (_fhTcs == tcs) _fhTcs = null; return ""; }
+        string? tok = null;
+        try { if (tcs.Task.Wait(Math.Clamp(timeoutMs, 500, 30000))) tok = tcs.Task.Result; } catch { }
+        lock (_fhLock) if (_fhTcs == tcs) _fhTcs = null;
+        return tok ?? "";
     }
 }

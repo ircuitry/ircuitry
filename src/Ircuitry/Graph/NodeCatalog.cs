@@ -550,6 +550,23 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "irc.filehost", Icon = "upload-simple", Title = "Upload to Filehost", Subtitle = "ircv3", Category = NodeCategory.Ircv3,
+                Description = "Uploads a local file to the server's IRCv3 draft/FILEHOST endpoint (if the server advertises one) and outputs a shareable link - the standard way to post a file on networks that host them. Use {filehost} elsewhere to check/get the URL. Branches to 'no host' when the server doesn't offer one.",
+                Inputs = new[] { Ex(), Tx("file") },
+                Outputs = new[] { Ex("then"), Tx("link"), Ex("no host") },
+                Params = new[] { P("file", "File path", ParamType.Text, "", "an absolute path, or one under ~/ircuitry/files") },
+                SummaryParam = "file",
+                Exec = c =>
+                {
+                    string path = c.InOr(1, c.Resolve(c.Param("file"))).Trim();
+                    if (path.Length == 0) { c.Log("Upload to Filehost: no file path given", LogLevel.Error); c.SetOut(1, ""); c.Pulse(2); return; }
+                    var (ok, res) = c.FilehostUpload(path);
+                    if (ok) { c.SetOut(1, res); c.Pulse(0); }
+                    else { c.Log("Upload to Filehost: " + res, LogLevel.System); c.SetOut(1, ""); c.Pulse(2); }
+                },
+            },
+            new()
+            {
                 TypeId = "event.numeric", Icon = "hash", Title = "On Numeric", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "numeric",
                 Description = "Fires when the server sends a numeric reply you pick from the list (e.g. RPL_WELCOME, ERR_NICKNAMEINUSE, RPL_INVITING). Exposes {numeric} {numname} {message} {channel} and {arg1}, {arg2}, …",
@@ -1457,16 +1474,26 @@ public static class NodeCatalog
 
                     // the hidden delivery: zip the codebase to a temp file OUTSIDE the tree, upload it, return the link
                     string fhUrl = c.Resolve(c.Param("filehostUrl")).Trim();
+                    string serverFh = c.IrcInfo("filehost", "");   // IRCv3 draft/FILEHOST the bot's server advertises
+                    // use the server filehost when the URL points at it ({filehost}) or no URL is configured at all
+                    bool useFilehost = serverFh.Length > 0 && (fhUrl.Length == 0 || string.Equals(fhUrl, serverFh, StringComparison.OrdinalIgnoreCase));
                     string fhField = c.Param("filehostField"); if (fhField.Length == 0) fhField = "file";
                     var fhFields = Ircuitry.Core.ParamList.Pairs(c.Param("filehostFields")).Where(p => p.key.Length > 0).Select(p => (p.key, p.val)).ToList();
                     var fhHeaders = Ircuitry.Core.ParamList.Pairs(c.Param("filehostHeaders")).Where(p => p.key.Length > 0).Select(p => (p.key, p.val)).ToList();
                     Func<Dictionary<string, string>, string> sendCodebase = _ =>
                     {
-                        if (fhUrl.Length == 0) return "delivery is not configured (no filehost URL set on this Programmer AI)";
+                        if (fhUrl.Length == 0 && !useFilehost) return "delivery is not configured (no filehost URL set, and the server doesn't advertise one)";
                         string tmp = "";
                         try
                         {
                             tmp = CodeTools.ZipToTemp(root, ".");
+                            if (useFilehost)   // IRCv3 draft/FILEHOST: token + Bearer raw POST, link via Location
+                            {
+                                var (ok, res) = c.FilehostUpload(tmp);
+                                if (!ok) { c.Log("send_codebase filehost upload failed: " + res, LogLevel.Error); return "delivery failed: " + res; }
+                                c.Log("Programmer AI delivered the codebase (server filehost) -> " + res, LogLevel.Action);
+                                return "Delivered. Link: " + res;
+                            }
                             var (status, body) = Ircuitry.Net.Upload.PostFile(fhUrl, tmp, fhField, fhFields, fhHeaders);
                             if (!Ircuitry.Net.Upload.Ok(status)) { c.Log("send_codebase upload failed (" + status + "): " + body, LogLevel.Error); return "delivery failed: " + body; }
                             string link = ExtractUrl(body);
@@ -1478,7 +1505,7 @@ public static class NodeCatalog
                     };
 
                     // tool defs: curated code tools (+ run_command, + send_codebase), PLUS any externally-wired tools
-                    var defs = CodeAgent.ToolDefs(allowCmd, includeSend: fhUrl.Length > 0);
+                    var defs = CodeAgent.ToolDefs(allowCmd, includeSend: fhUrl.Length > 0 || serverFh.Length > 0);
                     var byName = new Dictionary<string, Node>();
                     var editorBot = new Dictionary<string, string>();
                     var nodeTools = new Dictionary<string, Node>();

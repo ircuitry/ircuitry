@@ -92,6 +92,40 @@ public static class Upload
     /// <summary>True for a 2xx status from <see cref="PostFile"/>.</summary>
     public static bool Ok(int status) => status is >= 200 and < 300;
 
+    /// <summary>Upload a file the IRCv3 draft/FILEHOST way: a single POST of the RAW file body with a Bearer
+    /// token, Content-Type and Content-Disposition; the resulting file URL comes back in the Location header.
+    /// Returns (ok, absolute-link, error). A blank token still tries (servers may allow anonymous uploads).</summary>
+    public static (bool ok, string link, string error) PostFilehost(string uploadUri, string filePath, string bearerToken)
+    {
+        try
+        {
+            if (!File.Exists(filePath)) return (false, "", "no such file: " + filePath);
+
+            var content = new ByteArrayContent(File.ReadAllBytes(filePath));
+            try { content.Headers.ContentType = new MediaTypeHeaderValue(GuessContentType(filePath)); } catch { }
+            try { content.Headers.ContentDisposition = new ContentDispositionHeaderValue("inline") { FileName = Path.GetFileName(filePath) }; } catch { }
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, uploadUri) { Content = content };
+            if (!string.IsNullOrEmpty(bearerToken)) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+
+            using var resp = Client.Send(req, HttpCompletionOption.ResponseContentRead);
+            int code = (int)resp.StatusCode;
+            if (code is < 200 or >= 300)
+            {
+                string e = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult().Trim();
+                return (false, "", "http " + code + (e.Length > 0 ? ": " + e : ""));
+            }
+            // the file URL is in the Location header (spec: 201 Created); fall back to the body if absent
+            string loc = resp.Headers.Location?.ToString() ?? "";
+            if (loc.Length == 0) loc = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult().Trim();
+            if (loc.Length == 0) return (false, "", "server returned no Location for the uploaded file");
+            if (!loc.StartsWith("http", StringComparison.OrdinalIgnoreCase))   // resolve a relative Location
+                try { loc = new Uri(new Uri(uploadUri), loc).ToString(); } catch { }
+            return (true, loc, "");
+        }
+        catch (Exception ex) { return (false, "", "upload error: " + ex.Message); }
+    }
+
     private static string GuessContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".png" => "image/png",

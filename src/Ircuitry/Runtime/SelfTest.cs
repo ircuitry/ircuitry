@@ -39,6 +39,8 @@ public static class SelfTest
         public void NodeFired(string id) { }
         public readonly List<string> Reconnects = new();
         public void Reconnect(string server) => Reconnects.Add(server);
+        public string FilehostUrl = "";
+        public string IrcInfo(string what, string channel) => what == "filehost" ? FilehostUrl : "";
         public System.Collections.Generic.List<string> LastRun = new();
         public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes) { LastRun = new(executedTypes); }
         public readonly List<RecentMsg> RecentSeed = new();   // what SuperAI's recent_messages tool sees
@@ -176,6 +178,7 @@ public static class SelfTest
         fails += WatchdogTest();
         fails += CapabilitiesTest();
         fails += FixesTest();
+        fails += FilehostTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -217,6 +220,31 @@ public static class SelfTest
         GraphExecutor.Fire(g, s2, msg, Vars("hello world", "alice", "#x"));
         fails += Expect("mod-in-clean", s2.Sent.Count == 1 && s2.Sent[0] == ("#x", "ok"), Dump(s2));
 
+        return fails;
+    }
+
+    /// <summary>IRCv3 draft/FILEHOST: ISUPPORT parsing (all token name forms + removal) and the {filehost} token
+    /// resolving to the server-advertised URL through the runtime.</summary>
+    private static int FilehostTest()
+    {
+        int fails = 0;
+        var s = new IrcSessionState();
+        s.Observe(IrcParser.Parse(":serv 005 me draft/FILEHOST=https://files.example/upload NETWORK=X :are supported"), "me");
+        fails += Expect("fh-isupport-draft", s.Filehost == "https://files.example/upload", s.Filehost);
+        var s2 = new IrcSessionState();
+        s2.Observe(IrcParser.Parse(":serv 005 me FILEHOST=https://f2.example/up :are supported"), "me");
+        fails += Expect("fh-isupport-final", s2.Filehost == "https://f2.example/up", s2.Filehost);
+        s.Observe(IrcParser.Parse(":serv 005 me -draft/FILEHOST :are supported"), "me");
+        fails += Expect("fh-isupport-remove", s.Filehost == "", s.Filehost);
+
+        // {filehost} token resolves to the sink's advertised URL
+        var g = new NodeGraph();
+        var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "fh");
+        var reply = N(g, "action.reply", 250, 0); reply.SetParam("message", "{filehost}");
+        g.Connect(cmd.Id, 0, reply.Id, 0);
+        var sink = new FakeSink { FilehostUrl = "https://files.example/upload" };
+        GraphExecutor.Fire(g, sink, cmd, Vars("!fh", "u", "#c"));
+        fails += Expect("fh-token-resolve", sink.Sent.Count == 1 && sink.Sent[0] == ("#c", "https://files.example/upload"), Dump(sink));
         return fails;
     }
 

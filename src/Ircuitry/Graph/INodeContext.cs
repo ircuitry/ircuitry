@@ -94,6 +94,9 @@ public interface INodeContext
     /// name targets a specific one. A server that's already connected is left alone.</summary>
     void Reconnect(string server);
 
+    /// <summary>Upload a file to the server's IRCv3 draft/FILEHOST endpoint. Returns (ok, link-or-error).</summary>
+    (bool ok, string result) FilehostUpload(string filePath);
+
     /// <summary>Accept an incoming DCC file offer: active (connect to ip:port) or passive (port 0 + token).
     /// Downloads <paramref name="size"/> bytes to <paramref name="savePath"/> on a background worker.</summary>
     void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath);

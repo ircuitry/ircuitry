@@ -29,10 +29,13 @@ public sealed class IrcSessionState
     private readonly List<Chan> _chans = new();               // insertion order (join order)
     private readonly LinkedList<Note> _notes = new();         // recent human-language narration
     private string _network = "";
+    private string _filehost = "";   // IRCv3 draft/FILEHOST upload URL advertised in ISUPPORT
 
     // ---- read side (snapshots under lock) ----
 
     public string Network { get { lock (_lock) return _network; } }
+    /// <summary>The server-advertised file upload endpoint (IRCv3 draft/FILEHOST), or "" if none.</summary>
+    public string Filehost { get { lock (_lock) return _filehost; } }
 
     public List<string> Channels()
     {
@@ -162,13 +165,22 @@ public sealed class IrcSessionState
             case 1:   // RPL_WELCOME
                 Narrate("I've connected to the server");
                 break;
-            case 5:   // RPL_ISUPPORT - pull the network name out (spaces are \xHH-escaped)
+            case 5:   // RPL_ISUPPORT - pull the network name + IRCv3 draft/FILEHOST URL out (values are \xHH-escaped)
                 foreach (var tok in m.Params)
+                {
                     if (tok.StartsWith("NETWORK=", OIC))
                     {
                         string net = DecodeIsupport(tok[8..]);
                         if (net.Length > 0 && net != _network) { _network = net; Narrate($"I'm connected to {net}"); }
                     }
+                    else if (IsFilehostTok(tok, out string fhVal))   // draft/FILEHOST= / soju.im/FILEHOST= / FILEHOST=
+                    {
+                        string url = DecodeIsupport(fhVal);
+                        if (url != _filehost) { _filehost = url; if (url.Length > 0) Narrate("the server offers a file host"); }
+                    }
+                    else if (tok.Length > 1 && tok[0] == '-' && IsFilehostTok(tok[1..] + "=", out _))   // -FILEHOST removes it
+                        _filehost = "";
+                }
                 break;
             case 332: { var c = Find(m.P(1)); if (c != null) c.Topic = m.Trailing; break; }   // RPL_TOPIC
             case 331: { var c = Find(m.P(1)); if (c != null) c.Topic = ""; break; }            // RPL_NOTOPIC
@@ -211,6 +223,16 @@ public sealed class IrcSessionState
         if (_notes.Count > 0 && _notes.Last!.Value.Text == text) return;   // skip exact repeats
         _notes.AddLast(new Note(DateTime.Now, text));
         while (_notes.Count > 60) _notes.RemoveFirst();
+    }
+
+    /// <summary>Match an ISUPPORT FILEHOST token in any of its forms (draft/FILEHOST, the soju.im vendor name,
+    /// or the eventual unprefixed FILEHOST) and pull out its value.</summary>
+    private static bool IsFilehostTok(string tok, out string value)
+    {
+        foreach (var name in new[] { "draft/FILEHOST=", "soju.im/FILEHOST=", "FILEHOST=" })
+            if (tok.StartsWith(name, OIC)) { value = tok[name.Length..]; return true; }
+        value = "";
+        return false;
     }
 
     /// <summary>Decodes ISUPPORT value escapes: \xHH (e.g. \x20 -> space).</summary>

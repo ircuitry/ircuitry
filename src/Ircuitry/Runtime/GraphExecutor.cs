@@ -242,6 +242,7 @@ public static class GraphExecutor
                 case "coin": return System.Random.Shared.Next(2) == 0 ? "heads" : "tails";
                 case "nl": return "\n";
                 case "version": return Ircuitry.App.AppInfo.Version;
+                case "filehost": return Sink.IrcInfo("filehost", "");   // server-advertised IRCv3 draft/FILEHOST URL
                 default:
                     // {arg1}, {arg2}, ... -> the Nth word of the command args
                     if (name.Length > 3 && name.StartsWith("arg") && int.TryParse(name[3..], out var n) && n > 0)
@@ -404,6 +405,7 @@ public static class GraphExecutor
         public bool AiOverBudget => _run.Sink.AiOverBudget;
         public void SetTokenBudget(int maxTokens, double windowSeconds) => _run.Sink.SetTokenBudget(maxTokens, windowSeconds);
         public void Reconnect(string server) => _run.Sink.Reconnect(server);
+        public (bool ok, string result) FilehostUpload(string filePath) => _run.Sink.FilehostUpload(filePath);
         public void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath) => Out().DccReceive(fromNick, ip, port, size, token, savePath);
         public void DccSend(string toNick, string filePath, string advertiseIp) => Out().DccSend(toNick, filePath, advertiseIp);
         public void StartTyping(string target) => Out().StartTyping(target);
