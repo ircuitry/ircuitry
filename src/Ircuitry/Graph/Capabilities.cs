@@ -28,7 +28,9 @@ public static class Capabilities
                 Add("net", "globe", "Network access", "fetches from or posts to the internet", true);
             if (t == "event.webhook")
                 Add("hook", "webhooks-logo", "Exposes a webhook", "accepts inbound HTTP requests when hosted", true);
-            if (t.StartsWith("code."))
+            if (t.StartsWith("container.") || t == "code.container")
+                Add("container", "cube", "Runs containers", "starts/executes commands in Docker/Podman containers", true);
+            else if (t.StartsWith("code."))
                 Add("code", "code", "Runs code", "executes scripts / shell commands on this machine", true);
             if (t.StartsWith("file.") || t.StartsWith("fs.") || t.StartsWith("cal.") || t.StartsWith("zim."))
                 Add("file", "folder", "Reads & writes files", "touches files on this machine", true);

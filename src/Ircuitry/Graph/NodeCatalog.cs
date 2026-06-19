@@ -231,6 +231,17 @@ public static class NodeCatalog
     private static ParamDef RootParam() => P("root", "Codebase folder", ParamType.Text, "",
         "~/projects/mybot · all paths are relative to this and can't escape it");
 
+    /// <summary>Resolve a folder param to a real absolute host path (expanding a leading ~) for a container
+    /// bind-mount. Blank stays blank (no mount).</summary>
+    private static string HostDir(string raw)
+    {
+        string s = (raw ?? "").Trim();
+        if (s.Length == 0) return "";
+        if (s == "~" || s.StartsWith("~/", StringComparison.Ordinal))
+            s = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), s.Length <= 2 ? "" : s[2..]);
+        try { return System.IO.Path.GetFullPath(s); } catch { return s; }
+    }
+
     /// <summary>Where an accepted DCC file lands: blank -> ~/ircuitry/files/dcc/&lt;name&gt;; a folder -> that
     /// folder + the offered name; otherwise the given path IS the file. The offered name is always sanitised.</summary>
     private static string DccSavePath(string given, string offeredFile)
@@ -254,7 +265,7 @@ public static class NodeCatalog
         sb.Append("You can read, search and edit any file in the project; every path you use is relative to the project root. ");
         sb.Append("Work methodically: first explore (project_tree, list_dir, search_code) to learn the layout, read the files you need, ");
         sb.Append("then make focused changes with edit_file, or write_file for new files. Read a file before you edit it - never invent its contents. ");
-        if (allowCmd) sb.Append("You can run build, test and lint commands with run_command to verify your work. ");
+        if (allowCmd) sb.Append("You can run build, test and lint commands with run_command to verify your work; they execute in an isolated container that has only this project mounted, may be offline, and starts fresh each call (state outside the project does not persist between commands). ");
         if (canSend) sb.Append("When the task is complete and your changes are in place, call send_codebase to deliver the finished project, then tell the user what you changed and include the link it returns. ");
         sb.Append("Keep going until the task is genuinely done; do not ask permission for routine edits.");
         if (extra.Trim().Length > 0) { sb.Append("\n\nAdditional instructions:\n").Append(extra.Trim()); }
@@ -1400,7 +1411,7 @@ public static class NodeCatalog
             {
                 TypeId = "ai.programmer", Icon = "wrench", Title = "Programmer AI", Subtitle = "ai",
                 Category = NodeCategory.Ai,
-                Description = "An AI software engineer that reads and edits a whole codebase (read/write/edit/search/move files, run build & test commands) and delivers the finished result. It is sandboxed to the codebase folder you give it and CANNOT touch anything outside. Set a 'task' and wire 'reply' into Send Reply. Wire extra AI Tool nodes into 'tools' to give it more abilities.",
+                Description = "An AI software engineer that reads and edits a whole codebase (read/write/edit/search/move files, run build & test commands) and delivers the finished result. File edits are locked to the codebase folder; commands run in an isolated Docker/Podman container (its own OS, no network unless you allow it) and are refused if no container runtime is available. Set a 'task' and wire 'reply' into Send Reply. Wire extra AI Tool nodes into 'tools' to give it more abilities.",
                 Inputs = new[] { Ex(), Tx("task"), To("tools", multi: true) },
                 Outputs = new[] { Ex("then"), Tx("reply"), Ex("over budget") },
                 Params = new[]
@@ -1412,6 +1423,8 @@ public static class NodeCatalog
                     P("task", "Task", ParamType.Multiline, "", "what to build or change (supports {nick} {message} {args})"),
                     P("instructions", "Extra instructions (optional)", ParamType.Multiline, "", "house style, constraints, what 'done' means"),
                     P("allowCommands", "Allow running commands", ParamType.Bool, "true", ""),
+                    P("sandboxImage", "Command sandbox image", ParamType.Text, "alpine", "commands run in this isolated container (python:3.12 · node:20 · your dev image)", visibleWhen: n => n.GetParam("allowCommands") == "true"),
+                    P("allowNetwork", "Allow command network", ParamType.Bool, "false", "off = commands run fully offline", visibleWhen: n => n.GetParam("allowCommands") == "true"),
                     P("maxTokens", "Max tokens", ParamType.Int, "1500", "1500"),
                     P("maxSteps", "Max tool steps", ParamType.Int, "40", "how many read/edit/run steps the AI may take before stopping"),
                     P("timeout", "Timeout per step (seconds)", ParamType.Int, "180", "AI can be slow; 180 = 3 min per model call"),
@@ -1518,7 +1531,7 @@ public static class NodeCatalog
                         task, c.ParamInt("maxTokens", 1500), defs,
                         (name, args) =>
                         {
-                            var res = CodeAgent.Dispatch(root, name, args, allowCmd, sendCodebase);
+                            var res = CodeAgent.Dispatch(root, name, args, allowCmd, sendCodebase, c.Resolve(c.Param("sandboxImage")), c.ParamBool("allowNetwork"));
                             if (res != null) return res;
                             if (editorBot.TryGetValue(name, out var db)) return Ircuitry.App.Mcp.McpBridge.Invoke(name, args, db.Length > 0 ? db : null);
                             if (nodeTools.TryGetValue(name, out var ntn)) return c.InvokeNodeTool(ntn, args);
@@ -2165,7 +2178,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "code.shell", Icon = "keyboard", Title = "Run Command", Subtitle = "code", Category = NodeCategory.Code,
-                Description = "Runs a shell command with its working directory set to the codebase folder (build, test, lint, git, etc.) and returns the combined output. The working directory is confined to the codebase.",
+                Description = "Runs a shell command on THIS machine with its working directory set to the codebase folder (build, test, lint, git, etc.). The working directory is set to the codebase, but the command itself is NOT sandboxed - it has your full access. For isolation use Run in Container instead.",
                 Inputs = new[] { Ex(), Tx("command") },
                 Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
                 Params = new[]
@@ -2177,6 +2190,87 @@ public static class NodeCatalog
                 },
                 SummaryParam = "command",
                 Exec = c => CodeRun(c, 1, 0, () => { var r = CodeTools.Run(CodeRoot(c), Arg(c, 1, "command"), c.ParamInt("timeout", 30)); return r.Length == 0 ? "(no output)" : r; }),
+            },
+            // ---- container sandbox: run commands in an isolated Docker/Podman "own OS", no host access except
+            // the mounted folder, no network unless allowed. One-shot (code.container) and managed lifecycle
+            // (container.start/exec/stop). exec/one-shot carry a Tool output so an Ask AI can drive them - the
+            // Programmer AI can be rebuilt from nodes, containers and all. Refuses if no runtime is available.
+            new()
+            {
+                TypeId = "code.container", Icon = "cube", Title = "Run in Container", Subtitle = "sandbox", Category = NodeCategory.Code,
+                Description = "Runs a shell command inside a throwaway, isolated container (Docker/Podman) - its own OS, no access to your machine except the mounted Codebase folder, and no network unless you allow it. Carries a Tool output, so wire it into Ask AI as a fully sandboxed run_command. Refuses if no container runtime is available.",
+                Inputs = new[] { Ex(), Tx("command") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "run_command", "run_command"),
+                    RootParam(),
+                    P("image", "Container image", ParamType.Text, "alpine", "python:3.12 · node:20 · rust:1 · your dev image"),
+                    P("network", "Allow network", ParamType.Bool, "false", "off = fully offline (most isolated)"),
+                    P("timeout", "Timeout (s)", ParamType.Int, "120", "120"),
+                },
+                SummaryParam = "image",
+                Exec = c => CodeRun(c, 1, 0, () =>
+                {
+                    var (_, o) = Ircuitry.Net.ContainerEngine.Run(c.Resolve(c.Param("image")), HostDir(CodeRoot(c)), Arg(c, 1, "command"), c.ParamInt("timeout", 120), c.ParamBool("network"));
+                    return o.Length == 0 ? "(no output)" : o;
+                }),
+            },
+            new()
+            {
+                TypeId = "container.start", Icon = "shipping-container", Title = "Start Container", Subtitle = "sandbox", Category = NodeCategory.Code,
+                Description = "Starts a long-lived, isolated container (Docker/Podman) you can run many commands in - state persists between them (installed packages, files). Idempotent by name: re-running reuses the running one. Outputs a 'container' handle for Container Exec / Stop Container. No network unless allowed; refuses if no runtime.",
+                Inputs = new[] { Ex(), Tx("name") },
+                Outputs = new[] { Ex("then"), Tx("container") },
+                Params = new[]
+                {
+                    P("name", "Container name", ParamType.Text, "devbox", "a stable name - reused if already running"),
+                    RootParam(),
+                    P("image", "Container image", ParamType.Text, "alpine", "python:3.12 · node:20 · your dev image"),
+                    P("network", "Allow network", ParamType.Bool, "false", "off = fully offline"),
+                },
+                SummaryParam = "image",
+                Exec = c =>
+                {
+                    var (ok, handle) = Ircuitry.Net.ContainerEngine.Start(c.Resolve(c.Param("image")), c.InOr(1, c.Resolve(c.Param("name"))), HostDir(CodeRoot(c)), c.ParamBool("network"));
+                    if (!ok) c.Log("Start Container: " + handle, LogLevel.Error);
+                    c.SetOut(1, ok ? handle : "");
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "container.exec", Icon = "cube", Title = "Container Exec", Subtitle = "sandbox", Category = NodeCategory.Code,
+                Description = "Runs a command inside a running container (started by Start Container) - state persists between calls. Set the container name to the one you started. Carries a Tool output, so an Ask AI can drive a persistent sandbox: rebuild the Programmer AI against a real dev box.",
+                Inputs = new[] { Ex(), Tx("command") },
+                Outputs = new[] { Ex("then"), Tx("result"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "run_command", "run_command"),
+                    P("container", "Container", ParamType.Text, "devbox", "name/handle from Start Container"),
+                    P("command", "Command", ParamType.Text, "", "npm test"),
+                    P("timeout", "Timeout (s)", ParamType.Int, "120", "120"),
+                },
+                SummaryParam = "container",
+                Exec = c => CodeRun(c, 1, 0, () =>
+                {
+                    var (_, o) = Ircuitry.Net.ContainerEngine.ExecIn(c.Resolve(c.Param("container")), Arg(c, 1, "command"), c.ParamInt("timeout", 120));
+                    return o.Length == 0 ? "(no output)" : o;
+                }),
+            },
+            new()
+            {
+                TypeId = "container.stop", Icon = "stop", Title = "Stop Container", Subtitle = "sandbox", Category = NodeCategory.Code,
+                Description = "Stops and removes a container started by Start Container. Set/wire the container name to tear it down (idle containers are also cleaned up when ircuitry exits).",
+                Inputs = new[] { Ex(), Tx("container") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("container", "Container", ParamType.Text, "devbox", "name from Start Container") },
+                Exec = c =>
+                {
+                    var (ok, o) = Ircuitry.Net.ContainerEngine.Stop(c.InOr(1, c.Resolve(c.Param("container"))));
+                    if (!ok) c.Log("Stop Container: " + o, LogLevel.System);
+                    c.Pulse(0);
+                },
             },
             new()
             {

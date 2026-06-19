@@ -279,6 +279,20 @@ public static class SelfTest
         GraphExecutor.Fire(g, sr, cmd, Vars("!x", "u", "#c"));
         fails += Expect("modout-redact", sr.Sent.Count == 1 && sr.Sent[0] == ("#c", "buy **** now"), Dump(sr));
 
+        // ---- container sandbox: the runtime arg builder (deterministic, no daemon needed) ----
+        var runArgs = Ircuitry.Net.ContainerEngine.BuildRunArgs(Ircuitry.Net.ContainerEngine.Engine.Docker, "python:3.12", "/home/u/proj", "pytest -q", false, "ircuitry-run-abc");
+        string runJoined = string.Join(" ", runArgs);
+        fails += Expect("cont-run-netoff", runArgs.Contains("--network=none"), runJoined);
+        fails += Expect("cont-run-mount", runArgs.Contains("/home/u/proj:/work") && runArgs.Contains("python:3.12"), runJoined);
+        fails += Expect("cont-run-cmd", runArgs[^3] == "sh" && runArgs[^2] == "-c" && runArgs[^1] == "pytest -q", runJoined);
+        fails += Expect("cont-run-rm", runArgs.Contains("--rm") && runArgs.Contains("--memory=2g") && runArgs.Contains("--pids-limit=512"), runJoined);
+        var netArgs = Ircuitry.Net.ContainerEngine.BuildRunArgs(Ircuitry.Net.ContainerEngine.Engine.Podman, "alpine", "", "echo hi", true, "n");
+        fails += Expect("cont-run-neton", !netArgs.Contains("--network=none"), string.Join(" ", netArgs));
+        fails += Expect("cont-run-nomount", !netArgs.Contains("-v"), string.Join(" ", netArgs));   // blank dir -> no bind mount
+        var startArgs = Ircuitry.Net.ContainerEngine.BuildStartArgs(Ircuitry.Net.ContainerEngine.Engine.Docker, "node:20", "ircuitry-devbox", "/p", false);
+        fails += Expect("cont-start-detached", startArgs.Contains("-d") && startArgs.Contains("ircuitry-devbox") && startArgs[^1].Contains("sleep"), string.Join(" ", startArgs));
+        fails += Expect("cont-safename", Ircuitry.Net.ContainerEngine.SafeName("My Box!") == "ircuitry-my-box-", Ircuitry.Net.ContainerEngine.SafeName("My Box!"));
+
         // ---- try-before-install sandbox: network and code are blocked when the per-thread dry-run flag is set ----
         Ircuitry.Net.Http.DryRun = true;
         var (st, body) = Ircuitry.Net.Http.Send("GET", "http://example.invalid/x", System.Array.Empty<(string, string)>(), null, 5);

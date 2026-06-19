@@ -81,9 +81,9 @@ public static class CodeAgent
     };
 
     private static readonly Tool RunCmd = new("run_command",
-        "Run a shell command in the project directory (build, test, lint, git, etc.) and get its output.",
+        "Run a shell command (build, test, lint, git, etc.) and get its output. It runs in an isolated container - its own OS, only the project is visible, no network unless the node enables it.",
         new[] { ("command", "the shell command to run") },
-        (root, a) => Empty(CodeTools.Run(root, A(a, "command"), 60), "(no output)"));
+        (root, a) => "(unused - run_command is dispatched through the container sandbox)");
 
     private static readonly (string, string)[] SendArgs = { ("note", "optional one-line note about what you delivered") };
 
@@ -106,12 +106,20 @@ public static class CodeAgent
     /// IO errors come back as a tidy <c>error: …</c> string the model can react to.
     /// </summary>
     public static string? Dispatch(string root, string name, Dictionary<string, string> args, bool allowCommands,
-        Func<Dictionary<string, string>, string>? onSend)
+        Func<Dictionary<string, string>, string>? onSend, string sandboxImage = "alpine", bool allowNetwork = false)
     {
         try
         {
             if (name == "send_codebase") return onSend != null ? onSend(args) : "(sending is not configured)";
-            if (name == "run_command") return allowCommands ? RunCmd.Run(root, args) : "(running commands is disabled for this Programmer AI)";
+            if (name == "run_command")
+            {
+                if (!allowCommands) return "(running commands is disabled for this Programmer AI)";
+                string cmd = A(args, "command");
+                if (cmd.Trim().Length == 0) return "(no command)";
+                // confine: commands run in an isolated container that only sees the (validated) project root
+                var (_, output) = Ircuitry.Net.ContainerEngine.Run(sandboxImage, CodeTools.Root(root), cmd, 120, allowNetwork);
+                return Empty(output, "(no output)");
+            }
             foreach (var t in FileTools) if (t.Name == name) return t.Run(root, args);
             return null;   // not a code tool - maybe an externally-wired one
         }
