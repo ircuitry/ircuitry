@@ -7,6 +7,7 @@ using Ircuitry.Core;
 using Ircuitry.Graph;
 using Ircuitry.Input;
 using Ircuitry.Render;
+using Ircuitry.Runtime;
 
 namespace Ircuitry.Editor;
 
@@ -26,6 +27,25 @@ public sealed class GraphEditor
     public Func<string, float>? FireGlow;
     /// <summary>Set by the host: lifetime fire count for a node (badge), and whether a bot is live.</summary>
     public Func<string, int>? FireCount;
+
+    // debug: per-node last-run trace (#16 pin inspector / watch chips) + whole-run trace (#14 why-didn't-fire)
+    public Func<string, NodeTrace?>? LastTrace;
+    public Func<RunRecord?>? LastRun;
+    private readonly HashSet<string> _watches = new();          // node ids whose data outputs are pinned as chips
+    public void ToggleWatch(string nodeId) { if (!_watches.Remove(nodeId)) _watches.Add(nodeId); }
+    public bool IsWatched(string nodeId) => _watches.Contains(nodeId);
+
+    private static bool IsDataPin(PinKind k) => k != PinKind.Exec && k != PinKind.Tool;
+    private string OutValue(string nodeId, int pin)
+    {
+        var n = Graph.Find(nodeId);
+        if (n == null || LastTrace == null || pin >= n.Outputs.Length) return "";
+        var tr = LastTrace(nodeId);
+        if (tr == null) return "";
+        string name = n.Outputs[pin].Name;
+        foreach (var (p, v) in tr.Outputs) if (p == name) return v;
+        return "";
+    }
     /// <summary>Set by the host: surface a brief user-facing message (e.g. a paste skipped unknown nodes).</summary>
     public Action<string>? Notify;
     public bool Running;
@@ -878,6 +898,39 @@ public sealed class GraphEditor
         }
     }
 
+    private void DrawWireValues(Renderer r, Vector2 mouse)
+    {
+        if (_mode == Mode.Idle)   // hover a data wire -> tooltip of the value that last flowed through it
+        {
+            var hov = WireUnder(mouse);
+            if (hov != null) { var n = Graph.Find(hov.FromNode); if (n != null && hov.FromPin < n.Outputs.Length && IsDataPin(n.Outputs[hov.FromPin].Kind)) DrawValueTip(r, mouse + new Vector2(16, 10), n.Outputs[hov.FromPin].Name, OutValue(hov.FromNode, hov.FromPin), false); }
+        }
+        foreach (var id in _watches)   // pinned watches -> chips by each watched node's data output pins
+        {
+            var n = Graph.Find(id); if (n == null) continue;
+            var l = NodeLayout.For(n);
+            for (int p = 0; p < n.Outputs.Length; p++)
+            {
+                if (!IsDataPin(n.Outputs[p].Kind)) continue;
+                DrawValueTip(r, Cam.WorldToScreen(l.OutPin(p)) + new Vector2(12, -9), n.Outputs[p].Name, OutValue(id, p), true);
+            }
+        }
+    }
+
+    private void DrawValueTip(Renderer r, Vector2 pos, string label, string value, bool pinned)
+    {
+        string txt = value.Length == 0 ? "(none yet)" : value.Replace('\n', ' ').Replace('\r', ' ');
+        if (txt.Length > 64) txt = txt[..64] + "…";
+        var f = r.Fonts.Get(FontKind.Mono, 11);
+        string lab = label.Length > 0 ? label + " = " : "";
+        var box = new RectF(pos.X, pos.Y, f.MeasureString(lab + txt).X + 14, 20);
+        r.RoundFill(box.Offset(0, 1), Theme.WithAlpha(Color.Black, 0.18f), 6f);
+        r.RoundFill(box, pinned ? Theme.WithAlpha(Theme.Sky, 0.93f) : Theme.WithAlpha(Color.Black, 0.84f), 6f);
+        if (pinned) r.RoundOutline(box, Theme.WithAlpha(Theme.Mix(Theme.Sky, Color.White, 0.3f), 0.9f), 6f);
+        r.Text(f, lab, new Vector2(box.X + 7, box.Center.Y - 6), pinned ? Theme.WithAlpha(Theme.TextInk, 0.6f) : Theme.WithAlpha(Color.White, 0.6f));
+        r.Text(f, txt, new Vector2(box.X + 7 + f.MeasureString(lab).X, box.Center.Y - 6), pinned ? Theme.TextInk : Color.White);
+    }
+
     private void DrawGhosts(Renderer r, Vector2 screen)
     {
         if (_mode != Mode.Idle && _mode != Mode.DragNodes) return;   // hide while wiring/panning
@@ -932,6 +985,7 @@ public sealed class GraphEditor
         if (_mode == Mode.DragWire) DrawDragWire(r, input);
         foreach (var n in Graph.Nodes) DrawNode(r, n, clock);
         DrawGhosts(r, input.Mouse);   // "+" suggestions on dangling exec outputs
+        DrawWireValues(r, input.Mouse);   // pin inspector tooltip + watch chips (#16)
         // node-fired shockwave (alpha so the rings read on the cream canvas): a white-hot flash
         // outline at the instant of firing, then two rings rippling outward as it fades.
         if (FireGlow != null)

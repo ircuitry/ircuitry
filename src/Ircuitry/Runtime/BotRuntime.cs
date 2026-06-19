@@ -317,6 +317,23 @@ public sealed class BotRuntime
 
     public int FireCount(string nodeId) => _fireCounts.TryGetValue(nodeId, out var n) ? n : 0;
 
+    /// <summary>The most recent run, newest, for the debug tracer / pin inspector (or null if nothing ran yet).</summary>
+    public RunRecord? LastRun { get { lock (_historyLock) return _history.Last?.Value; } }
+
+    /// <summary>This node's trace within the most recent run (its read/produced values), or null if it didn't run.</summary>
+    public NodeTrace? LastTraceFor(string nodeId)
+    {
+        lock (_historyLock)
+        {
+            for (var n = _history.Last; n != null; n = n.Previous)
+            {
+                var t = n.Value.Nodes.Find(x => x.NodeId == nodeId);
+                if (t != null) return t;
+            }
+        }
+        return null;
+    }
+
     /// <summary>Deliver a webhook to this bot's running graph (via its primary connection). 0 if not connected.</summary>
     public int FireWebhook(string path, Dictionary<string, string> vars) => PrimaryConn?.FireWebhook(path, vars) ?? 0;
 

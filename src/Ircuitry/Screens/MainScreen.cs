@@ -226,6 +226,8 @@ public sealed partial class MainScreen : IScreen
         {
             FireGlow = id => { var b = _app.ActiveBot; return b.IsRemote ? b.Remote!.FireGlow(b.RemoteName, id) : b.Runtime.FireGlow(id); },
             FireCount = id => _app.ActiveBot.Runtime.FireCount(id),
+            LastTrace = id => _app.ActiveBot.IsRemote ? null : _app.ActiveBot.Runtime.LastTraceFor(id),
+            LastRun = () => _app.ActiveBot.IsRemote ? null : _app.ActiveBot.Runtime.LastRun,
             Notify = PushToast,
         };
         // dockable panels over a full-bleed map: Library left, Inspector right, Console bottom (hidden by default)
