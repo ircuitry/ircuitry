@@ -205,6 +205,7 @@ public static partial class ControlServer
         public readonly Dictionary<App.Bot, long> LogRev = new();
         public readonly Dictionary<App.Bot, long> HistRev = new();
         public readonly Dictionary<App.Bot, bool> Running = new();
+        public readonly Dictionary<App.Bot, bool> Unapplied = new();
         public readonly List<(App.Bot bot, Action<string> handler)> FireHooks = new();
         public Client(WebSocket ws) => Ws = ws;
     }
@@ -366,6 +367,15 @@ public static partial class ControlServer
                     if (sb != null && BotExists(sb) && !CanEditBot(c, sb)) { await ReplyErr(c, id, $"you don't have access to '{sb}'"); break; }
                     await Reply(c, id, StartStop(root, op == "start")); break;
                 }
+                case "apply":   // hot-swap a running bot's stored graph into its live runtime (no restart)
+                {
+                    if (!c.CanEdit) { await ReplyErr(c, id, "this token is read-only (viewer)"); break; }
+                    // apply must name an explicit, visible bot you can edit - never silently fall back to the active bot
+                    var ab = ExplicitBotName(root);
+                    if (ab == null || !BotExists(ab) || !CanSee(c, ab)) { await ReplyErr(c, id, "no such bot"); break; }
+                    if (!CanEditBot(c, ab)) { await ReplyErr(c, id, $"you don't have edit access to '{ab}'"); break; }
+                    await Reply(c, id, ApplyLive(root)); break;
+                }
                 case "call":
                 {
                     string tool = Str(root, "tool");
@@ -424,6 +434,20 @@ public static partial class ControlServer
         }
     }
 
+    /// <summary>Apply the bot's current (already-pushed) graph to its live runtime without a restart - the
+    /// server twin of the desktop's "apply to the live bot". No-op-with-error if the bot isn't running.</summary>
+    private static object ApplyLive(JsonElement root)
+    {
+        lock (Gate)
+        {
+            var bot = ResolveBot(root);
+            if (bot == null) return new { error = "no such bot" };
+            if (!bot.Runtime.Running) return new { error = "bot is not running" };
+            bot.Runtime.ApplyGraph(bot.Graph);
+            return new { bot = bot.Name, running = true, unapplied = false };
+        }
+    }
+
     private static App.Bot? ResolveBot(JsonElement root)
     {
         if (root.TryGetProperty("bot", out var b))
@@ -447,6 +471,7 @@ public static partial class ControlServer
                 {
                     name = b.Name,
                     running = b.Runtime.Running,
+                    unapplied = b.Runtime.HasUnapplied(b.Graph),
                     state = b.Runtime.State.ToString(),
                     rev = BotRev(b.Name),
                     vars = new Dictionary<string, string>(b.State),
@@ -478,12 +503,12 @@ public static partial class ControlServer
 
     private static async Task Pump(Client c)
     {
-        foreach (var b in BotsSnapshot()) { c.LogRev[b] = b.Log.Revision; c.HistRev[b] = b.Runtime.HistoryRevision; c.Running[b] = b.Runtime.Running; }
+        foreach (var b in BotsSnapshot()) { c.LogRev[b] = b.Log.Revision; c.HistRev[b] = b.Runtime.HistoryRevision; c.Running[b] = b.Runtime.Running; c.Unapplied[b] = b.Runtime.HasUnapplied(b.Graph); }
         while (!c.Closed && c.Ws.State == WebSocketState.Open)
         {
             foreach (var b in BotsSnapshot())
             {
-                if (!c.LogRev.ContainsKey(b)) { c.LogRev[b] = b.Log.Revision; c.HistRev[b] = b.Runtime.HistoryRevision; c.Running[b] = b.Runtime.Running; continue; }   // a bot created after connect
+                if (!c.LogRev.ContainsKey(b)) { c.LogRev[b] = b.Log.Revision; c.HistRev[b] = b.Runtime.HistoryRevision; c.Running[b] = b.Runtime.Running; c.Unapplied[b] = b.Runtime.HasUnapplied(b.Graph); continue; }   // a bot created after connect
                 if (!CanSee(c, b.Name)) continue;   // never stream a private bot's log/status/runs to a client who can't see it
                 if (c.Topics.Contains("logs"))
                 {
@@ -497,8 +522,9 @@ public static partial class ControlServer
                 }
                 if (c.Topics.Contains("status"))
                 {
-                    bool run = b.Runtime.Running;
-                    if (run != c.Running[b]) { c.Running[b] = run; await Send(c, new { evt = "status", bot = b.Name, running = run, state = b.Runtime.State.ToString() }); }
+                    bool run = b.Runtime.Running, un = b.Runtime.HasUnapplied(b.Graph);
+                    if (run != c.Running[b] || un != c.Unapplied[b])
+                    { c.Running[b] = run; c.Unapplied[b] = un; await Send(c, new { evt = "status", bot = b.Name, running = run, state = b.Runtime.State.ToString(), unapplied = un }); }
                 }
                 if (c.Topics.Contains("runs"))
                 {

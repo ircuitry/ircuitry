@@ -31,6 +31,7 @@ public sealed class ControlClient : IDisposable
     public sealed class RemoteBot
     {
         public string Name = ""; public bool Running; public string Stat = ""; public int Nodes, Wires;
+        public bool Unapplied;   // running, but its stored graph differs from the graph the live runtime is executing
         // sharing, as this client sees it
         public string Owner = ""; public string Visibility = "public"; public bool Editable = true;
         public bool Mine; public bool CanEdit = true;
@@ -71,6 +72,9 @@ public sealed class ControlClient : IDisposable
     }
 
     public bool BotRunning(string name) { lock (_gate) return _bots.Exists(b => b.Name == name && b.Running); }
+    /// <summary>A running remote bot whose stored graph hasn't been hot-applied to its live runtime yet (drives
+    /// the remote "apply" affordance, mirroring the local <c>BotRuntime.HasUnapplied</c>).</summary>
+    public bool BotUnapplied(string name) { lock (_gate) return _bots.Exists(b => b.Name == name && b.Unapplied); }
 
     /// <summary>Push a full graph to a remote bot (set_graph), carrying the base revision it was loaded from.
     /// onResult(newRev, stale): stale=true means a co-editor changed it first (newRev = the server's current rev,
@@ -95,6 +99,14 @@ public sealed class ControlClient : IDisposable
     public void StartStop(string bot, bool start) => Call(start ? "start" : "stop", new { bot }, res =>
     {
         if (res.TryGetProperty("error", out var e)) { var msg = e.GetString() ?? (start ? "could not start" : "could not stop"); AppendLog($"[{bot}] (server) {msg}"); OnLog?.Invoke(bot, "Error", msg); }
+    });
+
+    /// <summary>Hot-apply a running remote bot's stored graph to its live runtime - no restart - the remote
+    /// equivalent of the local "apply" floppy. Surfaces a server refusal into the bot's console.</summary>
+    public void ApplyGraph(string bot, Action<bool>? onResult = null) => Call("apply", new { bot }, res =>
+    {
+        if (res.TryGetProperty("error", out var e)) { var msg = e.GetString() ?? "could not apply"; AppendLog($"[{bot}] (server) {msg}"); OnLog?.Invoke(bot, "Error", msg); onResult?.Invoke(false); }
+        else onResult?.Invoke(true);
     });
 
     /// <summary>Push a bot's connection settings to the server (set_connection) so edits to host/port/nick/etc.
@@ -411,6 +423,7 @@ public sealed class ControlClient : IDisposable
             {
                 Name = Get(b, "name"),
                 Running = b.TryGetProperty("running", out var r) && r.ValueKind == JsonValueKind.True,
+                Unapplied = b.TryGetProperty("unapplied", out var ua) && ua.ValueKind == JsonValueKind.True,
                 Stat = Get(b, "state"),
                 Nodes = b.TryGetProperty("nodes", out var n) && n.TryGetInt32(out var ni) ? ni : 0,
                 Wires = b.TryGetProperty("wires", out var w) && w.TryGetInt32(out var wi) ? wi : 0,

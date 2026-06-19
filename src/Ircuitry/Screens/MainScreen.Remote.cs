@@ -634,6 +634,29 @@ public partial class MainScreen
         }
     }
 
+    /// <summary>Apply the on-screen graph to a running REMOTE bot without a restart - the remote twin of the
+    /// local "apply" floppy. If there are edits not yet pushed (debounce still pending), flush them first so the
+    /// server applies exactly what's on screen; otherwise ask it to hot-swap directly. The apply request carries
+    /// no base revision, so it can't race the optimistic-concurrency check - it just applies whatever graph the
+    /// server currently holds, and it's ordered after any in-flight push on the same socket.</summary>
+    private void ApplyRemote(Bot b)
+    {
+        if (b.Remote?.Connected != true) return;
+        var tab = b;
+        void Apply() => tab.Remote!.ApplyGraph(tab.RemoteName, ok => { if (ok) Notify(Ircuitry.Core.Icons.Glyph("arrows-clockwise") + " Applied changes to the live remote bot"); });
+
+        bool unpushed = b == _remoteLastBot && _remoteGraphDirty;   // local edits the debounce hasn't sent yet
+        if (b == _remoteLastBot) { _remoteGraphDirty = false; _remotePushAt = -1; }   // we own the push from here
+        if (!unpushed) { Apply(); return; }                        // server already has (or is about to have) the latest
+
+        b.Remote.PushGraph(b.RemoteName, Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.RemoteName), b.RemoteRev, (rev, stale) =>
+        {
+            if (stale) { _staleRemote = tab; _staleServerRev = rev; return; }   // a co-editor really did change it first
+            if (rev > 0) tab.RemoteRev = rev;
+            Apply();
+        });
+    }
+
     // ---- D9: stale-push (a co-editor changed the bot first) -> ask to reload or overwrite ----
     private Bot? _staleRemote; private long _staleServerRev;
 

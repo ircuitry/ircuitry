@@ -410,7 +410,13 @@ public sealed partial class MainScreen
     // when you click away). Clicking it applies the edits to the running bot (and saves).
     private void DrawCanvasSave(Renderer r)
     {
-        if (!Bot.Runtime.HasUnapplied(Bot.Graph)) return;
+        // local: the runtime has edits it hasn't applied. remote: the server says the running bot's stored graph
+        // differs from what its live runtime is executing. Either way, clicking hot-applies (no restart).
+        bool remote = Bot.IsRemote;
+        bool unapplied = remote
+            ? (Bot.Remote?.Connected == true && Bot.Remote.BotUnapplied(Bot.RemoteName))
+            : Bot.Runtime.HasUnapplied(Bot.Graph);
+        if (!unapplied) return;
         var c = _l.Canvas;
         var rect = new RectF(c.Right - 54, c.Y + 14, 40, 40);
         bool hot = !Modal && rect.Contains(In.Mouse);
@@ -425,9 +431,13 @@ public sealed partial class MainScreen
         r.End();
         if (hot && In.LeftPressed)
         {
-            Bot.Runtime.ApplyGraph(Bot.Graph);
-            _app.Save();
-            Notify(Ircuitry.Core.Icons.Glyph("arrows-clockwise") + " Applied changes to the live bot");
+            if (remote) ApplyRemote(Bot);
+            else
+            {
+                Bot.Runtime.ApplyGraph(Bot.Graph);
+                _app.Save();
+                Notify(Ircuitry.Core.Icons.Glyph("arrows-clockwise") + " Applied changes to the live bot");
+            }
         }
     }
 }

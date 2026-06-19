@@ -3125,7 +3125,9 @@ public sealed partial class MainScreen : IScreen
 
         A("floppy-disk", "Save workspace", "Ctrl+S", () => { _app.Save(); Notify(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved"); });
         A(running ? "square" : "play", running ? "Stop bot" : "Run bot", "Ctrl+R", ToggleRun);
+        bool remoteRunning = Bot.IsRemote && Bot.Remote?.Connected == true && Bot.Remote.BotRunning(Bot.RemoteName);
         if (running) A("arrows-clockwise", "Apply changes to the live bot", "", () => Bot.Runtime.ApplyGraph(Bot.Graph));
+        else if (remoteRunning) A("arrows-clockwise", "Apply changes to the live bot", "", () => ApplyRemote(Bot));
         A("test-tube", "Test (dry run)", "", () => { _testOpen = true; _testJustOpened = true; RunTest(); });
         A("ruler", "Tidy layout", "Ctrl+L", () => { if (hasNodes) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); } });
         A("magnifying-glass", "Fit to view", "", () => _editor.FocusContent(_l.Canvas));
