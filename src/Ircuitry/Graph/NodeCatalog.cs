@@ -3110,7 +3110,7 @@ public static class NodeCatalog
                 Outputs = new[] { Ex("then") },
                 Params = new[] { P("name", "Name", ParamType.Text, "counter", "counter"), P("value", "Value", ParamType.Text, "", "supports {message} {nick} …") },
                 SummaryParam = "name",
-                Exec = c => { c.SetState(c.Param("name"), c.InOr(1, c.Resolve(c.Param("value")))); c.Pulse(0); },
+                Exec = c => { c.SetState(c.Resolve(c.Param("name")), c.InOr(1, c.Resolve(c.Param("value")))); c.Pulse(0); },
             },
 
             // ============================ DATA (more) =======================
@@ -3122,7 +3122,7 @@ public static class NodeCatalog
                 Outputs = new[] { Tx("value") },
                 Params = new[] { P("name", "Name", ParamType.Text, "counter", "counter"), P("default", "Default", ParamType.Text, "0") },
                 SummaryParam = "name",
-                Exec = c => { var v = c.GetState(c.Param("name")); c.SetOut(0, v.Length > 0 ? v : c.Param("default")); },
+                Exec = c => { var v = c.GetState(c.Resolve(c.Param("name"))); c.SetOut(0, v.Length > 0 ? v : c.Resolve(c.Param("default"))); },
             },
             new()
             {
@@ -3265,11 +3265,13 @@ public static class NodeCatalog
                 Description = "Waits before continuing. Runs off the connection thread, so it never stalls keepalive or other workflows (capped at 5 min). For long or recurring waits, prefer a Schedule/Timer trigger.",
                 Inputs = new[] { Ex() },
                 Outputs = new[] { Ex("then") },
-                Params = new[] { P("seconds", "Seconds", ParamType.Int, "1", "1") },
+                Params = new[] { P("seconds", "Seconds", ParamType.Text, "1", "seconds - supports {tokens} for a computed (e.g. typing) delay") },
                 SummaryParam = "seconds",
                 Exec = c =>
                 {
-                    int ms = Math.Clamp(c.ParamInt("seconds", 1), 0, 300) * 1000;
+                    // resolve {tokens} so the wait can be computed per-event (e.g. a human-like typing delay).
+                    double secs = double.TryParse(c.Resolve(c.Param("seconds")), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : 1;
+                    int ms = (int)(Math.Clamp(secs, 0, 300) * 1000);
                     if (ms > 0) System.Threading.Thread.Sleep(ms);
                     c.Pulse(0);
                 },
