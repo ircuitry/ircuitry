@@ -96,7 +96,7 @@ public sealed class IrcuitryGame : Game
         _app = new AppModel();
         _screen = new MainScreen(_app);
         // autosave on close - but never in demo/screenshot modes (they'd clobber the real workspace)
-        Exiting += (_, _) => { if (!_demo && _shotPath == null) { _app.Save(); Ircuitry.Core.Achievements.Save(); } try { Ircuitry.Net.ContainerEngine.StopAll(); } catch { } };
+        Exiting += (_, _) => { if (!_demo && _shotPath == null) { _app.Save(); Ircuitry.Core.Achievements.Save(); } try { Ircuitry.Net.ContainerEngine.StopAll(); } catch { } try { Ircuitry.App.Mcp.McpClient.StopAll(); } catch { } };
         Window.TextInput += (_, e) => OnText(e.Character);
         // FileDrop fires on the OS event thread; queue the files and apply them on the game thread
         // (Update) so we never mutate the graph/bot list while Update/Draw are iterating it.

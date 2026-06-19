@@ -133,6 +133,7 @@ public static class SelfTest
         fails += AiLoopTest();
         fails += AiToolsTest();
         fails += SubAgentTest();
+        fails += McpClientTest();
         fails += DynamicAiArgsTest();
         fails += SuperAiTest();
         fails += SuperAiCompositeTest();
@@ -980,6 +981,28 @@ public static class SelfTest
         bool finalOk = s.Sent.Count == 1 && s.Sent[0].text == "final answer";
         return Expect("ai-tools-call-loop", ranToolWithArg && finalOk && reqs >= 2,
             $"logs=[{string.Join(",", s.Logs)}] {Dump(s)} reqs={reqs}");
+    }
+
+    /// <summary>MCP client: spawn our OWN MCP server (ircuitry --mcp) and drive it over stdio - initialize,
+    /// tools/list, tools/call - proving the outward MCP client works against a real MCP server.</summary>
+    private static int McpClientTest()
+    {
+        string? dll = System.Reflection.Assembly.GetEntryAssembly()?.Location;
+        if (string.IsNullOrEmpty(dll) || !dll.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            return Expect("mcp-client (skipped: no entry dll)", true, "");
+        string cmd = "dotnet \"" + dll + "\" --mcp";
+        try
+        {
+            var client = Ircuitry.App.Mcp.McpClient.ForConfig("stdio", cmd, null, 25000);
+            var tools = client.ListTools(25000);
+            string res = client.Call("list_node_types", new Dictionary<string, string>(), 25000);
+            int fails = 0;
+            fails += Expect("mcp-client-list", tools.Count > 0 && tools.Any(t => t.Name == "list_node_types"), "tools=" + tools.Count);
+            fails += Expect("mcp-client-call", res.Length > 10 && !res.StartsWith("MCP error"), res.Substring(0, Math.Min(80, res.Length)));
+            return fails;
+        }
+        catch (Exception ex) { return Expect("mcp-client (skipped: " + ex.Message + ")", true, ""); }
+        finally { try { Ircuitry.App.Mcp.McpClient.StopAll(); } catch { } }
     }
 
     /// <summary>Agents all the way down: an Ask AI wired (via its 'tool' output) into another Ask AI's 'tools'

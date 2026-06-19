@@ -194,6 +194,33 @@ public static class NodeCatalog
     /// sub-agent Ask AI can describe itself), else the node's static description.</summary>
     private static string ToolDesc(Node n) => n.GetParam("toolDescription") is { Length: > 0 } d ? d : n.Def.Description;
 
+    /// <summary>Connect to the MCP server an ai.mcp node points at, list its tools, and add each as a ToolDef the
+    /// model can call (routing back through the cached client). Shared by Ask AI and Programmer AI.</summary>
+    private static void GatherMcpTools(INodeContext c, Node tn, List<Ai.ToolDef> defs,
+        Dictionary<string, Ircuitry.App.Mcp.McpClient> mcpRoute,
+        Dictionary<string, Node> byName, Dictionary<string, string> editorBot,
+        Dictionary<string, Node> nodeTools, Dictionary<string, (NodeGraph sub, string innerId)> subTools)
+    {
+        try
+        {
+            string transport = tn.GetParam("transport"); if (transport.Length == 0) transport = "stdio";
+            string target = Ircuitry.Core.Secrets.Expand((transport == "http" ? tn.GetParam("url") : tn.GetParam("command")).Trim());
+            if (target.Length == 0) return;
+            var hdrs = Ircuitry.Core.ParamList.Pairs(tn.GetParam("headers")).Where(p => p.key.Length > 0)
+                .Select(p => (p.key, Ircuitry.Core.Secrets.Expand(p.val))).ToList();
+            var client = Ircuitry.App.Mcp.McpClient.ForConfig(transport, target, hdrs, 15000);
+            foreach (var mt in client.ListTools(15000))
+            {
+                if (mt.Name.Length == 0 || byName.ContainsKey(mt.Name) || editorBot.ContainsKey(mt.Name)
+                    || nodeTools.ContainsKey(mt.Name) || subTools.ContainsKey(mt.Name) || mcpRoute.ContainsKey(mt.Name)) continue;
+                object? schema = mt.Schema.ValueKind == System.Text.Json.JsonValueKind.Undefined ? null : mt.Schema;
+                defs.Add(new Ai.ToolDef(mt.Name, mt.Description, new List<(string, string)>(), schema));
+                mcpRoute[mt.Name] = client;
+            }
+        }
+        catch (Exception ex) { c.Log("MCP Tools: " + ex.Message, LogLevel.Error); }
+    }
+
     // Serializes fetched history as a JSON array with friendly lowercase keys, so {item.text}/{item.id} work
     // when wired into For Each, and an AI can read it directly.
     private static string HistoryJson(System.Collections.Generic.IReadOnlyList<Ircuitry.Core.RecentMsg> msgs)
@@ -1172,6 +1199,7 @@ public static class NodeCatalog
                     var editorBot = new Dictionary<string, string>();     // editor tool name -> default bot
                     var nodeTools = new Dictionary<string, Node>();       // node-tool name -> the node (e.g. a custom .ircnode)
                     var subTools = new Dictionary<string, (NodeGraph sub, string innerId)>();   // ai.tool baked inside a composite
+                    var mcpRoute = new Dictionary<string, Ircuitry.App.Mcp.McpClient>();        // external MCP tool name -> its client
                     foreach (var tn in c.SourcesInto(2))
                     {
                         if (tn.TypeId == "ai.tool")
@@ -1191,6 +1219,10 @@ public static class NodeCatalog
                                 defs.Add(d);
                                 editorBot[d.Name] = defBot;
                             }
+                        }
+                        else if (tn.TypeId == "ai.mcp")
+                        {
+                            GatherMcpTools(c, tn, defs, mcpRoute, byName, editorBot, nodeTools, subTools);
                         }
                         else
                         {
@@ -1235,6 +1267,8 @@ public static class NodeCatalog
                         reply = Ai.ChatWithTools(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
                             (name, args) =>
                             {
+                                if (mcpRoute.TryGetValue(name, out var mc))     // an external MCP server's tool
+                                    return mc.Call(name, args, 60000);
                                 if (editorBot.TryGetValue(name, out var db))    // inward MCP edit against the workspace
                                     return Ircuitry.App.Mcp.McpBridge.Invoke(name, args, db.Length > 0 ? db : null);
                                 if (nodeTools.TryGetValue(name, out var ntn))   // a self-contained node tool (e.g. a custom .ircnode)
@@ -1450,6 +1484,21 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "ai.mcp", Icon = "plugs-connected", Title = "MCP Tools", Subtitle = "ai", Category = NodeCategory.Ai,
+                Description = "Connects to an external MCP (Model Context Protocol) server and exposes ALL its tools to an Ask AI / Programmer AI - filesystem, git, web search, a database, anything with an MCP server. Wire 'tools' into the AI. 'stdio' runs a local command (e.g. an npx server); 'http' connects to a URL. Secrets work in the command/url/headers.",
+                Outputs = new[] { To("tools") },
+                Params = new[]
+                {
+                    P("transport", "Transport", ParamType.Choice, "stdio", "", new[] { "stdio", "http" }),
+                    P("command", "Command", ParamType.Text, "", "npx -y @modelcontextprotocol/server-filesystem ~/notes", visibleWhen: n => n.GetParam("transport") != "http"),
+                    P("url", "Server URL", ParamType.Text, "", "https://host/mcp", visibleWhen: n => n.GetParam("transport") == "http"),
+                    PL("headers", "Headers (http)", true, "Add header"),
+                },
+                SummaryParam = "transport",
+                Exec = c => { },   // never runs in the flow - it only advertises an MCP server's tools to the AI
+            },
+            new()
+            {
                 TypeId = "ai.programmer", Icon = "wrench", Title = "Programmer AI", Subtitle = "ai",
                 Category = NodeCategory.Ai,
                 Description = "An AI software engineer that reads and edits a whole codebase (read/write/edit/search/move files, run build & test commands) and delivers the finished result. File edits are locked to the codebase folder; commands run in an isolated Docker/Podman container (its own OS, no network unless you allow it) and are refused if no container runtime is available. Set a 'task' and wire 'reply' into Send Reply. Wire extra AI Tool nodes into 'tools' to give it more abilities.",
@@ -1534,6 +1583,7 @@ public static class NodeCatalog
                     var editorBot = new Dictionary<string, string>();
                     var nodeTools = new Dictionary<string, Node>();
                     var subTools = new Dictionary<string, (NodeGraph sub, string innerId)>();
+                    var mcpRoute = new Dictionary<string, Ircuitry.App.Mcp.McpClient>();
                     foreach (var tn in c.SourcesInto(2))
                     {
                         if (tn.TypeId == "ai.tool")
@@ -1541,6 +1591,7 @@ public static class NodeCatalog
                             var nm = tn.GetParam("name"); if (nm.Length == 0 || CodeAgent.Handles(nm)) continue;
                             defs.Add(new Ai.ToolDef(nm, tn.GetParam("description"), AiToolArgs(tn))); byName[nm] = tn;
                         }
+                        else if (tn.TypeId == "ai.mcp") GatherMcpTools(c, tn, defs, mcpRoute, byName, editorBot, nodeTools, subTools);
                         else if (tn.TypeId == "ai.editor")
                         {
                             bool ro = tn.GetParam("mode") == "read-only"; string defBot = tn.GetParam("bot").Trim();
@@ -1584,6 +1635,7 @@ public static class NodeCatalog
                         {
                             var res = CodeAgent.Dispatch(root, name, args, allowCmd, sendCodebase, c.Resolve(c.Param("sandboxImage")), c.ParamBool("allowNetwork"));
                             if (res != null) return res;
+                            if (mcpRoute.TryGetValue(name, out var mc)) return mc.Call(name, args, 60000);
                             if (editorBot.TryGetValue(name, out var db)) return Ircuitry.App.Mcp.McpBridge.Invoke(name, args, db.Length > 0 ? db : null);
                             if (nodeTools.TryGetValue(name, out var ntn)) return c.InvokeNodeTool(ntn, args);
                             if (subTools.TryGetValue(name, out var stp)) return c.InvokeSubflowTool(stp.sub, stp.innerId, args);
