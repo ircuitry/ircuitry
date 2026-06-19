@@ -3637,8 +3637,10 @@ public sealed partial class MainScreen : IScreen
             r.RoundFill(new RectF(gx.X, gx.Y, gx.W * Math.Max(0.05f, p), gx.H), Theme.WithAlpha(fill, tw), 5f);
             r.RoundOutline(gx, Theme.Hairline, 5f);
         }
-        // error badge: when a node has thrown, the hint gives way to a clickable tally that opens the error tray (#15)
+        // far-right slot priority: error badge (#15) > AI token meter (#18) > the usage hint
         int errN = Bot.IsRemote ? 0 : Bot.Runtime.ErrorCount;
+        long tokTotal = Bot.IsRemote ? 0 : Bot.Runtime.TokensTotal;
+        long tokCap = Bot.IsRemote ? 0 : Bot.Runtime.TokenCap;
         if (errN > 0)
         {
             string elbl = Ircuitry.Core.Icons.Glyph("warning-octagon") + "  " + errN + (errN == 1 ? " error" : " errors");
@@ -3647,9 +3649,46 @@ public sealed partial class MainScreen : IScreen
             var ec = _errTrayOpen ? Theme.Alert : Theme.Mix(Theme.Alert, Theme.PanelHi, 0.45f);
             if (_ui.Button("status.errtray", er, elbl, ec)) { _errTrayOpen = !_errTrayOpen; }
         }
+        else if (tokTotal > 0 || tokCap > 0)
+            DrawTokenMeter(r, bar, clock, tokTotal, tokCap);
         else
             r.TextRight(f, "Double-click empty space to add a node · drag a port to wire · drag to pan, Shift-drag to box-select · Ctrl+Z undo · Ctrl+D duplicate",
                 bar.W - 16, y, Theme.TextFaint);
+    }
+
+    /// <summary>Format a token count compactly: 1234 -> "1.2k", 2_000_000 -> "2.0M".</summary>
+    private static string FmtTokens(long n) =>
+        n >= 1_000_000 ? (n / 1_000_000.0).ToString("0.0") + "M" :
+        n >= 1_000 ? (n / 1_000.0).ToString("0.0") + "k" : n.ToString();
+
+    // #18: a right-aligned AI token meter. With a spend cap it shows window-usage/cap with a colour ramp and a
+    // small bar that twinkles when over budget; without a cap it's just the running lifetime total.
+    private void DrawTokenMeter(Renderer r, RectF bar, Clock clock, long total, long cap)
+    {
+        var f = r.Fonts.Get(FontKind.SansBold, 12);
+        string ic = Ircuitry.Core.Icons.Glyph("brain") + " ";
+        if (cap > 0)
+        {
+            long win = Bot.Runtime.TokensInWindow;
+            bool over = win >= cap;
+            float p = Math.Clamp(win / (float)cap, 0f, 1f);
+            var col = over ? Theme.Alert : Theme.Mix(Theme.Ok, Theme.Alert, p);
+            string lbl = ic + FmtTokens(win) + " / " + FmtTokens(cap) + (over ? "  OVER" : "");
+            float tw = f.MeasureString(lbl).X;
+            float right = bar.W - 16;
+            // small bar to the right of the text
+            var gx = new RectF(right - 60, bar.Center.Y - 5, 60, 10);
+            r.RoundFill(gx, Theme.PanelHi, 5f);
+            float blink = over ? 0.45f + 0.55f * clock.Sin01(3f) : 1f;
+            r.RoundFill(new RectF(gx.X, gx.Y, gx.W * Math.Max(0.05f, p), gx.H), Theme.WithAlpha(col, blink), 5f);
+            r.RoundOutline(gx, Theme.Hairline, 5f);
+            r.TextRight(f, lbl, gx.X - 10, bar.Center.Y - f.MeasureString(lbl).Y / 2f, col);
+        }
+        else
+        {
+            string lbl = ic + FmtTokens(total) + " tokens";
+            r.TextRight(f, lbl, bar.W - 16, bar.Center.Y - f.MeasureString(lbl).Y / 2f, Theme.TextDim);
+        }
     }
 
     // ===================================================================

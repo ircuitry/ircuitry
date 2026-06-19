@@ -87,7 +87,20 @@ public static class Http
 /// </summary>
 public static class Ai
 {
-    public static string Chat(string baseUrl, string apiKey, string model, string system, string prompt, int maxTokens, out string error, int timeoutSeconds = 180)
+    /// <summary>Pull token usage from an OpenAI- or Anthropic-shaped response and report it (provider-agnostic).</summary>
+    private static void ReportUsage(JsonElement root, Action<int, int>? onUsage)
+    {
+        if (onUsage == null) return;
+        if (!root.TryGetProperty("usage", out var u) || u.ValueKind != JsonValueKind.Object) return;
+        int Read(string a, string b) =>
+            u.TryGetProperty(a, out var x) && x.TryGetInt32(out var xv) ? xv :
+            u.TryGetProperty(b, out var y) && y.TryGetInt32(out var yv) ? yv : 0;
+        int pin = Read("prompt_tokens", "input_tokens");
+        int pout = Read("completion_tokens", "output_tokens");
+        if (pin > 0 || pout > 0) onUsage(pin, pout);
+    }
+
+    public static string Chat(string baseUrl, string apiKey, string model, string system, string prompt, int maxTokens, out string error, int timeoutSeconds = 180, Action<int, int>? onUsage = null)
     {
         error = "";
         if (apiKey.Length == 0) apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
@@ -117,6 +130,7 @@ public static class Ai
         try
         {
             using var doc = JsonDocument.Parse(body);
+            ReportUsage(doc.RootElement, onUsage);
             var choices = doc.RootElement.GetProperty("choices");
             if (choices.GetArrayLength() == 0) { error = "no choices in response"; return ""; }
             return (choices[0].GetProperty("message").GetProperty("content").GetString() ?? "").Trim();
@@ -147,7 +161,7 @@ public static class Ai
     /// </summary>
     public static string ChatWithTools(string baseUrl, string apiKey, string model, string system, string prompt,
         int maxTokens, List<ToolDef> tools, Func<string, Dictionary<string, string>, string> execTool, out string error,
-        int maxRounds = 6, Action<string, string, string>? onTool = null, int timeoutSeconds = 180)
+        int maxRounds = 6, Action<string, string, string>? onTool = null, int timeoutSeconds = 180, Action<int, int>? onUsage = null)
     {
         error = "";
         if (apiKey.Length == 0) apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
@@ -197,6 +211,7 @@ public static class Ai
             try
             {
                 using var doc = JsonDocument.Parse(body);
+                ReportUsage(doc.RootElement, onUsage);   // each round bills tokens (input grows as the tool transcript does)
                 var choices = doc.RootElement.GetProperty("choices");
                 if (choices.GetArrayLength() == 0) { error = "no choices in response"; return ""; }
                 msg = choices[0].GetProperty("message").Clone();

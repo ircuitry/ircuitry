@@ -1062,7 +1062,7 @@ public static class NodeCatalog
                 Category = NodeCategory.Action,
                 Description = "Generates a reply via any OpenAI-compatible API (OpenAI, Ollama, LM Studio, OpenRouter, Groq, vLLM…). Wire AI Tool nodes into 'tools' to let the model fetch data / act. Wire 'reply' into a Send Reply.",
                 Inputs = new[] { Ex(), Tx("prompt"), To("tools", multi: true) },
-                Outputs = new[] { Ex("then"), Tx("reply") },
+                Outputs = new[] { Ex("then"), Tx("reply"), Ex("over budget") },
                 Params = new[]
                 {
                     P("baseUrl", "Base URL", ParamType.Text, "https://api.openai.com/v1", "http://localhost:11434/v1 · openrouter · groq …"),
@@ -1076,6 +1076,9 @@ public static class NodeCatalog
                 SummaryParam = "model",
                 Exec = c =>
                 {
+                    // #18: a spend cap stops the model call before it costs anything - take the over-budget branch
+                    if (c.AiOverBudget) { c.Log("Ask AI: over the token budget - skipped the model call", LogLevel.System); c.Pulse(2); return; }
+
                     var prompt = c.InOr(1, c.Resolve(c.Param("prompt")));
                     string err;
                     string reply;
@@ -1158,7 +1161,7 @@ public static class NodeCatalog
                     // composite can expose them as {tokens}; e.g. the SuperAI recipe sets model = "{model}".
                     int aiTimeout = Math.Clamp(c.ParamInt("timeout", 120), 5, 1800);
                     if (defs.Count == 0)
-                        reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err, aiTimeout);
+                        reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err, aiTimeout, onUsage: c.RecordTokens);
                     else
                         reply = Ai.ChatWithTools(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
                             (name, args) =>
@@ -1174,10 +1177,31 @@ public static class NodeCatalog
                                 c.SetVar("__tool_result", "");
                                 c.RunNode(tn);          // runs the tool's sub-flow synchronously
                                 return c.Var("__tool_result");
-                            }, out err, timeoutSeconds: aiTimeout);
+                            }, out err, timeoutSeconds: aiTimeout, onUsage: c.RecordTokens);
 
                     if (err.Length > 0) c.Log("AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);
+                    c.Pulse(0);
+                },
+            },
+            new NodeDef
+            {
+                TypeId = "ai.budget", Icon = "gauge", Title = "AI Spend Cap", Subtitle = "ai", Category = NodeCategory.Ai,
+                Description = "Caps how many AI tokens this bot may spend. Run it once (e.g. wired to On Connect) to set the budget; after that any Ask AI / Programmer AI that has hit the cap takes its 'over budget' branch instead of calling the model. Optionally resets every hour or day. The status bar shows the running token meter.",
+                Inputs = new[] { Ex() },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("maxTokens", "Token budget", ParamType.Int, "100000", "0 = no cap; total tokens (input+output) allowed"),
+                    P("window", "Reset every", ParamType.Choice, "session", "", new[] { "session", "hour", "day" }),
+                },
+                SummaryParam = "maxTokens",
+                Exec = c =>
+                {
+                    int cap = Math.Max(0, c.ParamInt("maxTokens", 0));
+                    double win = c.Param("window") switch { "hour" => 3600.0, "day" => 86400.0, _ => 0.0 };
+                    c.SetTokenBudget(cap, win);
+                    c.Log("AI spend cap: " + (cap == 0 ? "unlimited" : cap + " tokens" + (win > 0 ? " per " + c.Param("window") : "")), LogLevel.System);
                     c.Pulse(0);
                 },
             },
@@ -1287,7 +1311,7 @@ public static class NodeCatalog
                 Category = NodeCategory.Ai,
                 Description = "An AI software engineer that reads and edits a whole codebase (read/write/edit/search/move files, run build & test commands) and delivers the finished result. It is sandboxed to the codebase folder you give it and CANNOT touch anything outside. Set a 'task' and wire 'reply' into Send Reply. Wire extra AI Tool nodes into 'tools' to give it more abilities.",
                 Inputs = new[] { Ex(), Tx("task"), To("tools", multi: true) },
-                Outputs = new[] { Ex("then"), Tx("reply") },
+                Outputs = new[] { Ex("then"), Tx("reply"), Ex("over budget") },
                 Params = new[]
                 {
                     P("root", "Codebase folder", ParamType.Text, "", "~/projects/mybot · the AI is locked inside this folder"),
@@ -1308,6 +1332,7 @@ public static class NodeCatalog
                 SummaryParam = "model",
                 Exec = c =>
                 {
+                    if (c.AiOverBudget) { c.Log("Programmer AI: over the token budget - skipped", LogLevel.System); c.Pulse(2); return; }   // #18
                     string root = c.Resolve(c.Param("root")).Trim();
                     if (root.Length == 0) { c.Log("Programmer AI: set a codebase folder first", LogLevel.Error); c.SetOut(1, ""); c.Pulse(0); return; }
                     try { CodeTools.Root(root); }
@@ -1416,7 +1441,7 @@ public static class NodeCatalog
                         }, out var err,
                         maxRounds: Math.Clamp(c.ParamInt("maxSteps", 40), 1, 200),
                         onTool: (name, argsJson, res) => c.Log(Ircuitry.Core.Icons.Glyph("wrench") + " " + name + Brief(argsJson, 80) + "  -> " + Brief(res, 100), LogLevel.Action),
-                        timeoutSeconds: Math.Clamp(c.ParamInt("timeout", 180), 5, 1800));
+                        timeoutSeconds: Math.Clamp(c.ParamInt("timeout", 180), 5, 1800), onUsage: c.RecordTokens);
 
                     if (err.Length > 0) c.Log("Programmer AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);

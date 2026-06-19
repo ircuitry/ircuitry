@@ -23,6 +23,16 @@ public interface IRuntimeSink
     /// per `interval` seconds. No-op on sinks without a live server.</summary>
     void SetFloodBudget(int burst, double interval) { }
 
+    /// <summary>Record AI token usage (input + output) against the bot's token meter / spend cap. No-op on
+    /// sinks without a live runtime (dry runs/tests don't count tokens).</summary>
+    void RecordTokens(int input, int output) { }
+
+    /// <summary>True when the bot has hit its AI spend cap. Always false without a live runtime.</summary>
+    bool AiOverBudget => false;
+
+    /// <summary>Set the bot's AI spend cap (max tokens, optional reset window in seconds). No-op without a runtime.</summary>
+    void SetTokenBudget(int maxTokens, double windowSeconds) { }
+
     /// <summary>Accept a DCC file offer (active connect, or passive listen + reverse offer) and download to
     /// <paramref name="savePath"/> on a background worker. No-op on sinks without a live server (dry runs/tests).</summary>
     void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath) { }

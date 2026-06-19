@@ -400,6 +400,9 @@ public static class GraphExecutor
         public void Part(string channel, string reason) => Out().Part(channel, reason);
         public void Raw(string line) => Out().Raw(line);
         public void SetFloodBudget(int burst, double interval) => Out().SetFloodBudget(burst, interval);
+        public void RecordTokens(int input, int output) => _run.Sink.RecordTokens(input, output);   // bot-global, not per-server
+        public bool AiOverBudget => _run.Sink.AiOverBudget;
+        public void SetTokenBudget(int maxTokens, double windowSeconds) => _run.Sink.SetTokenBudget(maxTokens, windowSeconds);
         public void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath) => Out().DccReceive(fromNick, ip, port, size, token, savePath);
         public void DccSend(string toNick, string filePath, string advertiseIp) => Out().DccSend(toNick, filePath, advertiseIp);
         public void StartTyping(string target) => Out().StartTyping(target);

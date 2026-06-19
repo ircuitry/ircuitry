@@ -335,6 +335,51 @@ public sealed class BotRuntime
     public int ErrorCount { get { lock (_errLock) return _errors.Sum(e => e.Count); } }
     public void ClearErrors() { lock (_errLock) { _errors.Clear(); ErrorRevision++; } }
 
+    // AI token meter & spend cap (#18). Lifetime counters drive the meter; the windowed counter gates the cap.
+    private readonly object _tokLock = new();
+    private long _tokIn, _tokOut, _tokWindow, _tokCap;
+    private double _tokWindowSec;
+    private DateTime _tokWindowStart = DateTime.UtcNow;
+    public long TokensIn { get { lock (_tokLock) return _tokIn; } }
+    public long TokensOut { get { lock (_tokLock) return _tokOut; } }
+    public long TokensTotal { get { lock (_tokLock) return _tokIn + _tokOut; } }
+    public long TokenCap { get { lock (_tokLock) return _tokCap; } }
+    public double TokenWindowSeconds { get { lock (_tokLock) return _tokWindowSec; } }
+    public long TokenRevision { get; private set; }
+    /// <summary>Tokens counted toward the current spend-cap window (rolls over when the window elapses).</summary>
+    public long TokensInWindow { get { lock (_tokLock) { RollWindow(); return _tokWindow; } } }
+
+    private void RollWindow()   // call under _tokLock
+    {
+        if (_tokWindowSec > 0 && (DateTime.UtcNow - _tokWindowStart).TotalSeconds >= _tokWindowSec)
+        { _tokWindow = 0; _tokWindowStart = DateTime.UtcNow; }
+    }
+
+    public void AddTokens(int input, int output)
+    {
+        if (input <= 0 && output <= 0) return;
+        lock (_tokLock)
+        {
+            RollWindow();
+            _tokIn += Math.Max(0, input); _tokOut += Math.Max(0, output);
+            _tokWindow += Math.Max(0, input) + Math.Max(0, output);
+            TokenRevision++;
+        }
+    }
+
+    public void SetTokenBudget(int maxTokens, double windowSeconds)
+    {
+        lock (_tokLock)
+        {
+            _tokCap = Math.Max(0, maxTokens);
+            _tokWindowSec = Math.Max(0, windowSeconds);
+            _tokWindow = 0; _tokWindowStart = DateTime.UtcNow;   // a fresh cap starts a fresh window
+            TokenRevision++;
+        }
+    }
+
+    public bool AiOverBudget { get { lock (_tokLock) { if (_tokCap <= 0) return false; RollWindow(); return _tokWindow >= _tokCap; } } }
+
     /// <summary>The most recent run, newest, for the debug tracer / pin inspector (or null if nothing ran yet).</summary>
     public RunRecord? LastRun { get { lock (_historyLock) return _history.Last?.Value; } }
 

@@ -702,6 +702,9 @@ public sealed class ServerConn : IRuntimeSink
     public void NoticeTagged(string target, string text, string tags) { _client.NoticeTagged(target, text, tags); Bump(); }
     public void NodeError(string nodeId, string title, string message) => _owner.RecordNodeError(nodeId, title, message);
     public void SetFloodBudget(int burst, double interval) => _client.SetFloodBudget(burst, interval);
+    public void RecordTokens(int input, int output) => _owner.AddTokens(input, output);
+    public bool AiOverBudget => _owner.AiOverBudget;
+    public void SetTokenBudget(int maxTokens, double windowSeconds) => _owner.SetTokenBudget(maxTokens, windowSeconds);
     public int OutQueueDepth => _client.OutQueueDepth;
     public void Join(string channel) => _client.Join(channel);
     public void Part(string channel, string reason) => _client.Part(channel, reason);

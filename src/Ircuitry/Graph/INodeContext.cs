@@ -79,6 +79,17 @@ public interface INodeContext
     void Raw(string line);
     void SetFloodBudget(int burst, double interval);
 
+    /// <summary>Record AI token usage (input + output) against this bot's token meter and any spend cap.</summary>
+    void RecordTokens(int input, int output);
+
+    /// <summary>True when this bot has hit its AI spend cap - an AI node fires its over-budget exec output
+    /// instead of calling the model. Always false in dry runs (no live meter).</summary>
+    bool AiOverBudget { get; }
+
+    /// <summary>Set this bot's AI spend cap: at most <paramref name="maxTokens"/> tokens (0 = no cap), optionally
+    /// resetting the count every <paramref name="windowSeconds"/> (0 = never reset).</summary>
+    void SetTokenBudget(int maxTokens, double windowSeconds);
+
     /// <summary>Accept an incoming DCC file offer: active (connect to ip:port) or passive (port 0 + token).
     /// Downloads <paramref name="size"/> bytes to <paramref name="savePath"/> on a background worker.</summary>
     void DccReceive(string fromNick, string ip, int port, long size, string token, string savePath);
