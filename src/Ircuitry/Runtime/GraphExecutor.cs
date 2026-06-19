@@ -60,7 +60,7 @@ public static class GraphExecutor
             var ctx = new NodeCtx(this, node);
             bool ok = true;
             try { node.Def.Exec(ctx); }
-            catch (Exception ex) { ok = false; Sink.Log($"node '{node.DisplayTitle}' error: {ex.Message}", LogLevel.Error); }
+            catch (Exception ex) { ok = false; Sink.Log($"node '{node.DisplayTitle}' error: {ex.Message}", LogLevel.Error); Sink.NodeError(node.Id, node.DisplayTitle, ex.Message); }
             if (ok) ExecutedTypes.Add(node.TypeId);   // only a successful execution counts toward spec achievements
 
             Record(node, ctx.Pulses);

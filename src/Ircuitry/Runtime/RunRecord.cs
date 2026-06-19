@@ -14,6 +14,14 @@ public sealed class NodeTrace
     public readonly List<string> Pulsed = new();   // exec outputs that fired
 }
 
+/// <summary>A node that threw during a run - attributed for the error tray (#15).</summary>
+public sealed class BotError
+{
+    public string NodeId = "", Title = "", Message = "";
+    public DateTime Time;
+    public int Count = 1;
+}
+
 /// <summary>A single trigger firing - the whole workflow run, with every node's I/O.</summary>
 public sealed class RunRecord
 {

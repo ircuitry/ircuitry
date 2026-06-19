@@ -317,6 +317,24 @@ public sealed class BotRuntime
 
     public int FireCount(string nodeId) => _fireCounts.TryGetValue(nodeId, out var n) ? n : 0;
 
+    // structured node errors for the error tray (#15) - deduped by node+message with a count
+    private readonly List<BotError> _errors = new();
+    private readonly object _errLock = new();
+    public long ErrorRevision { get; private set; }
+    public void RecordNodeError(string nodeId, string title, string message)
+    {
+        lock (_errLock)
+        {
+            var e = _errors.Find(x => x.NodeId == nodeId && x.Message == message);
+            if (e != null) { e.Count++; e.Time = DateTime.Now; }
+            else { _errors.Add(new BotError { NodeId = nodeId, Title = title, Message = message, Time = DateTime.Now }); if (_errors.Count > 100) _errors.RemoveAt(0); }
+            ErrorRevision++;
+        }
+    }
+    public List<BotError> Errors() { lock (_errLock) return new List<BotError>(_errors); }
+    public int ErrorCount { get { lock (_errLock) return _errors.Sum(e => e.Count); } }
+    public void ClearErrors() { lock (_errLock) { _errors.Clear(); ErrorRevision++; } }
+
     /// <summary>The most recent run, newest, for the debug tracer / pin inspector (or null if nothing ran yet).</summary>
     public RunRecord? LastRun { get { lock (_historyLock) return _history.Last?.Value; } }
 

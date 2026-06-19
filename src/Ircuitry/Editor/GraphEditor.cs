@@ -80,6 +80,13 @@ public sealed class GraphEditor
         return "The trigger never fired in the last run (no matching event reached this flow).";
     }
 
+    /// <summary>Reveal a node and flash it red briefly (used by the error tray to jump to an offending node).</summary>
+    public void PulseNode(string id, RectF canvas)
+    {
+        Reveal(id, canvas);
+        _explainPath.Clear(); _explainPath.Add(id); _explainCulprit = id; _explainFrames = 150;
+    }
+
     private void DrawExplain(Renderer r)
     {
         if (_explainFrames <= 0) return;

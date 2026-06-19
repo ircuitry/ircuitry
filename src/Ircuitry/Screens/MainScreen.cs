@@ -132,6 +132,10 @@ public sealed partial class MainScreen : IScreen
     private bool _shelfOpen, _shelfDirty = true;
     private List<(string name, string path)> _shelfSnips = new();
 
+    // error tray (#15): node-attributed runtime errors, jump-to-offender
+    private bool _errTrayOpen;
+    private float _errTrayScroll;
+
     // find-in-graph (Ctrl+F): live node search + jump-to-hit
     private bool _findOpen, _findArm;
     private string _findQuery = "";
@@ -907,6 +911,7 @@ public sealed partial class MainScreen : IScreen
         DrawPlaybackBar(r);   // slow-motion run playback control (over the canvas)
         DrawFindBar(r);       // find-in-graph (Ctrl+F)
         DrawShelf(r);         // snippet shelf
+        DrawErrorTray(r);     // node-attributed runtime errors (#15)
 
         // ---------- panel chromes ----------
         bool consoleOn = _dock.Get("console")!.Visible;
@@ -2397,6 +2402,70 @@ public sealed partial class MainScreen : IScreen
         r.End();
     }
 
+    // ---- error tray (#15): runtime errors attributed to the node that threw, click a row to jump there ----
+    private void DrawErrorTray(Renderer r)
+    {
+        if (!_errTrayOpen || Modal) return;
+        if (Bot.IsRemote) { _errTrayOpen = false; return; }
+        var errs = Bot.Runtime.Errors();
+        var vis = _dock.VisibleMapRect();
+        const float w = 340, rowH = 50, head = 38;
+        float bodyH = Math.Min(vis.H - 120, head + Math.Max(1, errs.Count) * (rowH + 4) + 10);
+        var panel = new RectF(vis.Right - w - 14, vis.Bottom - bodyH - 14, w, bodyH);
+        r.Begin();
+        r.RoundFill(panel.Offset(0, 3), Theme.WithAlpha(Color.Black, 0.16f), 11f);
+        r.RoundFill(panel, Theme.WithAlpha(Theme.PanelHi, 0.98f), 11f);
+        r.RoundOutline(panel, Theme.WithAlpha(Theme.Alert, 0.6f), 11f);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 13), Ircuitry.Core.Icons.Glyph("warning-octagon") + "  Errors", new Vector2(panel.X + 12, panel.Y + 11), Theme.Text);
+        var clr = new RectF(panel.Right - 64, panel.Y + 7, 56, 22);
+        if (errs.Count > 0 && _ui.Button("errtray.clear", clr, "Clear", Theme.Idle)) { Bot.Runtime.ClearErrors(); _errTrayOpen = false; }
+
+        var content = new RectF(panel.X + 6, panel.Y + head, w - 12, bodyH - head - 6);
+        if (errs.Count == 0)
+        {
+            r.Text(r.Fonts.Get(FontKind.Sans, 12), "No errors. A node that throws will show up here.", new Vector2(panel.X + 12, content.Y + 4), Theme.TextFaint);
+            r.End();
+            return;
+        }
+        if (!Modal) _errTrayScroll = Wheel("errtray", _errTrayScroll, content);
+        float total = errs.Count * (rowH + 4);
+        _errTrayScroll = ClampScroll("errtray", _errTrayScroll, total, content.H);
+        r.End();
+
+        r.Begin(BlendMode.Alpha, content.ToRectangle());
+        float ty = content.Y - _errTrayScroll;
+        var tf = r.Fonts.Get(FontKind.SansBold, 12);
+        var mf = r.Fonts.Get(FontKind.Sans, 11);
+        var sf = r.Fonts.Get(FontKind.Mono, 10);
+        foreach (var e in errs)
+        {
+            var row = new RectF(content.X, ty, content.W, rowH);
+            if (row.Bottom >= content.Y && row.Y <= content.Bottom)
+            {
+                bool hot = !Modal && row.Contains(In.Mouse) && content.Contains(In.Mouse);
+                r.RoundFill(row, hot ? Theme.WithAlpha(Theme.Alert, 0.14f) : Theme.PanelLo, 8f);
+                r.RoundFill(new RectF(row.X, row.Y + 6, 3, rowH - 12), Theme.Alert, 1.5f);
+                r.Text(tf, r.Ellipsize(tf, e.Title, w - 64), new Vector2(row.X + 12, row.Y + 7), Theme.Text);
+                if (e.Count > 1)
+                {
+                    string cnt = "x" + e.Count;
+                    var cb = new RectF(row.Right - 8 - (sf.MeasureString(cnt).X + 12), row.Y + 7, sf.MeasureString(cnt).X + 12, 15);
+                    r.RoundFill(cb, Theme.WithAlpha(Theme.Alert, 0.22f), 7f);
+                    r.Text(sf, cnt, new Vector2(cb.X + 6, cb.Y + 2), Theme.Alert);
+                }
+                r.Text(mf, r.Ellipsize(mf, e.Message, w - 28), new Vector2(row.X + 12, row.Y + 26), Theme.TextDim);
+                if (hot && In.LeftPressed)
+                {
+                    _editor.PulseNode(e.NodeId, _l.Canvas);
+                    _editor.Selection.Clear();
+                    if (Bot.Graph.Nodes.Any(n => n.Id == e.NodeId)) _editor.Selection.Add(e.NodeId);
+                }
+            }
+            ty += rowH + 4;
+        }
+        r.End();
+    }
+
     // ---- find-in-graph (#6): a floating search bar that jumps the camera to matching nodes ----
     private void RecomputeFind()
     {
@@ -3555,8 +3624,19 @@ public sealed partial class MainScreen : IScreen
             r.RoundFill(new RectF(gx.X, gx.Y, gx.W * Math.Max(0.05f, p), gx.H), Theme.WithAlpha(fill, tw), 5f);
             r.RoundOutline(gx, Theme.Hairline, 5f);
         }
-        r.TextRight(f, "Double-click empty space to add a node · drag a port to wire · drag to pan, Shift-drag to box-select · Ctrl+Z undo · Ctrl+D duplicate",
-            bar.W - 16, y, Theme.TextFaint);
+        // error badge: when a node has thrown, the hint gives way to a clickable tally that opens the error tray (#15)
+        int errN = Bot.IsRemote ? 0 : Bot.Runtime.ErrorCount;
+        if (errN > 0)
+        {
+            string elbl = Ircuitry.Core.Icons.Glyph("warning-octagon") + "  " + errN + (errN == 1 ? " error" : " errors");
+            float ew = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(elbl).X + 24;
+            var er = new RectF(bar.W - 16 - ew, bar.Center.Y - 11, ew, 22);
+            var ec = _errTrayOpen ? Theme.Alert : Theme.Mix(Theme.Alert, Theme.PanelHi, 0.45f);
+            if (_ui.Button("status.errtray", er, elbl, ec)) { _errTrayOpen = !_errTrayOpen; }
+        }
+        else
+            r.TextRight(f, "Double-click empty space to add a node · drag a port to wire · drag to pan, Shift-drag to box-select · Ctrl+Z undo · Ctrl+D duplicate",
+                bar.W - 16, y, Theme.TextFaint);
     }
 
     // ===================================================================

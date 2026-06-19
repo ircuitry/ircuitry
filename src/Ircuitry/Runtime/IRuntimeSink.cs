@@ -41,6 +41,9 @@ public interface IRuntimeSink
     /// <summary>Signals that a node just executed (for canvas activity feedback).</summary>
     void NodeFired(string nodeId);
 
+    /// <summary>A node threw during a run - attributed for the error tray. No-op on sinks without one.</summary>
+    void NodeError(string nodeId, string title, string message) { }
+
     /// <summary>Fired once when a run finishes, with the set of node typeIds that executed without
     /// throwing during it. Drives spec-compliance achievements: a multi-node spec only counts when all
     /// of its nodes succeeded in the same run. Dry runs/tests no-op this so only real runs count.</summary>
