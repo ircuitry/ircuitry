@@ -801,11 +801,25 @@ public static class SelfTest
             return s.Sent.Count > 0 ? s.Sent[0].text : "(none)";
         }
 
+        // json-escape must produce text that drops cleanly into a JSON string literal (the relay.discord case)
+        bool JsonEmbedOk(string raw)
+        {
+            var enc = RunOp("data.encode", n => { n.SetParam("op", "json"); n.SetParam("mode", "encode"); }, raw);
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse("{\"content\":\"" + enc + "\"}");
+                return doc.RootElement.GetProperty("content").GetString() == raw;
+            }
+            catch { return false; }
+        }
+
         fails += Expect("tk-case-upper", RunOp("data.case", n => n.SetParam("op", "upper"), "Hello World") == "HELLO WORLD", "");
         fails += Expect("tk-case-snake", RunOp("data.case", n => n.SetParam("op", "snake"), "Hello World") == "hello_world", "");
         fails += Expect("tk-encode-b64", RunOp("data.encode", n => { n.SetParam("op", "base64"); n.SetParam("mode", "encode"); }, "hi") == "aGk=", "");
         fails += Expect("tk-encode-b64dec", RunOp("data.encode", n => { n.SetParam("op", "base64"); n.SetParam("mode", "decode"); }, "aGk=") == "hi", "");
         fails += Expect("tk-encode-rot13", RunOp("data.encode", n => { n.SetParam("op", "rot13"); n.SetParam("mode", "encode"); }, "abc") == "nop", "");
+        fails += Expect("tk-encode-json-rt", RunOp("data.encode", n => { n.SetParam("op", "json"); n.SetParam("mode", "decode"); }, RunOp("data.encode", n => { n.SetParam("op", "json"); n.SetParam("mode", "encode"); }, "she said \"hi\"\nok")) == "she said \"hi\"\nok", "");
+        fails += Expect("tk-encode-json-embed", JsonEmbedOk("q\"u\nx\\y"), "");
         fails += Expect("tk-hash-md5", RunOp("data.hash", n => n.SetParam("op", "md5"), "abc") == "900150983cd24fb0d6963f7d28e17f72", "");
         fails += Expect("tk-shape-reverse", RunOp("data.shape", n => n.SetParam("op", "reverse"), "abc") == "cba", "");
         fails += Expect("tk-shape-slug", RunOp("data.shape", n => n.SetParam("op", "slug"), "Hello, World!") == "hello-world", "");

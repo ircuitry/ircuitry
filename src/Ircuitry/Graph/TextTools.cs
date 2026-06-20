@@ -32,8 +32,26 @@ public static class TextTools
             case "morse": return dec ? MorseDecode(s) : MorseEncode(s);
             case "rot13": return Rot13(s);
             case "zwsp": return dec ? ZwspDecode(s) : ZwspEncode(s);
+            case "json": return dec ? JsonUnescape(s) : JsonEscape(s);
             default: return s;
         }
+    }
+
+    // escapes text so it can be dropped inside a JSON string literal ("...HERE...") - quotes, backslashes, newlines, control chars
+    private static string JsonEscape(string s)
+    {
+        var j = System.Text.Json.JsonSerializer.Serialize(s);   // yields a quoted, fully-escaped JSON string
+        return j.Length >= 2 ? j.Substring(1, j.Length - 2) : j; // strip the surrounding quotes
+    }
+    private static string JsonUnescape(string s)
+    {
+        try
+        {
+            var t = s.Trim();
+            var quoted = t.StartsWith("\"") && t.EndsWith("\"") && t.Length >= 2 ? t : "\"" + s + "\"";
+            return System.Text.Json.JsonSerializer.Deserialize<string>(quoted) ?? "";
+        }
+        catch { return "(invalid json string)"; }
     }
 
     // zero-width steganography: each UTF-8 bit becomes a zero-width space (0) / non-joiner (1), terminated by a marker

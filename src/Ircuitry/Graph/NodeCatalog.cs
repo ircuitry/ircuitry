@@ -2708,11 +2708,11 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "data.encode", Icon = "calculator", Title = "Encode / Decode", Subtitle = "data", Category = NodeCategory.Data,
-                Description = "Encodes or decodes text: Base64, Base32, hex, URL, HTML entities, binary, Morse, or ROT13.",
+                Description = "Encodes or decodes text: Base64, Base32, hex, URL, HTML entities, JSON string, binary, Morse, or ROT13. JSON escapes quotes/newlines so text can go inside a JSON request body.",
                 Inputs = new[] { Tx("text") }, Outputs = new[] { Tx("result") },
                 Params = new[]
                 {
-                    P("op", "Scheme", ParamType.Choice, "base64", "", new[] { "base64", "base32", "hex", "url", "html", "binary", "morse", "rot13", "zwsp" }),
+                    P("op", "Scheme", ParamType.Choice, "base64", "", new[] { "base64", "base32", "hex", "url", "html", "json", "binary", "morse", "rot13", "zwsp" }),
                     P("mode", "Mode", ParamType.Choice, "encode", "", new[] { "encode", "decode" }),
                 },
                 SummaryParam = "op",
