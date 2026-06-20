@@ -743,8 +743,9 @@ public static class NodeCatalog
                 Params = new[] { P("template", "Template", ParamType.Text, "{a}", "{nick}: {a}") },
                 Exec = c =>
                 {
-                    // single pass: {a}/{b} = the inputs, any other {token} = an event var.
-                    // (doing it in one pass avoids Resolve() eating {a}/{b} as unknown vars.)
+                    // single pass: {a}/{b} = the inputs; any other {token} goes through the FULL resolver
+                    // (event vars, computed tokens like {unixtime}, aliases like {me}, {arg.NAME}, and stored
+                    // Set Var state). Handling {a}/{b} here avoids Resolve() eating them as unknown vars.
                     var tmpl = c.Param("template");
                     var sb = new System.Text.StringBuilder(tmpl.Length + 16);
                     for (int i = 0; i < tmpl.Length; i++)
@@ -755,7 +756,7 @@ public static class NodeCatalog
                             if (j > i && Core.Tokens.IsName(tmpl, i + 1, j))   // {a}/{b}/{name} only; leave literal { } alone
                             {
                                 var key = tmpl.Substring(i + 1, j - i - 1);
-                                sb.Append(key == "a" ? c.In(0) : key == "b" ? c.In(1) : c.Var(key));
+                                sb.Append(key == "a" ? c.In(0) : key == "b" ? c.In(1) : c.Resolve("{" + key + "}"));
                                 i = j;
                                 continue;
                             }

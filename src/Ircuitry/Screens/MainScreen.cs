@@ -3604,7 +3604,11 @@ public sealed partial class MainScreen : IScreen
         string shown = r.Ellipsize(fb, body, maxW - nameW - 18);
         float bw = Math.Min(maxW, nameW + fb.MeasureString(shown).X + 18);
         float bh = 24;
-        float bx = Math.Clamp(card.Center.X - bw / 2f, card.X - 34, card.Right - bw + 34);
+        // keep the bubble near the card, but if it's wider than the card (+overhang) the bounds invert,
+        // so just center it on the card instead of clamping (which would throw min>max).
+        float lo = card.X - 34, hi = card.Right - bw + 34;
+        float want = card.Center.X - bw / 2f;
+        float bx = lo <= hi ? Math.Clamp(want, lo, hi) : want;
         var box = new RectF(bx, card.Y - bh - 10, bw, bh);
 
         // thought-bubble trail (two shrinking dots from the card up to the bubble)

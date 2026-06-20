@@ -114,6 +114,54 @@ public static class SelfTest
             fails += Expect("pure-pull", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "only-one"), Dump(sink));
         }
 
+        // --- Test 3b: a Set Var value is readable later as a plain {token} (state fallback in ResolveToken).
+        // This is what makes a computed Delay (seconds={typing_secs}) and a state-gated check ({mita_active}) work. ---
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "go");
+            var sv = N(g, "data.setvar", 250, 0); sv.SetParam("name", "ztok"); sv.SetParam("value", "hello");
+            var reply = N(g, "action.reply", 500, 0); reply.SetParam("message", "[{ztok}]");
+            g.Connect(cmd.Id, 0, sv.Id, 0);      // exec: fire -> set the var
+            g.Connect(sv.Id, 0, reply.Id, 0);    // exec: then -> reply reading it back as a token
+
+            var sink = new FakeSink();
+            GraphExecutor.Fire(g, sink, cmd, Vars("!go", "cat", "#x"));
+            fails += Expect("statevar-token", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "[hello]"), Dump(sink));
+        }
+
+        // --- Test 3c: a Set Var written in ONE event is readable as a {token} in a SEPARATE later event
+        // (the message path writes mita_active; the timer path reads it - same bot state, different run). ---
+        {
+            var sink = new FakeSink();   // one sink == one bot's persistent state, shared across events
+            var g = new NodeGraph();
+            var c1 = N(g, "event.command", 0, 0); c1.SetParam("command", "set");
+            var sv = N(g, "data.setvar", 250, 0); sv.SetParam("name", "kx"); sv.SetParam("value", "v42");
+            g.Connect(c1.Id, 0, sv.Id, 0);
+            var c2 = N(g, "event.command", 0, 200); c2.SetParam("command", "get");
+            var reply = N(g, "action.reply", 250, 200); reply.SetParam("message", "[{kx}]");
+            g.Connect(c2.Id, 0, reply.Id, 0);
+
+            GraphExecutor.Fire(g, sink, c1, Vars("!set", "a", "#x"));   // event 1: write the var
+            GraphExecutor.Fire(g, sink, c2, Vars("!get", "a", "#x"));   // event 2: separate run reads it back
+            fails += Expect("statevar-cross-event", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "[v42]"), Dump(sink));
+        }
+
+        // --- Test 3d: Format Text resolves more than raw event vars - the {me}/botnick alias AND a stored Set Var
+        // value. (Before the fix, data.format read raw run-vars only, so {me} and {mita_active} came back empty.) ---
+        {
+            var sink = new FakeSink();
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "go");
+            var sv = N(g, "data.setvar", 200, 0); sv.SetParam("name", "skey"); sv.SetParam("value", "SVAL");
+            var fmt = N(g, "data.format", 400, 0); fmt.SetParam("template", "me={me} sk={skey}");
+            var reply = N(g, "action.reply", 600, 0);
+            g.Connect(cmd.Id, 0, sv.Id, 0);
+            g.Connect(sv.Id, 0, reply.Id, 0);
+            g.Connect(fmt.Id, 0, reply.Id, 1);   // Format Text -> reply message (pure pull)
+            GraphExecutor.Fire(g, sink, cmd, Vars("!go", "cat", "#x"));
+            fails += Expect("format-resolves-state-and-alias", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "me=ircuitry sk=SVAL"), Dump(sink));
+        }
+
         fails += NewNodesTest();
         fails += Ircv3AndHistoryTest();
         fails += ScheduleTest();
@@ -132,6 +180,7 @@ public static class SelfTest
         fails += LiveStreamTest();
         fails += AiLoopTest();
         fails += AiToolsTest();
+        fails += AiToolStatePersistTest();
         fails += SubAgentTest();
         fails += McpClientTest();
         fails += DynamicAiArgsTest();
@@ -981,6 +1030,58 @@ public static class SelfTest
         bool finalOk = s.Sent.Count == 1 && s.Sent[0].text == "final answer";
         return Expect("ai-tools-call-loop", ranToolWithArg && finalOk && reqs >= 2,
             $"logs=[{string.Join(",", s.Logs)}] {Dump(s)} reqs={reqs}");
+    }
+
+    /// <summary>Reproduces Mita's follow-up bug: a Set Var run INSIDE an AI tool sub-flow (like the speak tool's
+    /// mita_active/mita_channel) must persist so a SEPARATE later event (the timer) reads it back as a {token}.</summary>
+    private static int AiToolStatePersistTest()
+    {
+        int port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        try { listener.Start(); }
+        catch (Exception ex) { return Expect("ai-tool-state (skipped: " + ex.Message + ")", true, ""); }
+
+        bool stop = false;
+        int reqs = 0;
+        string toolJson = """{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"remember_it","arguments":"{}"}}]}}]}""";
+        string finalJson = """{"choices":[{"message":{"content":"ok"}}]}""";
+        var server = new Thread(() =>
+        {
+            try { while (!stop) { var ctx = listener.GetContext(); int n = Interlocked.Increment(ref reqs);
+                var b = Encoding.UTF8.GetBytes(n == 1 ? toolJson : finalJson); ctx.Response.ContentType = "application/json";
+                ctx.Response.OutputStream.Write(b, 0, b.Length); ctx.Response.Close(); } } catch { }
+        }) { IsBackground = true };
+        server.Start();
+
+        var g = new NodeGraph();
+        var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ai");
+        var ai = g.Add(NodeCatalog.Get("ai.reply"), new Vector2(300, 0));
+        ai.SetParam("baseUrl", $"http://localhost:{port}/v1"); ai.SetParam("apiKey", "test"); ai.SetParam("model", "mock");
+        var tool = g.Add(NodeCatalog.Get("ai.tool"), new Vector2(100, 150)); tool.SetParam("name", "remember_it");
+        // mirror Mita's speak flow: set a state var, DELAY reading it back as a {token}, THEN set the var the timer needs
+        var svt = g.Add(NodeCatalog.Get("data.setvar"), new Vector2(300, 150)); svt.SetParam("name", "ksecs"); svt.SetParam("value", "0");
+        var dly = g.Add(NodeCatalog.Get("flow.delay"), new Vector2(450, 150)); dly.SetParam("seconds", "{ksecs}");
+        var sv = g.Add(NodeCatalog.Get("data.setvar"), new Vector2(600, 150)); sv.SetParam("name", "tk"); sv.SetParam("value", "tv99");
+        var treply = g.Add(NodeCatalog.Get("tool.reply"), new Vector2(750, 150)); treply.SetParam("result", "done");
+        g.Connect(cmd.Id, 0, ai.Id, 0);     // exec -> ai
+        g.Connect(tool.Id, 0, ai.Id, 2);    // tool def -> ai 'tools'
+        g.Connect(tool.Id, 1, svt.Id, 0);   // tool.call -> set ksecs
+        g.Connect(svt.Id, 0, dly.Id, 0);    // -> delay reads {ksecs} (state token, like typing_secs)
+        g.Connect(dly.Id, 0, sv.Id, 0);     // -> AFTER the delay, set tk (like mita_active after the typing delay)
+        g.Connect(sv.Id, 0, treply.Id, 0);  // -> tool reply
+
+        // a SEPARATE event (stands in for the timer) that reads what the tool wrote
+        var cmd2 = g.Add(NodeCatalog.Get("event.command"), new Vector2(0, 300)); cmd2.SetParam("command", "check");
+        var reply2 = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 300)); reply2.SetParam("message", "[{tk}]");
+        g.Connect(cmd2.Id, 0, reply2.Id, 0);
+
+        var s = new FakeSink();
+        GraphExecutor.Fire(g, s, cmd, Vars("!ai", "u", "#c"));      // AI runs, tool sets tk=tv99 mid-execution
+        GraphExecutor.Fire(g, s, cmd2, Vars("!check", "u", "#c")); // separate run reads {tk}
+        stop = true; try { listener.Stop(); } catch { }
+
+        return Expect("ai-tool-state-persist", s.Sent.Count == 1 && s.Sent[0] == ("#c", "[tv99]"), Dump(s) + " reqs=" + reqs);
     }
 
     /// <summary>MCP client: spawn our OWN MCP server (ircuitry --mcp) and drive it over stdio - initialize,

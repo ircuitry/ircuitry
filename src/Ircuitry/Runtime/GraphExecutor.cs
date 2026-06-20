@@ -264,7 +264,10 @@ public static class GraphExecutor
                         string doc = Vars.TryGetValue(head, out var rv) ? rv : Sink.GetState(head);
                         if (doc.Length > 0) return Ircuitry.Net.Json.Extract(doc, name[(dot + 1)..]);
                     }
-                    return "";
+                    // finally, fall back to a persisted Set Var value, so a plain {myvar} reads stored state.
+                    // This is what makes a computed delay (Delay seconds={typing_secs}) or a state-gated check
+                    // ({mita_active}/{mita_channel}) resolve same-run after a Set Variable wrote them.
+                    return Sink.GetState(name);
             }
         }
     }
