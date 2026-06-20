@@ -27,6 +27,7 @@ public sealed class IrcuitryGame : Game
     private IScreen _screen = null!;
 
     private bool _resizing;
+    private int _windowedW = 1600, _windowedH = 952;   // last windowed size, restored when leaving fullscreen
     private int _screenshotSeq;
     private Splash? _splash;
 
@@ -342,9 +343,39 @@ public sealed class IrcuitryGame : Game
         _input.PushChar(c);
     }
 
+    /// <summary>F11 fullscreen toggle that actually restores the previous windowed size. (MonoGame's
+    /// ToggleFullScreen leaves PreferredBackBuffer at the fullscreen size, so exiting looks like fullscreen.)</summary>
+    private void ToggleFullscreen()
+    {
+        if (_resizing) return;
+        _resizing = true;
+        try
+        {
+            if (_gdm.IsFullScreen)
+            {
+                _gdm.IsFullScreen = false;
+                _gdm.PreferredBackBufferWidth = _windowedW;
+                _gdm.PreferredBackBufferHeight = _windowedH;
+            }
+            else
+            {
+                _windowedW = Math.Max(960, Window.ClientBounds.Width);    // remember where to come back to
+                _windowedH = Math.Max(600, Window.ClientBounds.Height);
+                var dm = GraphicsDevice.Adapter.CurrentDisplayMode;
+                _gdm.PreferredBackBufferWidth = dm.Width;
+                _gdm.PreferredBackBufferHeight = dm.Height;
+                _gdm.IsFullScreen = true;
+            }
+            _gdm.ApplyChanges();
+            UpdateViewport();
+        }
+        finally { _resizing = false; }
+    }
+
     private void OnResize(object? sender, EventArgs e)
     {
         if (_resizing) return;
+        if (_gdm.IsFullScreen) { UpdateViewport(); return; }   // don't capture the fullscreen size as the windowed size
         _resizing = true;
         try
         {
@@ -458,7 +489,7 @@ public sealed class IrcuitryGame : Game
         _input.Update();
 
         // F11 fullscreen toggle, F12 screenshot - game-console conveniences
-        if (_input.KeyPressed(Keys.F11)) _gdm.ToggleFullScreen();
+        if (_input.KeyPressed(Keys.F11)) ToggleFullscreen();
         if (_input.KeyPressed(Keys.F12)) SaveScreenshot(Path.Combine(AppContext.BaseDirectory, $"ircuitry-{++_screenshotSeq:000}.png"));
 
         if (TrayIcon.RestoreRequested) { TrayIcon.RestoreRequested = false; Ircuitry.Core.Sdl.Show(Window.Handle); }
