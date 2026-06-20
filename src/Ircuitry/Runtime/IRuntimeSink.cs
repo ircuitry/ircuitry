@@ -55,8 +55,12 @@ public interface IRuntimeSink
 
     void Log(string message, LogLevel level);
 
-    /// <summary>Signals that a node just executed (for canvas activity feedback).</summary>
+    /// <summary>Signals that a node STARTED executing (for canvas activity feedback / fire glow).</summary>
     void NodeFired(string nodeId);
+
+    /// <summary>Signals that a node FINISHED executing. Pairs with <see cref="NodeFired"/> so the canvas can
+    /// keep a node animated for the whole time a slow Exec (AI call, delay, HTTP) is still running. No-op by default.</summary>
+    void NodeDone(string nodeId) { }
 
     /// <summary>A node threw during a run - attributed for the error tray. No-op on sinks without one.</summary>
     void NodeError(string nodeId, string title, string message) { }

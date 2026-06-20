@@ -62,6 +62,7 @@ public static class GraphExecutor
             bool ok = true;
             try { node.Def.Exec(ctx); }
             catch (Exception ex) { ok = false; Sink.Log($"node '{node.DisplayTitle}' error: {ex.Message}", LogLevel.Error); Sink.NodeError(node.Id, node.DisplayTitle, ex.Message); }
+            finally { Sink.NodeDone(node.Id); }       // stop the "still working" canvas animation
             if (ok) ExecutedTypes.Add(node.TypeId);   // only a successful execution counts toward spec achievements
 
             Record(node, ctx.Pulses);
@@ -184,7 +185,7 @@ public static class GraphExecutor
             {
                 Sink.NodeFired(src.Id);
                 var ctx = new NodeCtx(this, src) { Visiting = visiting };
-                try { src.Def.Exec(ctx); } catch { /* leave outputs empty */ }
+                try { src.Def.Exec(ctx); } catch { /* leave outputs empty */ } finally { Sink.NodeDone(src.Id); }
                 Record(src, ctx.Pulses);
                 if (Outputs.TryGetValue((nodeId, outIdx), out var w)) return w;
             }

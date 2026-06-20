@@ -25,6 +25,9 @@ public sealed class GraphEditor
 
     /// <summary>Set by the host: returns 0..1 glow for a node that just executed.</summary>
     public Func<string, float>? FireGlow;
+    /// <summary>Set by the host: seconds a node has been executing right now (slow AI/delay/HTTP), or -1 if idle.
+    /// Drives a continuous "still working" animation so a long-running node never looks dead.</summary>
+    public Func<string, float>? NodeBusy;
     /// <summary>Set by the host: lifetime fire count for a node (badge), and whether a bot is live.</summary>
     public Func<string, int>? FireCount;
 
@@ -1073,6 +1076,28 @@ public sealed class GraphEditor
                     r.RoundOutline(card.Inflate(3f + spread, 3f + spread), Theme.WithAlpha(cat, p * p * 0.75f), baseRad + 3f + spread);
                 }
             }
+        // "still working" indicator: a node whose Exec is still running (slow AI call, delay, HTTP, chathistory)
+        // keeps a breathing outline and a ring of orbiting twinkles, so it never looks idle while it's busy.
+        if (NodeBusy != null)
+            foreach (var n in Graph.Nodes)
+            {
+                float e = NodeBusy(n.Id);
+                if (e < 0f) continue;
+                var card = ScreenRect(NodeLayout.For(n).Card);
+                var cat = Theme.Category(n.Def.Category);
+                float baseRad = 14f * Cam.Zoom;
+                float ramp = MathF.Min(1f, (e - 0.18f) * 3f);                       // ease the effect in over ~0.3s
+                float wave = 0.5f + 0.5f * MathF.Sin(e * 4.2f);
+                r.RoundOutline(card.Inflate(2.5f, 2.5f), Theme.WithAlpha(Theme.Mix(cat, Color.White, 0.5f), (0.4f + 0.42f * wave) * ramp), baseRad + 2.5f);
+                float orbit = MathF.Max(card.W, card.H) * 0.5f + 8f * Cam.Zoom;
+                for (int k = 0; k < 3; k++)
+                {
+                    float ang = e * 2.0f + k * (MathF.Tau / 3f);
+                    var p = card.Center + new Vector2(MathF.Cos(ang) * orbit, MathF.Sin(ang) * orbit * 0.6f);
+                    float tw = 0.5f + 0.5f * MathF.Sin(e * 6.5f + k * 2.1f);
+                    r.Disc(p, (1.4f + 1.1f * tw) * Cam.Zoom, Theme.WithAlpha(Theme.Mix(cat, Color.White, 0.7f), (0.3f + 0.5f * tw) * ramp));
+                }
+            }
         if (_mode == Mode.Box) DrawBox(r, input);
         if (_hoverPort.HasValue) DrawPortHover(r, _hoverPort.Value);
         if (ShowMinimap) DrawMinimap(r, canvas);
@@ -1107,6 +1132,17 @@ public sealed class GraphEditor
                 r.Glow(pos, MathF.Max(7f, 9f * Cam.Zoom), Theme.WithAlpha(col, 0.8f * hot));
                 r.Disc(pos, MathF.Max(2.5f, 3.2f * Cam.Zoom), Theme.WithAlpha(Theme.Mix(col, Color.White, 0.5f), hot));
             }
+            if (NodeBusy != null)
+                foreach (var n in Graph.Nodes)
+                {
+                    float e = NodeBusy(n.Id);
+                    if (e < 0f) continue;
+                    var card = ScreenRect(NodeLayout.For(n).Card);
+                    var cat = Theme.Category(n.Def.Category);
+                    float ramp = MathF.Min(1f, (e - 0.18f) * 3f);
+                    float wave = 0.5f + 0.5f * MathF.Sin(e * 4.2f);
+                    r.Glow(card.Center, MathF.Max(card.W, card.H) * (0.66f + 0.12f * wave), Theme.WithAlpha(cat, (0.18f + 0.22f * wave) * ramp));
+                }
             r.End();
         }
     }

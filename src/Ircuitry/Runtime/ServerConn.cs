@@ -843,6 +843,7 @@ public sealed class ServerConn : IRuntimeSink
     // shared effects route to the owner (one log/state/history/achievements per bot)
     public void Log(string message, LogLevel level) => _owner.LogFrom(Label, level, message);
     public void NodeFired(string nodeId) => _owner.NodeFired(nodeId);
+    public void NodeDone(string nodeId) => _owner.NodeDone(nodeId);
     public void RunCompleted(IReadOnlyCollection<string> executedTypes) => _owner.CreditRun(executedTypes);
     public string GetState(string key) => _owner.GetState(key);
     public void SetState(string key, string value) => _owner.SetState(key, value);

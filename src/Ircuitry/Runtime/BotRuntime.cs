@@ -32,6 +32,7 @@ public sealed class BotRuntime
     private readonly Dictionary<string, DateTime> _wdLast = new();
 
     private readonly ConcurrentDictionary<string, DateTime> _activity = new();
+    private readonly ConcurrentDictionary<string, DateTime> _active = new();   // nodes whose Exec is running right now
     private readonly ConcurrentDictionary<string, int> _fireCounts = new();
     private readonly LinkedList<RunRecord> _history = new();
     private readonly object _historyLock = new();
@@ -310,6 +311,8 @@ public sealed class BotRuntime
     public void NodeFired(string nodeId)
     {
         _fireCounts.AddOrUpdate(nodeId, 1, (_, n) => n + 1);
+        _active[nodeId] = DateTime.Now;   // mark running; cleared by NodeDone when Exec returns
+
         if (Ircuitry.Core.Playback.SlowMo)
         {
             _pbQueue.Enqueue(nodeId);
@@ -360,7 +363,7 @@ public sealed class BotRuntime
     // ---- run history (newest last, bounded at 1000) ----
     public List<RunRecord> History() { lock (_historyLock) return new List<RunRecord>(_history); }
     public int HistoryCount { get { lock (_historyLock) return _history.Count; } }
-    public void ClearHistory() { lock (_historyLock) { _history.Clear(); HistoryRevision++; } }
+    public void ClearHistory() { lock (_historyLock) { _history.Clear(); HistoryRevision++; } _active.Clear(); }
 
     internal void AddHistory(RunRecord rec)
     {
@@ -404,6 +407,18 @@ public sealed class BotRuntime
         const float life = 0.9f;
         float e = (float)(DateTime.Now - t).TotalSeconds;
         return e < 0 || e > life ? 0f : 1f - e / life;
+    }
+
+    /// <summary>A node finished executing - stop the "still working" animation.</summary>
+    public void NodeDone(string nodeId) => _active.TryRemove(nodeId, out _);
+
+    /// <summary>Seconds a node has been executing continuously (for the "still working" sparkle), or -1 if it
+    /// isn't running. A small floor stops fast nodes from flickering; a ceiling drops a stale stuck entry.</summary>
+    public float NodeBusy(string nodeId)
+    {
+        if (!_active.TryGetValue(nodeId, out var t)) return -1f;
+        float e = (float)(DateTime.Now - t).TotalSeconds;
+        return e is >= 0.18f and < 600f ? e : -1f;
     }
 
     public int FireCount(string nodeId) => _fireCounts.TryGetValue(nodeId, out var n) ? n : 0;
