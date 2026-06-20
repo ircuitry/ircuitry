@@ -4,7 +4,7 @@ namespace Ircuitry.App;
 public static class AppInfo
 {
     /// <summary>Current version. Bump this with each release tag (the tag is "v" + this).</summary>
-    public const string Version = "0.16.0";
+    public const string Version = "0.17.0";
 
     public const string Repo = "ircuitry/ircuitry";
 }
