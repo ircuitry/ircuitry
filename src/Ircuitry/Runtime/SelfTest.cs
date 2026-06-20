@@ -162,6 +162,23 @@ public static class SelfTest
             fails += Expect("format-resolves-state-and-alias", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "me=ircuitry sk=SVAL"), Dump(sink));
         }
 
+        // --- Test 3e: the new primitives - data.xml turns RSS into JSON a JSON Field can read; mail nodes registered ---
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "feed");
+            var xml = N(g, "data.xml", 200, 120);
+            xml.SetParam("xml", "<rss><channel><title>My Feed</title><item><title>First</title></item><item><title>Second</title></item></channel></rss>");
+            var pick = N(g, "data.json", 400, 120); pick.SetParam("path", "rss.channel.item.0.title");
+            var reply = N(g, "action.reply", 600, 0);
+            g.Connect(cmd.Id, 0, reply.Id, 0);     // exec
+            g.Connect(xml.Id, 0, pick.Id, 0);      // xml's json output -> JSON Field input
+            g.Connect(pick.Id, 0, reply.Id, 1);    // extracted title -> reply message
+            var sink = new FakeSink();
+            GraphExecutor.Fire(g, sink, cmd, Vars("!feed", "u", "#x"));
+            fails += Expect("data.xml-rss", sink.Sent.Count == 1 && sink.Sent[0] == ("#x", "First"), Dump(sink));
+            fails += Expect("mail-nodes-registered", NodeCatalog.Get("mail.send") != null && NodeCatalog.Get("mail.fetch") != null && NodeCatalog.Get("data.xml") != null, "");
+        }
+
         fails += NewNodesTest();
         fails += Ircv3AndHistoryTest();
         fails += ScheduleTest();

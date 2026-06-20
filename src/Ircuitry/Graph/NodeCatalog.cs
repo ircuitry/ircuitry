@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Ircuitry.Core;
 using Ircuitry.Net;
+using MailKit;   // for IMailFolder.AddFlags(uid, ...) extension methods used by mail.fetch
 
 namespace Ircuitry.Graph;
 
@@ -383,6 +384,28 @@ public static class NodeCatalog
     private static double ParseNum(string s) => double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : 0;
     private static string FormatNum(double v) =>
         !double.IsInfinity(v) && v == Math.Floor(v) ? ((long)v).ToString(CultureInfo.InvariantCulture) : v.ToString("0.###", CultureInfo.InvariantCulture);
+
+    // XML -> JSON for the data.xml primitive: repeated tags become arrays; attributes become @name keys.
+    private static string XmlToJson(string xml)
+    {
+        var root = System.Xml.Linq.XDocument.Parse(xml).Root;
+        if (root == null) return "{}";
+        var top = new Dictionary<string, object?> { [root.Name.LocalName] = XmlElem(root) };
+        return System.Text.Json.JsonSerializer.Serialize(top);
+    }
+    private static object? XmlElem(System.Xml.Linq.XElement e)
+    {
+        if (!e.HasElements && !e.HasAttributes) return e.Value;
+        var d = new Dictionary<string, object?>();
+        foreach (var a in e.Attributes()) d["@" + a.Name.LocalName] = a.Value;
+        foreach (var g in e.Elements().GroupBy(x => x.Name.LocalName))
+        {
+            var items = g.Select(XmlElem).ToList();
+            d[g.Key] = items.Count == 1 ? items[0] : items;
+        }
+        if (!e.HasElements && e.HasAttributes) d["#text"] = e.Value;
+        return d;
+    }
 
     static NodeCatalog()
     {
@@ -1770,6 +1793,122 @@ public static class NodeCatalog
                     c.SetOut(2, status.ToString());
                     if (status == 0) c.Log("HTTP error: " + resp, LogLevel.Error);
                     c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "data.xml", Icon = "tree-structure", Title = "Parse XML", Subtitle = "data",
+                Category = NodeCategory.Data,
+                Description = "Parses XML - RSS/Atom feeds, SOAP, any XML API - into JSON so a JSON Field node can pull values out. Repeated tags become arrays (an RSS feed's items land at rss.channel.item), attributes become @name keys. Wire an HTTP Request response straight in.",
+                Inputs = new[] { Tx("xml") },
+                Outputs = new[] { Tx("json") },
+                Params = new[] { P("xml", "XML", ParamType.Multiline, "", "<rss>...</rss>  (or wire a HTTP response in)") },
+                Exec = c =>
+                {
+                    var xml = c.InOr(0, c.Resolve(c.Param("xml")));
+                    try { c.SetOut(0, xml.Trim().Length == 0 ? "{}" : XmlToJson(xml)); }
+                    catch (Exception ex) { c.SetOut(0, ""); c.Log("data.xml parse error: " + ex.Message, LogLevel.Error); }
+                },
+            },
+            new()
+            {
+                TypeId = "mail.send", Icon = "envelope-simple", Title = "Send Email", Subtitle = "mail",
+                Category = NodeCategory.Action,
+                Description = "Sends an email over SMTP. The general outgoing-mail transport email community nodes build on. Use an encrypted key for the password ({{secret.NAME}}).",
+                Inputs = new[] { Ex(), Tx("to"), Tx("body") },
+                Outputs = new[] { Ex("then"), Ex("failed"), Tx("result") },
+                Params = new[]
+                {
+                    P("host", "SMTP host", ParamType.Text, "", "smtp.gmail.com"),
+                    P("port", "Port", ParamType.Int, "587", "587 (STARTTLS) or 465 (SSL)"),
+                    P("user", "Username", ParamType.Text, "", "you@example.com"),
+                    P("pass", "Password", ParamType.Text, "", "{{secret.smtp_pass}}", secret: true),
+                    P("from", "From", ParamType.Text, "", "blank = username"),
+                    P("to", "To", ParamType.Text, "", "a@x.com, b@y.com"),
+                    P("subject", "Subject", ParamType.Text, "", "supports {tokens}"),
+                    P("body", "Body", ParamType.Multiline, "", "the message body, supports {tokens}"),
+                },
+                SummaryParam = "to",
+                Exec = c =>
+                {
+                    try
+                    {
+                        var host = c.Resolve(c.Param("host"));
+                        int port = Math.Clamp(c.ParamInt("port", 587), 1, 65535);
+                        var user = c.Resolve(c.Param("user"));
+                        var pass = c.Resolve(c.Param("pass"));
+                        var from = c.Resolve(c.Param("from")); if (from.Length == 0) from = user;
+                        var to = c.InOr(1, c.Resolve(c.Param("to")));
+                        var msg = new MimeKit.MimeMessage();
+                        msg.From.Add(MimeKit.MailboxAddress.Parse(from));
+                        foreach (var a in to.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                            if (a.Trim().Length > 0) msg.To.Add(MimeKit.MailboxAddress.Parse(a.Trim()));
+                        msg.Subject = c.Resolve(c.Param("subject"));
+                        msg.Body = new MimeKit.TextPart("plain") { Text = c.InOr(2, c.Resolve(c.Param("body"))) };
+                        using var smtp = new MailKit.Net.Smtp.SmtpClient { Timeout = 30000 };
+                        smtp.Connect(host, port, MailKit.Security.SecureSocketOptions.Auto);
+                        if (user.Length > 0) smtp.Authenticate(user, pass);
+                        smtp.Send(msg);
+                        smtp.Disconnect(true);
+                        c.SetOut(2, "sent"); c.Pulse(0);
+                    }
+                    catch (Exception ex) { c.Log("mail.send error: " + ex.Message, LogLevel.Error); c.SetOut(2, "error: " + ex.Message); c.Pulse(1); }
+                },
+            },
+            new()
+            {
+                TypeId = "mail.fetch", Icon = "tray-arrow-down", Title = "Fetch Email", Subtitle = "mail",
+                Category = NodeCategory.Action,
+                Description = "Reads UNSEEN emails from an IMAP inbox as JSON [{from,subject,date,text,id}] (then marks them seen). Wire an On Timer into this for an incoming-mail watcher. Use {{secret.NAME}} for the password. Branches 'got' when there is new mail, else 'none'.",
+                Inputs = new[] { Ex() },
+                Outputs = new[] { Ex("got"), Ex("none"), Tx("messages"), Tx("count") },
+                Params = new[]
+                {
+                    P("host", "IMAP host", ParamType.Text, "", "imap.gmail.com"),
+                    P("port", "Port", ParamType.Int, "993", "993 (SSL)"),
+                    P("user", "Username", ParamType.Text, "", "you@example.com"),
+                    P("pass", "Password", ParamType.Text, "", "{{secret.imap_pass}}", secret: true),
+                    P("max", "Max per fetch", ParamType.Int, "10", "10"),
+                    P("markseen", "Mark fetched as seen", ParamType.Bool, "true", ""),
+                },
+                SummaryParam = "host",
+                Exec = c =>
+                {
+                    try
+                    {
+                        var host = c.Resolve(c.Param("host"));
+                        int port = Math.Clamp(c.ParamInt("port", 993), 1, 65535);
+                        var user = c.Resolve(c.Param("user"));
+                        var pass = c.Resolve(c.Param("pass"));
+                        int max = Math.Clamp(c.ParamInt("max", 10), 1, 100);
+                        bool mark = c.Param("markseen") != "false";
+                        var results = new List<object>();
+                        using (var imap = new MailKit.Net.Imap.ImapClient { Timeout = 30000 })
+                        {
+                            imap.Connect(host, port, MailKit.Security.SecureSocketOptions.SslOnConnect);
+                            imap.Authenticate(user, pass);
+                            var inbox = imap.Inbox;
+                            inbox.Open(mark ? MailKit.FolderAccess.ReadWrite : MailKit.FolderAccess.ReadOnly);
+                            foreach (var uid in inbox.Search(MailKit.Search.SearchQuery.NotSeen).Take(max))
+                            {
+                                var m = inbox.GetMessage(uid);
+                                results.Add(new Dictionary<string, object?>
+                                {
+                                    ["from"] = m.From.ToString(),
+                                    ["subject"] = m.Subject ?? "",
+                                    ["date"] = m.Date.ToString("o"),
+                                    ["text"] = (m.TextBody ?? m.HtmlBody ?? "").Trim(),
+                                    ["id"] = uid.Id.ToString(),
+                                });
+                                if (mark) inbox.AddFlags(uid, MailKit.MessageFlags.Seen, true);
+                            }
+                            imap.Disconnect(true);
+                        }
+                        c.SetOut(2, System.Text.Json.JsonSerializer.Serialize(results));
+                        c.SetOut(3, results.Count.ToString());
+                        c.Pulse(results.Count > 0 ? 0 : 1);
+                    }
+                    catch (Exception ex) { c.Log("mail.fetch error: " + ex.Message, LogLevel.Error); c.SetOut(2, "[]"); c.SetOut(3, "0"); c.Pulse(1); }
                 },
             },
             new()
