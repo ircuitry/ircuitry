@@ -125,6 +125,7 @@ public sealed class AppModel
             {
                 n += SecureField("sasl", sv.SaslPass, v => sv.SaslPass = v);
                 n += SecureField("serverpass", sv.ServerPass, v => sv.ServerPass = v);
+                n += SecureField("clientcertpass", sv.ClientCertPass, v => sv.ClientCertPass = v);
             }
         }
         if (n > 0)

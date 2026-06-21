@@ -160,6 +160,9 @@ public static class McpTools
                 if (Has(a, "realName")) s.RealName = Str(a, "realName");
                 if (Has(a, "saslUser")) s.SaslUser = Str(a, "saslUser");
                 if (Has(a, "saslPass")) s.SaslPass = Str(a, "saslPass");
+                if (Has(a, "saslMech")) s.SaslMech = Str(a, "saslMech");
+                if (Has(a, "clientCertPath")) s.ClientCertPath = Str(a, "clientCertPath");
+                if (Has(a, "clientCertPass")) s.ClientCertPass = Str(a, "clientCertPass");
                 if (Has(a, "serverPass")) s.ServerPass = Str(a, "serverPass");
                 return new { host = s.Host, port = s.Port, tls = s.UseTls, nick = s.Nick, channels = s.Channels };
             });
@@ -203,6 +206,8 @@ public static class McpTools
                         Label = GS("label"), Host = GS("host"), Port = GI("port", 6697), UseTls = GB("tls", true),
                         Nick = GS("nick"), Channels = GS("channels"), RealName = GS("realName"),
                         SaslUser = GS("saslUser"), SaslPass = GS("saslPass"), ServerPass = GS("serverPass"),
+                        SaslMech = e.TryGetProperty("saslMech", out var sm) && sm.ValueKind == JsonValueKind.String ? sm.GetString() ?? "auto" : "auto",
+                        ClientCertPath = GS("clientCertPath"), ClientCertPass = GS("clientCertPass"),
                         ConnectOnStartup = GB("connectOnStartup", false), AcceptInvalidCerts = GB("acceptInvalidCerts", false), AutoReconnect = GB("autoReconnect", true),
                     });
                 }

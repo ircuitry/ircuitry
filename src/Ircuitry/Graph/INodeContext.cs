@@ -71,6 +71,10 @@ public interface INodeContext
 
     /// <summary>Read tracked IRC session state: nick, network, caps, channels, topic, members, count, joined.</summary>
     string IrcInfo(string what, string channel);
+
+    /// <summary>True if the named IRCv3 capability is enabled on the connection this flow is acting on, so a
+    /// node can check a cap-gated command (SETNAME / REDACT / METADATA) will work before sending it.</summary>
+    bool HasCap(string cap);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

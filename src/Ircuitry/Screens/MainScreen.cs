@@ -3004,6 +3004,12 @@ public sealed partial class MainScreen : IScreen
         y = Labeled(r, "CHANNELS", x, y); s.Channels = Edit("c.chan", new RectF(x, y, w, 30), s.Channels, "#chan1 #chan2"); y += 40;
         y = Labeled(r, "SASL ACCOUNT (optional)", x, y); s.SaslUser = Edit("c.sasluser", new RectF(x, y, w, 30), s.SaslUser, "account"); y += 40;
         y = Labeled(r, "SASL PASSWORD", x, y); SecretButton(r, "c.saslpass", ref y, x, w, s.SaslPass, "SASL password", v => { s.SaslPass = v; _app.MarkDirty(); }); y += 4;
+        y = Labeled(r, "SASL MECHANISM", x, y);
+        var mech = _ui.Choice("c.saslmech", new RectF(x, y, w, 30), new[] { "auto", "plain", "external", "scram" }, string.IsNullOrEmpty(s.SaslMech) ? "auto" : s.SaslMech);
+        if (mech != s.SaslMech) { s.SaslMech = mech; _app.MarkDirty(); }
+        y += 40;
+        y = Labeled(r, "CLIENT CERT - PEM or PFX (for EXTERNAL / CertFP)", x, y); s.ClientCertPath = Edit("c.certpath", new RectF(x, y, w, 30), s.ClientCertPath, "/path/to/cert.pem"); y += 40;
+        y = Labeled(r, "CLIENT CERT PASSPHRASE", x, y); SecretButton(r, "c.certpass", ref y, x, w, s.ClientCertPass, "cert passphrase", v => { s.ClientCertPass = v; _app.MarkDirty(); }); y += 4;
 
         _obbyConn = ObbyHeader(r, ref y, x, w, _obbyConn);
         if (_obbyConn)

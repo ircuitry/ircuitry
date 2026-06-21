@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 
@@ -25,6 +26,12 @@ public sealed class MockIrcServer : IDisposable
     private readonly IReadOnlyList<(int delayMs, string line)> _script;
 
     public int Port { get; }
+
+    // ---- SASL self-test knobs: the credential the mock will accept, and what the client actually negotiated ----
+    public string ExpectSaslUser = "";
+    public string ExpectSaslPass = "";
+    public volatile string SaslMechUsed = "";   // the mechanism the client chose (PLAIN / EXTERNAL / SCRAM-SHA-256)
+    public volatile bool SaslOk;                 // set true once the mock has accepted authentication
 
     public MockIrcServer(IReadOnlyList<(int, string)>? script = null)
     {
@@ -67,6 +74,9 @@ public sealed class MockIrcServer : IDisposable
 
             string nick = "user";
             bool injected = false;
+            string saslMech = "", scBare = "", scServerFirst = "";
+            int saslStep = 0;
+            byte[] scSalt = Array.Empty<byte>();
             string? line;
             while (!_stop && (line = reader.ReadLine()) != null)
             {
@@ -75,7 +85,50 @@ public sealed class MockIrcServer : IDisposable
                 if (body.StartsWith('@')) { int sp = body.IndexOf(' '); body = sp >= 0 ? body[(sp + 1)..] : ""; }
 
                 if (body.StartsWith("NICK ", StringComparison.Ordinal)) nick = body[5..].Trim();
-                else if (body.StartsWith("CAP LS", StringComparison.Ordinal)) Send(":mock CAP * LS :message-tags server-time multi-prefix account-tag draft/bot-cmds draft/bot-tools batch");
+                else if (body.StartsWith("CAP LS", StringComparison.Ordinal)) Send(":mock CAP * LS :message-tags server-time multi-prefix account-tag draft/bot-cmds draft/bot-tools batch echo-message setname draft/message-redaction draft/metadata-2 sasl=PLAIN,EXTERNAL,SCRAM-SHA-256");
+                else if (body.StartsWith("AUTHENTICATE", StringComparison.Ordinal))
+                {
+                    string arg = body.Length > 13 ? body[13..].Trim() : "";
+                    if (arg is "PLAIN" or "EXTERNAL" or "SCRAM-SHA-256") { saslMech = arg; SaslMechUsed = arg; saslStep = 0; Send("AUTHENTICATE +"); }
+                    else if (arg == "*") Send($":mock 904 {nick} :SASL aborted");
+                    else if (saslMech is "PLAIN" or "EXTERNAL") { SaslOk = true; Send($":mock 900 {nick} {nick}!u@h {nick} :You are now logged in"); Send($":mock 903 {nick} :SASL authentication successful"); }
+                    else if (saslMech == "SCRAM-SHA-256")
+                    {
+                        if (saslStep == 0)
+                        {
+                            string cf = B64Decode(arg);                      // "n,,n=user,r=cnonce"
+                            scBare = cf.StartsWith("n,,") ? cf[3..] : cf;
+                            string cnonce = ScramAttr(scBare, "r");
+                            scSalt = RandomNumberGenerator.GetBytes(16);
+                            string snonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(12));
+                            scServerFirst = $"r={cnonce}{snonce},s={Convert.ToBase64String(scSalt)},i=4096";
+                            Send("AUTHENTICATE " + B64(scServerFirst));
+                            saslStep = 1;
+                        }
+                        else if (saslStep == 1)
+                        {
+                            string cfin = B64Decode(arg);                    // "c=biws,r=...,p=proof"
+                            int pIdx = cfin.IndexOf(",p=", StringComparison.Ordinal);
+                            string noProof = pIdx >= 0 ? cfin[..pIdx] : cfin;
+                            string proof = ScramAttr(cfin, "p");
+                            byte[] salted = Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(ExpectSaslPass), scSalt, 4096, HashAlgorithmName.SHA256, 32);
+                            byte[] clientKey = ScramHmac(salted, "Client Key");
+                            byte[] storedKey = SHA256.HashData(clientKey);
+                            string authMsg = scBare + "," + scServerFirst + "," + noProof;
+                            byte[] clientSig = ScramHmac(storedKey, authMsg);
+                            string expProof = Convert.ToBase64String(ScramXor(clientKey, clientSig));
+                            if (expProof == proof)
+                            {
+                                byte[] serverKey = ScramHmac(salted, "Server Key");
+                                byte[] serverSig = ScramHmac(serverKey, authMsg);
+                                Send("AUTHENTICATE " + B64("v=" + Convert.ToBase64String(serverSig)));
+                                saslStep = 2;
+                            }
+                            else Send($":mock 904 {nick} :SASL proof mismatch");
+                        }
+                        else { SaslOk = true; Send($":mock 900 {nick} {nick}!u@h {nick} :You are now logged in"); Send($":mock 903 {nick} :SASL authentication successful"); }
+                    }
+                }
                 else if (body.StartsWith("CAP REQ", StringComparison.Ordinal))
                 {
                     int i = body.IndexOf(':');
@@ -121,6 +174,18 @@ public sealed class MockIrcServer : IDisposable
         { IsBackground = true, Name = "mock-inject" };
         t.Start();
     }
+
+    // ---- tiny SCRAM-SHA-256 server helpers (self-test only) ----
+    private static string B64(string s) => Convert.ToBase64String(Encoding.UTF8.GetBytes(s));
+    private static string B64Decode(string s) => s.Length == 0 || s == "+" ? "" : Encoding.UTF8.GetString(Convert.FromBase64String(s));
+    private static string ScramAttr(string msg, string key)
+    {
+        foreach (var part in msg.Split(','))
+            if (part.StartsWith(key + "=", StringComparison.Ordinal)) return part[(key.Length + 1)..];
+        return "";
+    }
+    private static byte[] ScramHmac(byte[] key, string msg) { using var h = new HMACSHA256(key); return h.ComputeHash(Encoding.UTF8.GetBytes(msg)); }
+    private static byte[] ScramXor(byte[] a, byte[] b) { var r = new byte[a.Length]; for (int i = 0; i < a.Length; i++) r[i] = (byte)(a[i] ^ b[i]); return r; }
 
     public void Dispose()
     {

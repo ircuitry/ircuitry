@@ -79,6 +79,7 @@ public sealed class ServerConn : IRuntimeSink
         _cfg.ServerPass = Secrets.Expand(_cfg.ServerPass);
         _cfg.SaslUser = Secrets.Expand(_cfg.SaslUser);
         _cfg.SaslPass = Secrets.Expand(_cfg.SaslPass);
+        _cfg.ClientCertPass = Secrets.Expand(_cfg.ClientCertPass);
         MessagesSeen = 0; _actionsFired = 0;
         _session.Reset();
         _running = true;
@@ -204,7 +205,22 @@ public sealed class ServerConn : IRuntimeSink
         {
             MessagesSeen++;
             string nick = m.Nick ?? "";
-            if (nick.Equals(CurrentNick, StringComparison.OrdinalIgnoreCase)) return; // ignore self
+            if (nick.Equals(CurrentNick, StringComparison.OrdinalIgnoreCase))
+            {
+                // IRCv3 echo-message: the server echoed our OWN line back. Record it (with the server-assigned
+                // msgid) so the bot knows exactly what it said - its lines become recallable / threadable /
+                // redactable, and an AI sees its own turns in context - but a self-echo must NEVER fire a
+                // trigger (that would be an instant feedback loop).
+                if (_client.HasCap("echo-message"))
+                {
+                    string selfTarget = m.P(0);
+                    string selfChan = _session.IsChannel(selfTarget) ? selfTarget : (m.Nick ?? CurrentNick);
+                    string selfMsgid = m.Tag("msgid"); if (selfMsgid.Length == 0) selfMsgid = m.Tag("draft/msgid");
+                    _owner.RecordMessage(CurrentNick, selfChan, m.Trailing, selfMsgid);
+                    if (selfMsgid.Length > 0) SetState("last_self_msgid", selfMsgid);
+                }
+                return; // never trigger on our own line
+            }
             string target = m.P(0);
             string text = m.Trailing;
 
@@ -227,7 +243,7 @@ public sealed class ServerConn : IRuntimeSink
                 return;
             }
 
-            bool toChannel = target.StartsWith('#') || target.StartsWith('&');
+            bool toChannel = _session.IsChannel(target);
             var vars = BaseVars();
             vars["nick"] = nick;
             vars["user"] = m.User ?? "";
@@ -329,7 +345,7 @@ public sealed class ServerConn : IRuntimeSink
             vars["numeric"] = num.ToString();
             vars["numname"] = Ircuitry.Irc.IrcNumerics.Name(num) ?? "";
             vars["nick"] = m.Nick ?? "";
-            vars["channel"] = m.Params.Count > 1 && (m.P(1).StartsWith('#') || m.P(1).StartsWith('&')) ? m.P(1) : "";
+            vars["channel"] = m.Params.Count > 1 && _session.IsChannel(m.P(1)) ? m.P(1) : "";
             vars["message"] = m.Trailing;
             vars["args"] = string.Join(' ', m.Params);
             for (int i = 0; i < m.Params.Count; i++) vars["arg" + (i + 1)] = m.P(i);
@@ -795,7 +811,14 @@ public sealed class ServerConn : IRuntimeSink
             case "count": return _session.MemberCount(channel).ToString();
             case "joined": return _session.InChannel(channel) ? "true" : "false";
             case "filehost": return _session.Filehost;   // IRCv3 draft/FILEHOST upload URL
-            default: return "";
+            case "isupport": return string.Join(" ", _session.Isupport.Snapshot());   // all advertised 005 tokens
+            case "prefix": return _session.Isupport.Get("PREFIX");
+            case "chantypes": return _session.Isupport.ChanTypes;
+            case "casemapping": return _session.Isupport.CaseMapping;
+            default:
+                // isupport:KEY -> one advertised ISUPPORT value (e.g. isupport:NICKLEN, isupport:CHANMODES)
+                if (what.StartsWith("isupport:", StringComparison.OrdinalIgnoreCase)) return _session.Isupport.Get(what[9..]);
+                return "";
         }
     }
 

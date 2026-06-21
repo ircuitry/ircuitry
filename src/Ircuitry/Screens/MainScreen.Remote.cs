@@ -377,7 +377,7 @@ public partial class MainScreen
         var refs = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
         void Scan(string v) { foreach (System.Text.RegularExpressions.Match m in _secretRef.Matches(v ?? "")) refs.Add(m.Groups[1].Value); }
         foreach (var n in local.Graph.Nodes) foreach (var p in n.Params) Scan(p.Value);
-        foreach (var s in local.Servers) { Scan(s.SaslUser); Scan(s.SaslPass); Scan(s.ServerPass); }
+        foreach (var s in local.Servers) { Scan(s.SaslUser); Scan(s.SaslPass); Scan(s.ServerPass); Scan(s.ClientCertPass); }
         var mine = refs.Where(Ircuitry.Core.Secrets.Has).ToList();   // only ones we can actually supply
         if (mine.Count == 0) return;
         rc.ListSecrets(serverNames =>
@@ -586,7 +586,7 @@ public partial class MainScreen
     {
         long h = 17;
         foreach (var s in b.Servers)
-            foreach (var v in new object[] { s.Host, s.Port, s.UseTls, s.Nick, s.Channels, s.RealName, s.SaslUser, s.SaslPass, s.ServerPass, s.ConnectOnStartup })
+            foreach (var v in new object[] { s.Host, s.Port, s.UseTls, s.Nick, s.Channels, s.RealName, s.SaslUser, s.SaslPass, s.SaslMech, s.ClientCertPath, s.ClientCertPass, s.ServerPass, s.ConnectOnStartup })
                 h = unchecked(h * 31 + (v?.GetHashCode() ?? 0));
         foreach (var kv in b.State) h = unchecked(h * 31 + kv.Key.GetHashCode() * 17 + (kv.Value?.GetHashCode() ?? 0));
         return h;

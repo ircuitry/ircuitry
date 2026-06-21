@@ -41,6 +41,8 @@ public static class SelfTest
         public void Reconnect(string server) => Reconnects.Add(server);
         public string FilehostUrl = "";
         public string IrcInfo(string what, string channel) => what == "filehost" ? FilehostUrl : "";
+        public readonly HashSet<string> Caps = new(StringComparer.OrdinalIgnoreCase);   // negotiated caps to simulate
+        public bool HasCap(string cap) => Caps.Contains(cap);
         public System.Collections.Generic.List<string> LastRun = new();
         public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes) { LastRun = new(executedTypes); }
         public readonly List<RecentMsg> RecentSeed = new();   // what SuperAI's recent_messages tool sees
@@ -249,6 +251,12 @@ public static class SelfTest
         fails += CapabilitiesTest();
         fails += FixesTest();
         fails += FilehostTest();
+        fails += ScramVectorTest();
+        fails += IsupportParseTest();
+        fails += CapGuardTest();
+        fails += RegexCaptureTest();
+        fails += MathTokenTest();
+        fails += SaslLoopTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -365,9 +373,11 @@ public static class SelfTest
         b.Evals.Add(new Ircuitry.App.EvalCase { Message = "hi", Mode = Ircuitry.App.EvalMatch.NoReply });
         var cn = b.Graph.Add(NodeCatalog.Get("event.command"), new Vector2(0, 0)); cn.ColorTag = 3;
         var fr = Frame.Create(new Vector2(10, 20)); fr.Title = "note"; fr.Body = "body"; b.Graph.Frames.Add(fr);
+        b.Servers[0].SaslMech = "scram"; b.Servers[0].ClientCertPath = "/certs/bot.pem"; b.Servers[0].ClientCertPass = "{{secret.certpw}}";
         var (rtBots, _, _) = Ircuitry.App.WorkspaceSerializer.Load(Ircuitry.App.WorkspaceSerializer.Save(new[] { b }, 0, null));
         var lb = rtBots[0];
         fails += Expect("ws-evals", lb.Evals.Count == 2 && lb.Evals[0].Expect == "pong" && lb.Evals[1].Mode == Ircuitry.App.EvalMatch.NoReply, lb.Evals.Count.ToString());
+        fails += Expect("ws-sasl-fields", lb.Servers[0].SaslMech == "scram" && lb.Servers[0].ClientCertPath == "/certs/bot.pem" && lb.Servers[0].ClientCertPass == "{{secret.certpw}}", lb.Servers[0].SaslMech + " " + lb.Servers[0].ClientCertPath);
         fails += Expect("ws-colortag", lb.Graph.Nodes.Count == 1 && lb.Graph.Nodes[0].ColorTag == 3, "");
         fails += Expect("ws-frames", lb.Graph.Frames.Count == 1 && lb.Graph.Frames[0].Title == "note" && lb.Graph.Frames[0].Body == "body", "");
 
@@ -2886,6 +2896,231 @@ public static class SelfTest
     }
 
     private static string Dump(FakeSink s) => "sent=[" + string.Join(", ", s.Sent.ConvertAll(t => $"{t.target}:{t.text}")) + "]";
+
+    /// <summary>SCRAM-SHA-256 client crypto matches the published RFC 7677 vector (user "user", pass "pencil",
+    /// fixed client nonce), so the SASL exchange is provably correct, plus the server-signature check rejects an
+    /// impostor.</summary>
+    private static int ScramVectorTest()
+    {
+        int fails = 0;
+        var sc = new Ircuitry.Irc.ScramSha256("user", "pencil", "rOprNGfwEbeRWgbNEkqO");
+        string first = sc.ClientFirst();
+        fails += Expect("scram-client-first", first == "n,,n=user,r=rOprNGfwEbeRWgbNEkqO", first);
+        const string serverFirst = "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096";
+        string final = sc.ClientFinal(serverFirst);
+        fails += Expect("scram-client-final-proof",
+            final == "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=", final);
+        bool verified = true;
+        try { sc.VerifyServerFinal("v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4="); } catch { verified = false; }
+        fails += Expect("scram-server-verify", verified, "the server signature should verify");
+        bool caught = false;
+        try { sc.VerifyServerFinal("v=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="); } catch { caught = true; }
+        fails += Expect("scram-impostor-rejected", caught, "a wrong server signature must throw");
+        return fails;
+    }
+
+    /// <summary>ISUPPORT(005) parsing: typed PREFIX/CHANTYPES/CASEMAPPING/NICKLEN views, the casemapping-aware
+    /// comparer, and the session honoring a non-default advertised PREFIX when parsing a NAMES reply.</summary>
+    private static int IsupportParseTest()
+    {
+        int fails = 0;
+        var iss = new Ircuitry.Irc.IrcIsupport();
+        iss.Feed(new[] { "PREFIX=(qaohv)~&@%+", "CHANTYPES=#&", "CASEMAPPING=rfc1459", "NICKLEN=30", "WHOX", "are supported" });
+        fails += Expect("isupport-prefix-chars", iss.PrefixChars == "~&@%+", iss.PrefixChars);
+        fails += Expect("isupport-prefix-modes", iss.PrefixModes == "qaohv", iss.PrefixModes);
+        fails += Expect("isupport-chantypes", iss.ChanTypes == "#&", iss.ChanTypes);
+        fails += Expect("isupport-nicklen", iss.IntValue("NICKLEN", 9) == 30, iss.Get("NICKLEN"));
+        fails += Expect("isupport-bool-token", iss.Has("WHOX"), "boolean token kept");
+        fails += Expect("isupport-mode-for-prefix", iss.ModeForPrefix('@') == 'o' && iss.ModeForPrefix('+') == 'v', "");
+        fails += Expect("isupport-rank-order", iss.Rank("@") < iss.Rank("+") && iss.Rank("~") == 0, "");
+        fails += Expect("isupport-ischannel", iss.IsChannel("#x") && iss.IsChannel("&y") && !iss.IsChannel("nick"), "");
+        fails += Expect("isupport-decode-escape", Ircuitry.Irc.IrcIsupport.DecodeIsupport("Cool\\x20Net") == "Cool Net", "");
+        iss.Feed(new[] { "-NICKLEN" });
+        fails += Expect("isupport-remove-token", !iss.Has("NICKLEN"), "-KEY should drop it");
+
+        var rfc = new Ircuitry.Irc.IrcCaseComparer("rfc1459");
+        var ascii = new Ircuitry.Irc.IrcCaseComparer("ascii");
+        fails += Expect("case-ascii-fold", ascii.Equals("Nick", "nick") && !ascii.Equals("nick[]", "nick{}"), "");
+        fails += Expect("case-rfc1459-fold", rfc.Equals("nick[]", "nick{}") && rfc.Equals("Foo\\bar", "foo|bar"), "");
+
+        // the session uses the advertised PREFIX (here a custom set) to strip a NAMES list correctly
+        var s = new IrcSessionState();
+        void Obs(string l) => s.Observe(IrcParser.Parse(l), "me");
+        Obs(":serv 005 me PREFIX=(ov)@+ CHANTYPES=# CASEMAPPING=ascii :are supported");
+        Obs(":me!u@h JOIN #c");
+        Obs(":serv 353 me = #c :@alice +bob @+carol dave");
+        var mem = s.Members("#c");
+        fails += Expect("session-prefix-parse",
+            mem.Any(m => m.nick == "alice" && m.prefix == "@")
+            && mem.Any(m => m.nick == "carol" && m.prefix == "@+")
+            && mem.Any(m => m.nick == "dave" && m.prefix == ""),
+            string.Join(",", mem.Select(m => m.prefix + m.nick)));
+        fails += Expect("session-isupport-exposed", s.Isupport.Get("CHANTYPES") == "#" && s.Isupport.CaseMapping == "ascii", "");
+        return fails;
+    }
+
+    /// <summary>Cap-gated IRCv3 actions only send when the connection negotiated the capability, and otherwise
+    /// log a clear skip instead of silently doing nothing.</summary>
+    private static int CapGuardTest()
+    {
+        int fails = 0;
+
+        NodeGraph Build(string type, Action<Node> cfg)
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "x");
+            var act = N(g, type, 200, 0); cfg(act);
+            g.Connect(cmd.Id, 0, act.Id, 0);
+            return g;
+        }
+
+        var gSet = Build("action.setname", a => a.SetParam("name", "Cozy Bot"));
+        var withCap = new FakeSink(); withCap.Caps.Add("setname");
+        GraphExecutor.Fire(gSet, withCap, gSet.Nodes[0], Vars("!x", "u", "#c"));
+        fails += Expect("capguard-setname-sends", withCap.Logs.Contains("RAW SETNAME :Cozy Bot"), string.Join(" | ", withCap.Logs));
+        var noCap = new FakeSink();
+        GraphExecutor.Fire(gSet, noCap, gSet.Nodes[0], Vars("!x", "u", "#c"));
+        fails += Expect("capguard-setname-skips",
+            !noCap.Logs.Any(l => l.StartsWith("RAW SETNAME")) && noCap.Logs.Any(l => l.Contains("setname") && l.Contains("skipped")),
+            string.Join(" | ", noCap.Logs));
+
+        var gRed = Build("action.redact", a => { a.SetParam("target", "#c"); a.SetParam("msgid", "abc"); });
+        var redOk = new FakeSink(); redOk.Caps.Add("draft/message-redaction");
+        GraphExecutor.Fire(gRed, redOk, gRed.Nodes[0], Vars("!x", "u", "#c"));
+        fails += Expect("capguard-redact-sends", redOk.Logs.Contains("RAW REDACT #c abc"), string.Join(" | ", redOk.Logs));
+        var redNo = new FakeSink();
+        GraphExecutor.Fire(gRed, redNo, gRed.Nodes[0], Vars("!x", "u", "#c"));
+        fails += Expect("capguard-redact-skips", !redNo.Logs.Any(l => l.StartsWith("RAW REDACT")), string.Join(" | ", redNo.Logs));
+
+        var gMeta = Build("action.metadata", a => { a.SetParam("target", "*"); a.SetParam("key", "url"); a.SetParam("value", "https://x"); });
+        var metaOk = new FakeSink(); metaOk.Caps.Add("metadata");
+        GraphExecutor.Fire(gMeta, metaOk, gMeta.Nodes[0], Vars("!x", "u", "#c"));
+        fails += Expect("capguard-metadata-sends", metaOk.Logs.Contains("RAW METADATA * SET url :https://x"), string.Join(" | ", metaOk.Logs));
+        return fails;
+    }
+
+    /// <summary>Regex captures: the $1-$4 pins AND {1}.. / {name} tokens resolve downstream for the rest of the run
+    /// (the long-standing footgun where {1} silently resolved empty).</summary>
+    private static int RegexCaptureTest()
+    {
+        int fails = 0;
+
+        // numbered-group tokens
+        {
+            var g = new NodeGraph();
+            var msg = N(g, "event.message", 0, 0);
+            var rx = N(g, "logic.regex", 200, 0); rx.SetParam("pattern", "(\\d+)x(\\d+)");
+            var rep = N(g, "action.reply", 400, 0); rep.SetParam("message", "{1} and {2}");
+            g.Connect(msg.Id, 0, rx.Id, 0); g.Connect(rx.Id, 0, rep.Id, 0);
+            var s = new FakeSink(); var v = Vars("12x34", "u", "#c"); v["message"] = "12x34";
+            GraphExecutor.Fire(g, s, msg, v);
+            fails += Expect("regex-num-tokens", s.Sent.Count == 1 && s.Sent[0].text == "12 and 34", Dump(s));
+        }
+        // named-group tokens
+        {
+            var g = new NodeGraph();
+            var msg = N(g, "event.message", 0, 0);
+            var rx = N(g, "logic.regex", 200, 0); rx.SetParam("pattern", "(?<user>\\w+)@(?<host>\\w+)");
+            var rep = N(g, "action.reply", 400, 0); rep.SetParam("message", "{host}.{user}");
+            g.Connect(msg.Id, 0, rx.Id, 0); g.Connect(rx.Id, 0, rep.Id, 0);
+            var s = new FakeSink(); var v = Vars("amy@mail", "u", "#c"); v["message"] = "amy@mail";
+            GraphExecutor.Fire(g, s, msg, v);
+            fails += Expect("regex-named-tokens", s.Sent.Count == 1 && s.Sent[0].text == "mail.amy", Dump(s));
+        }
+        // $3 output pin (index 4) wired directly
+        {
+            var g = new NodeGraph();
+            var msg = N(g, "event.message", 0, 0);
+            var rx = N(g, "logic.regex", 200, 0); rx.SetParam("pattern", "(a)(b)(c)(d)");
+            var rep = N(g, "action.reply", 400, 0);
+            g.Connect(msg.Id, 0, rx.Id, 0); g.Connect(rx.Id, 0, rep.Id, 0); g.Connect(rx.Id, 4, rep.Id, 1);
+            var s = new FakeSink(); var v = Vars("abcd", "u", "#c"); v["message"] = "abcd";
+            GraphExecutor.Fire(g, s, msg, v);
+            fails += Expect("regex-pin-3", s.Sent.Count == 1 && s.Sent[0].text == "c", Dump(s));
+        }
+        return fails;
+    }
+
+    /// <summary>The Math node resolves {tokens} in its A/B fields (previously read raw, silently yielding 0), so
+    /// arithmetic on variables works in place.</summary>
+    private static int MathTokenTest()
+    {
+        var g = new NodeGraph();
+        var msg = N(g, "event.message", 0, 0);
+        var math = N(g, "data.math", 200, 0); math.SetParam("op", "+"); math.SetParam("a", "{score}"); math.SetParam("b", "{bonus}");
+        var rep = N(g, "action.reply", 400, 0);
+        g.Connect(msg.Id, 0, rep.Id, 0);
+        g.Connect(math.Id, 0, rep.Id, 1);
+        var s = new FakeSink();
+        var v = Vars("go", "u", "#c"); v["score"] = "10"; v["bonus"] = "5";
+        GraphExecutor.Fire(g, s, msg, v);
+        return Expect("math-token-resolve", s.Sent.Count == 1 && s.Sent[0].text == "15", Dump(s));
+    }
+
+    /// <summary>SASL end to end against the mock: SCRAM-SHA-256 is auto-picked and completes the full handshake,
+    /// the bot registers + auto-joins, a real message still triggers, a server FAIL is surfaced, an echo-message
+    /// self-line is captured (msgid) without re-triggering, and forced PLAIN / EXTERNAL also complete.</summary>
+    private static int SaslLoopTest()
+    {
+        int fails = 0;
+
+        using (var mock = new MockIrcServer(new[]
+        {
+            (1, ":serv FAIL SETNAME INVALID_REALNAME :realname too long"),
+            (1, "@msgid=ECHO123 :scrambot!u@h PRIVMSG #ircuitry-test :hi from me"),
+            (1, ":alice!a@h PRIVMSG #ircuitry-test :hello"),
+        }))
+        {
+            mock.ExpectSaslUser = "scrambot"; mock.ExpectSaslPass = "hunter2";
+            var log = new ConsoleLog();
+            var state = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+            var rt = new BotRuntime(log, state);
+
+            var g = new NodeGraph();
+            var m = g.Add(NodeCatalog.Get("event.message"), Vector2.Zero);
+            var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(300, 0)); reply.SetParam("message", "echo:{message}");
+            g.Connect(m.Id, 0, reply.Id, 0);
+
+            rt.Start(g, new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "scrambot", Channels = "#ircuitry-test", SaslUser = "scrambot", SaslPass = "hunter2" });
+
+            bool joined = false, repliedToAlice = false;
+            for (int i = 0; i < 200 && !(joined && repliedToAlice); i++)
+            {
+                Thread.Sleep(50);
+                foreach (var o in mock.Sent())
+                {
+                    if (o.StartsWith("JOIN", StringComparison.Ordinal) && o.Contains("#ircuitry-test")) joined = true;
+                    if (o.Contains("PRIVMSG #ircuitry-test") && o.Contains("echo:hello")) repliedToAlice = true;
+                }
+            }
+            Thread.Sleep(150);
+            bool selfEchoReplied = mock.Sent().Any(o => o.Contains("echo:hi from me"));
+            rt.Stop(); Thread.Sleep(100);
+
+            fails += Expect("sasl-scram-mech", mock.SaslMechUsed == "SCRAM-SHA-256", "mech=" + mock.SaslMechUsed);
+            fails += Expect("sasl-scram-ok", mock.SaslOk, "the mock should have accepted SCRAM");
+            fails += Expect("sasl-registered-joined", joined, "the bot should register + auto-join after SASL");
+            fails += Expect("sasl-message-handled", repliedToAlice, "a normal message should still trigger");
+            fails += Expect("echo-message-no-retrigger", !selfEchoReplied, "a self-echo must NOT fire a trigger");
+            fails += Expect("echo-message-msgid", state.TryGetValue("last_self_msgid", out var mid) && mid == "ECHO123", "last_self_msgid=" + (state.TryGetValue("last_self_msgid", out var m2) ? m2 : "(none)"));
+            fails += Expect("standard-reply-surfaced", log.Tail(80).Any(e => e.Text.Contains("SETNAME") && e.Text.Contains("INVALID_REALNAME")), "FAIL should be logged");
+        }
+
+        foreach (var (mech, label) in new[] { ("plain", "PLAIN"), ("external", "EXTERNAL") })
+        {
+            using var mock = new MockIrcServer(new[] { (1, ":x!x@h PRIVMSG #ircuitry-test :hi") });
+            mock.ExpectSaslUser = "bot"; mock.ExpectSaslPass = "pw";
+            var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+            var g = new NodeGraph();
+            g.Add(NodeCatalog.Get("event.connect"), Vector2.Zero);
+            rt.Start(g, new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "bot", Channels = "#ircuitry-test", SaslMech = mech, SaslUser = "bot", SaslPass = "pw" });
+            bool ok = false;
+            for (int i = 0; i < 160 && !ok; i++) { Thread.Sleep(50); if (mock.SaslOk && mock.SaslMechUsed == label) ok = true; }
+            rt.Stop(); Thread.Sleep(80);
+            fails += Expect("sasl-mech-" + mech, ok, "mech=" + mock.SaslMechUsed + " ok=" + mock.SaslOk);
+        }
+        return fails;
+    }
 
     private static int Expect(string name, bool ok, string detail)
     {

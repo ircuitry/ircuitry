@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,18 +14,27 @@ namespace Ircuitry.Irc;
 public enum IrcState { Disconnected, Connecting, Registering, Connected, Error }
 
 /// <summary>
-/// A from-scratch IRCv3 client: TCP/TLS, CAP 302 negotiation, SASL PLAIN, and
-/// PING keepalive. The read loop runs on its own thread; callbacks fire there,
-/// so handlers must be thread-safe (the runtime logs to a concurrent buffer).
+/// A from-scratch IRCv3 client: TCP/TLS (with optional client certificate / CertFP), CAP 302 negotiation,
+/// SASL (EXTERNAL, SCRAM-SHA-256 or PLAIN, auto-picked), standard-replies surfacing, and PING keepalive.
+/// The read loop runs on its own thread; callbacks fire there, so handlers must be thread-safe (the runtime
+/// logs to a concurrent buffer).
 /// </summary>
 public sealed class IrcClient
 {
+    // Caps we request when the server advertises them. Both the draft and ratified names of a cap are listed:
+    // a server advertises only one, and we REQ the intersection with what it offers, so listing both is safe.
     private static readonly string[] Wanted =
     {
         "message-tags", "server-time", "account-tag", "account-notify",
-        "away-notify", "extended-join", "multi-prefix", "chghost", "sasl",
+        "away-notify", "extended-join", "multi-prefix", "userhost-in-names", "chghost",
+        "invite-notify", "echo-message", "labeled-response", "sasl",
         "draft/chathistory", "chathistory",   // request both the draft and ratified cap names
         "draft/bot-cmds", "draft/bot-tools", "batch", "draft/multiline",   // bot-tools + multiline replies
+        "setname",                                            // the SETNAME command (action.setname)
+        "draft/message-redaction", "message-redaction",       // the REDACT command (action.redact)
+        "draft/metadata-2", "metadata-notify", "metadata",    // the METADATA command (action.metadata / set_metadata)
+        "draft/channel-rename",                               // the RENAME command (action.rename)
+        "standard-replies", "draft/standard-replies",         // FAIL/WARN/NOTE, which we now surface to the user
     };
 
     private TcpClient? _tcp;
@@ -35,8 +45,13 @@ public sealed class IrcClient
 
     private IrcSettings _cfg = new();
     private readonly HashSet<string> _avail = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _capValues = new(StringComparer.OrdinalIgnoreCase);   // cap -> advertised value (e.g. sasl=PLAIN,EXTERNAL)
     private List<string> _enabled = new();
     private bool _saslActive, _capEnded;
+    private string _saslMech = "";          // the mechanism we settled on this connection
+    private ScramSha256? _scram;            // live SCRAM exchange, if that's the mechanism
+    private int _scramStep;
+    private readonly StringBuilder _authBuf = new();   // reassembles chunked AUTHENTICATE payloads (400-byte chunks)
     private int _nickTries;
     private int _reconnectAttempt;
 
@@ -71,9 +86,7 @@ public sealed class IrcClient
         if (State is IrcState.Connecting or IrcState.Registering or IrcState.Connected) return;
         _cfg = settings.Clone();
         _quit = false;
-        _avail.Clear();
-        _enabled = new();
-        _saslActive = _capEnded = false;
+        ResetNegotiation();
         _nickTries = 0;
         CurrentNick = _cfg.Nick;
         _reconnectAttempt = 0;
@@ -306,7 +319,7 @@ public sealed class IrcClient
             if (_quit) break;
 
             // reset per-connection negotiation state
-            _avail.Clear(); _enabled = new(); _saslActive = _capEnded = false; _nickTries = 0;
+            ResetNegotiation(); _nickTries = 0;
             CurrentNick = _cfg.Nick;
         }
 
@@ -329,9 +342,13 @@ public sealed class IrcClient
         {
             var ssl = new SslStream(raw, false, (_, _, _, errors) =>
                 _cfg.AcceptInvalidCerts || errors == SslPolicyErrors.None);
-            ssl.AuthenticateAsClient(_cfg.Host);
+            var opts = new SslClientAuthenticationOptions { TargetHost = _cfg.Host };
+            var clientCerts = LoadClientCerts();
+            if (clientCerts != null) opts.ClientCertificates = clientCerts;
+            ssl.AuthenticateAsClient(opts);
             raw = ssl;
-            if (_cfg.AcceptInvalidCerts) Status?.Invoke("TLS established (certificate not verified)", false);
+            if (clientCerts != null) Status?.Invoke("TLS established with client certificate (CertFP ready)", false);
+            else if (_cfg.AcceptInvalidCerts) Status?.Invoke("TLS established (certificate not verified)", false);
         }
         _stream = raw;
 
@@ -374,8 +391,7 @@ public sealed class IrcClient
         else if (m.Is("CAP")) HandleCap(m);
         else if (m.Is("AUTHENTICATE")) HandleAuthenticate(m);
         else if (m.Is("FILEHOST")) HandleFilehost(m);
-        else if (m.Is("FAIL") && m.P(0).Equals("FILEHOST", StringComparison.OrdinalIgnoreCase))
-            lock (_fhLock) _fhTcs?.TrySetResult(null);   // a failed FILEHOST TOKEN request
+        else if (m.Is("FAIL") || m.Is("WARN") || m.Is("NOTE")) HandleStandardReply(m);
         else if (m.IsNumeric(out int num)) HandleNumeric(num, m);
 
         // surface everything to the runtime (it filters PRIVMSG/JOIN/etc.)
@@ -389,7 +405,12 @@ public sealed class IrcClient
         {
             bool more = m.Count >= 4 && m.P(2) == "*";
             foreach (var tok in m.Trailing.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                _avail.Add(tok.Split('=')[0]);
+            {
+                int eq = tok.IndexOf('=');
+                string name = eq < 0 ? tok : tok[..eq];
+                _avail.Add(name);
+                if (eq >= 0) _capValues[name] = tok[(eq + 1)..];   // e.g. sasl=PLAIN,EXTERNAL,SCRAM-SHA-256
+            }
             if (!more)
             {
                 var req = Wanted.Where(_avail.Contains).ToList();
@@ -401,11 +422,7 @@ public sealed class IrcClient
         {
             foreach (var c in m.Trailing.Split(' ', StringSplitOptions.RemoveEmptyEntries)) _enabled.Add(c);
             Status?.Invoke("caps: " + string.Join(' ', _enabled), false);
-            if (_enabled.Contains("sasl", StringComparer.OrdinalIgnoreCase) && _cfg.UseSasl)
-            {
-                _saslActive = true;
-                SendNow("AUTHENTICATE PLAIN");
-            }
+            if (_enabled.Contains("sasl", StringComparer.OrdinalIgnoreCase) && _cfg.UseSasl) StartSasl();
             else EndCap();
         }
         else if (sub.Equals("NAK", StringComparison.OrdinalIgnoreCase))
@@ -415,18 +432,159 @@ public sealed class IrcClient
         }
     }
 
-    private void HandleAuthenticate(IrcMessage m)
+    private void ResetNegotiation()
     {
-        if (m.P(0) != "+") return;
-        string authcid = _cfg.SaslUser.Length > 0 ? _cfg.SaslUser : _cfg.Nick;
-        var raw = Encoding.UTF8.GetBytes($"\0{authcid}\0{_cfg.SaslPass}");
-        string b64 = Convert.ToBase64String(raw);
+        _avail.Clear(); _capValues.Clear(); _enabled = new();
+        _saslActive = _capEnded = false;
+        _saslMech = ""; _scram = null; _scramStep = 0; _authBuf.Clear();
+    }
 
-        // IRCv3 SASL: split into ≤400-byte AUTHENTICATE chunks; if the payload is
-        // an exact multiple of 400 (incl. a final full chunk), send a trailing "+".
+    // Pick the SASL mechanism: an explicit choice if the user forced one, else "auto" - EXTERNAL when a client
+    // cert is configured, SCRAM-SHA-256 when the server offers it and we have a password, else PLAIN.
+    private string ChooseSaslMech()
+    {
+        var offered = (_capValues.TryGetValue("sasl", out var sv) ? sv : "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim().ToUpperInvariant()).ToHashSet();
+        bool Offered(string m) => offered.Count == 0 || offered.Contains(m);   // empty list (old servers) -> assume supported
+        bool haveCert = _cfg.ClientCertPath.Length > 0;
+        bool havePass = _cfg.SaslPass.Length > 0;
+
+        switch (_cfg.SaslMech.Trim().ToLowerInvariant())
+        {
+            case "plain": return "PLAIN";
+            case "external": return "EXTERNAL";
+            case "scram": case "scram-sha-256": return "SCRAM-SHA-256";
+        }
+        if (haveCert && Offered("EXTERNAL")) return "EXTERNAL";
+        if (havePass && Offered("SCRAM-SHA-256")) return "SCRAM-SHA-256";
+        if (havePass) return "PLAIN";
+        if (haveCert) return "EXTERNAL";
+        return "";
+    }
+
+    private void StartSasl()
+    {
+        _saslMech = ChooseSaslMech();
+        if (_saslMech.Length == 0) { Status?.Invoke("SASL: no usable mechanism for what's configured", true); EndCap(); return; }
+        _saslActive = true; _scram = null; _scramStep = 0; _authBuf.Clear();
+        Status?.Invoke("SASL: authenticating with " + _saslMech, false);
+        SendNow("AUTHENTICATE " + _saslMech);
+    }
+
+    private string SaslAuthcid() => _cfg.SaslUser.Length > 0 ? _cfg.SaslUser : _cfg.Nick;
+
+    // Reassemble a (possibly 400-byte-chunked) AUTHENTICATE payload. Returns the decoded text once a full
+    // message has arrived, or null while more chunks are still expected. "+" terminates with what's buffered.
+    private string? FeedAuth(string param)
+    {
+        if (param == "+") { var s = DecodeAuth(_authBuf.ToString()); _authBuf.Clear(); return s; }
+        _authBuf.Append(param);
+        if (param.Length == 400) return null;                      // a full chunk -> more is coming
+        var full = DecodeAuth(_authBuf.ToString()); _authBuf.Clear(); return full;
+    }
+
+    private static string DecodeAuth(string b64)
+        => b64.Length == 0 ? "" : Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+
+    // Send a raw (un-base64'd) SASL response, chunked to <=400 bytes per the spec; an empty response is "+".
+    private void SendSaslResponse(string raw)
+    {
+        string b64 = raw.Length == 0 ? "" : Convert.ToBase64String(Encoding.UTF8.GetBytes(raw));
+        if (b64.Length == 0) { SendNow("AUTHENTICATE +"); return; }
         for (int i = 0; i < b64.Length; i += 400)
             SendNow("AUTHENTICATE " + b64.Substring(i, Math.Min(400, b64.Length - i)));
         if (b64.Length % 400 == 0) SendNow("AUTHENTICATE +");
+    }
+
+    private void HandleAuthenticate(IrcMessage m)
+    {
+        if (!_saslActive) return;
+        string? payload = FeedAuth(m.P(0));
+        if (payload == null) return;                               // still assembling a chunked message
+        try
+        {
+            switch (_saslMech)
+            {
+                case "PLAIN":
+                    SendSaslResponse($"\0{SaslAuthcid()}\0{_cfg.SaslPass}");
+                    break;
+                case "EXTERNAL":
+                    SendSaslResponse(_cfg.SaslUser);               // authzid (usually empty -> "+")
+                    break;
+                case "SCRAM-SHA-256":
+                    HandleScram(payload);
+                    break;
+                default:
+                    SendNow("AUTHENTICATE *");                     // abort an unknown mechanism
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Status?.Invoke("SASL " + _saslMech + " error: " + ex.Message, true);
+            SendNow("AUTHENTICATE *");                             // abort; the server replies 904 and we end CAP
+        }
+    }
+
+    private void HandleScram(string payload)
+    {
+        if (_scramStep == 0)
+        {
+            _scram = new ScramSha256(SaslAuthcid(), _cfg.SaslPass);
+            SendSaslResponse(_scram.ClientFirst());
+            _scramStep = 1;
+        }
+        else if (_scramStep == 1)
+        {
+            SendSaslResponse(_scram!.ClientFinal(payload));
+            _scramStep = 2;
+        }
+        else
+        {
+            _scram!.VerifyServerFinal(payload);                    // throws on impostor / wrong password
+            SendSaslResponse("");                                  // empty final client message
+            _scramStep = 3;
+        }
+    }
+
+    // IRCv3 standard-replies: FAIL <command> <code> [context] :description, plus WARN/NOTE. Previously only a
+    // FAIL FILEHOST was noticed; now every one is surfaced (so a rejected SETNAME / REDACT / METADATA is visible
+    // instead of vanishing) and a FAIL still unblocks a waiting FILEHOST request.
+    private void HandleStandardReply(IrcMessage m)
+    {
+        string cmd = m.P(0), code = m.P(1);
+        bool fail = m.Is("FAIL");
+        if (fail && cmd.Equals("FILEHOST", StringComparison.OrdinalIgnoreCase))
+            lock (_fhLock) _fhTcs?.TrySetResult(null);
+        string detail = (cmd + " " + code).Trim();
+        Status?.Invoke(m.Command.ToUpperInvariant() + " " + detail + (m.Trailing.Length > 0 ? ": " + m.Trailing : ""), fail);
+    }
+
+    // Load a configured client certificate (PEM cert+key, or PKCS#12/PFX) for TLS / CertFP. Returns null when
+    // none is set or it can't be read (we log and fall back to an anonymous TLS handshake).
+    private X509Certificate2Collection? LoadClientCerts()
+    {
+        string path = _cfg.ClientCertPath.Trim();
+        if (path.Length == 0) return null;
+        try
+        {
+            X509Certificate2 cert;
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            if (ext is ".pfx" or ".p12")
+                cert = new X509Certificate2(path, _cfg.ClientCertPass);
+            else
+                cert = X509Certificate2.CreateFromPemFile(path);   // cert + private key from PEM (key may be in the same file)
+            // Some platforms (Windows/SChannel) need the cert round-tripped through a PFX blob to use its
+            // private key in a TLS handshake; doing it everywhere is harmless and keeps CertFP working cross-OS.
+            cert = new X509Certificate2(cert.Export(X509ContentType.Pkcs12));
+            return new X509Certificate2Collection(cert);
+        }
+        catch (Exception ex)
+        {
+            Status?.Invoke("client certificate not loaded (" + ex.Message + ") - continuing without it", true);
+            return null;
+        }
     }
 
     private void HandleNumeric(int num, IrcMessage m)

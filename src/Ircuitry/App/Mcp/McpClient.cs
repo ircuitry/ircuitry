@@ -81,7 +81,7 @@ public sealed class McpClient : IDisposable
         else { psi.ArgumentList.Add("-c"); psi.ArgumentList.Add(command); }
         _proc = Process.Start(psi) ?? throw new Exception("could not start MCP server: " + command);
         _w = _proc.StandardInput;
-        new Thread(() => { try { string? line; while ((line = _proc!.StandardOutput.ReadLine()) != null) OnLine(line); } catch { } })
+        new Thread(() => { try { string? line; while ((line = _proc!.StandardOutput.ReadLine()) != null) OnLine(line); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("MCP stdout reader stopped: " + ex.Message); } })
             { IsBackground = true, Name = "mcp-read" }.Start();
     }
 

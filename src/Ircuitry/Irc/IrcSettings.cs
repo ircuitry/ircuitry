@@ -25,7 +25,20 @@ public sealed class IrcSettings
 
     public string SaslUser = "";
     public string SaslPass = "";
-    public bool UseSasl => SaslPass.Length > 0;
+
+    // SASL mechanism: "auto" picks the strongest the server offers for what we have (EXTERNAL if a client
+    // cert is set, else SCRAM-SHA-256 if offered, else PLAIN). Force one with "plain" / "external" / "scram".
+    public string SaslMech = "auto";
+
+    // Client TLS certificate (PEM/PFX). Enables SASL EXTERNAL / CertFP, the cert-based auth many networks
+    // (Libera, OFTC...) prefer for bots: the fingerprint is your identity, no password on the wire at all.
+    public string ClientCertPath = "";
+    public string ClientCertPass = "";   // passphrase for an encrypted key, if any
+
+    /// <summary>True if we have anything to authenticate with (a password, or a cert for EXTERNAL).</summary>
+    public bool UseSasl => SaslPass.Length > 0
+        || ClientCertPath.Length > 0
+        || SaslMech.Equals("external", System.StringComparison.OrdinalIgnoreCase);
 
     public string Channels = "#ircuitry-test";   // comma/space separated
 

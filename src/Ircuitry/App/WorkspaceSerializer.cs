@@ -77,6 +77,9 @@ public static class WorkspaceSerializer
         public string serverPass { get; set; } = "";
         public string saslUser { get; set; } = "";
         public string saslPass { get; set; } = "";
+        public string saslMech { get; set; } = "auto";
+        public string clientCertPath { get; set; } = "";
+        public string clientCertPass { get; set; } = "";
         public string channels { get; set; } = "";
     }
 
@@ -188,7 +191,8 @@ public static class WorkspaceSerializer
         host = s.Host, port = s.Port, tls = s.UseTls, acceptInvalidCerts = s.AcceptInvalidCerts, autoReconnect = s.AutoReconnect,
         botMode = s.BotMode, advertiseCommands = s.AdvertiseCommands, streamWorkflows = s.StreamWorkflows,
         nick = s.Nick, user = s.User, realName = s.RealName, serverPass = s.ServerPass,
-        saslUser = s.SaslUser, saslPass = s.SaslPass, channels = s.Channels,
+        saslUser = s.SaslUser, saslPass = s.SaslPass, saslMech = s.SaslMech,
+        clientCertPath = s.ClientCertPath, clientCertPass = s.ClientCertPass, channels = s.Channels,
     };
 
     private static IrcSettings ToSettings(ConnDoc c) => new()
@@ -197,6 +201,7 @@ public static class WorkspaceSerializer
         Host = c.host, Port = c.port, UseTls = c.tls, AcceptInvalidCerts = c.acceptInvalidCerts, AutoReconnect = c.autoReconnect,
         BotMode = c.botMode, AdvertiseCommands = c.advertiseCommands, StreamWorkflows = c.streamWorkflows,
         Nick = c.nick, User = c.user, RealName = c.realName, ServerPass = c.serverPass,
-        SaslUser = c.saslUser, SaslPass = c.saslPass, Channels = c.channels,
+        SaslUser = c.saslUser, SaslPass = c.saslPass, SaslMech = string.IsNullOrEmpty(c.saslMech) ? "auto" : c.saslMech,
+        ClientCertPath = c.clientCertPath, ClientCertPass = c.clientCertPass, Channels = c.channels,
     };
 }

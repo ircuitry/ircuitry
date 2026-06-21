@@ -22,6 +22,7 @@ public sealed class TestSink : IRuntimeSink
     public void Join(string c) => Sent.Add(("JOIN", c));
     public void Part(string c, string r) => Sent.Add(("PART", $"{c}  {r}"));
     public void Raw(string l) => Sent.Add(("RAW", l));
+    public bool HasCap(string cap) => true;   // a dry run has no live caps - assume yes so cap-gated commands still show what WOULD send
     public void StartTyping(string t) => Sent.Add(("TYPING", "start " + t));
     public void StopTyping(string t) => Sent.Add(("TYPING", "stop " + t));
     public void Log(string m, LogLevel lvl) => Sent.Add(("LOG", m));

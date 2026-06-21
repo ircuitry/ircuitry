@@ -85,6 +85,11 @@ public interface IRuntimeSink
     /// members, count, joined). <paramref name="channel"/> applies to the channel-specific ones. "" if unknown.</summary>
     string IrcInfo(string what, string channel) => "";
 
+    /// <summary>True if the named IRCv3 capability is enabled on this connection. Lets a node check that a
+    /// cap-gated command (SETNAME, REDACT, METADATA...) will actually work before sending it. False on sinks
+    /// without a live server (dry runs/tests) unless they model caps.</summary>
+    bool HasCap(string cap) => false;
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);

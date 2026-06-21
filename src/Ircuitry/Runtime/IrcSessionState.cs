@@ -19,7 +19,8 @@ public sealed class IrcSessionState
     {
         public string Name = "";
         public string Topic = "";
-        public readonly Dictionary<string, string> Members = new(StringComparer.OrdinalIgnoreCase); // nick -> prefix(es)
+        public readonly Dictionary<string, string> Members;   // nick -> prefix(es), keyed per the server's CASEMAPPING
+        public Chan(IEqualityComparer<string> cmp) { Members = new(cmp); }
     }
 
     public readonly record struct Note(DateTime At, string Text);
@@ -30,6 +31,13 @@ public sealed class IrcSessionState
     private readonly LinkedList<Note> _notes = new();         // recent human-language narration
     private string _network = "";
     private string _filehost = "";   // IRCv3 draft/FILEHOST upload URL advertised in ISUPPORT
+    private readonly IrcIsupport _isupport = new();           // full parsed RPL_ISUPPORT (PREFIX, CHANTYPES, CASEMAPPING...)
+    private IEqualityComparer<string> _cmp = new IrcCaseComparer("rfc1459");   // nick/channel equality, updated from CASEMAPPING
+
+    /// <summary>The server's advertised ISUPPORT (005) tokens and the typed views derived from them.</summary>
+    public IrcIsupport Isupport => _isupport;
+    /// <summary>True if <paramref name="target"/> names a channel per the server's CHANTYPES (default "#&amp;").</summary>
+    public bool IsChannel(string target) => _isupport.IsChannel(target);
 
     // ---- read side (snapshots under lock) ----
 
@@ -66,7 +74,7 @@ public sealed class IrcSessionState
             if (c == null) return new();
             return c.Members
                 .Select(kv => (nick: kv.Key, prefix: kv.Value))
-                .OrderBy(m => Rank(m.prefix))
+                .OrderBy(m => _isupport.Rank(m.prefix))     // op > halfop > voice > none, per the server's PREFIX
                 .ThenBy(m => m.nick, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -81,10 +89,6 @@ public sealed class IrcSessionState
         }
     }
 
-    private static int Rank(string prefix) =>
-        prefix.Contains('~') ? 0 : prefix.Contains('&') ? 1 : prefix.Contains('@') ? 2 :
-        prefix.Contains('%') ? 3 : prefix.Contains('+') ? 4 : 5;
-
     // ---- write side: observe one parsed line (call for every non-batched message) ----
 
     public void Observe(IrcMessage m, string selfNick)
@@ -94,7 +98,7 @@ public sealed class IrcSessionState
 
     public void Reset()
     {
-        lock (_lock) { _chans.Clear(); _notes.Clear(); _network = ""; }
+        lock (_lock) { _chans.Clear(); _notes.Clear(); _network = ""; _filehost = ""; _isupport.Reset(); _cmp = new IrcCaseComparer("rfc1459"); }
     }
 
     private void ObserveLocked(IrcMessage m, string self)
@@ -165,7 +169,10 @@ public sealed class IrcSessionState
             case 1:   // RPL_WELCOME
                 Narrate("I've connected to the server");
                 break;
-            case 5:   // RPL_ISUPPORT - pull the network name + IRCv3 draft/FILEHOST URL out (values are \xHH-escaped)
+            case 5:   // RPL_ISUPPORT - parse the full token set (PREFIX/CHANTYPES/CASEMAPPING/...) and refresh the
+                      // nick/channel comparer, then pull the network name + draft/FILEHOST URL for narration
+                _isupport.Feed(m.Params.Skip(1));      // Skip(1): drop the leading <nick>; the trailing sentence is space-checked out
+                _cmp = _isupport.CaseComparer;
                 foreach (var tok in m.Params)
                 {
                     if (tok.StartsWith("NETWORK=", OIC))
@@ -189,10 +196,11 @@ public sealed class IrcSessionState
                 string ch = m.Params.Count >= 4 ? m.P(2) : m.Params.Count >= 2 ? m.P(m.Params.Count - 2) : "";
                 if (ch.Length == 0) break;
                 var c = Ensure(ch);
+                string prefixChars = _isupport.PrefixChars;
                 foreach (var raw in m.Trailing.Split(' ', StringSplitOptions.RemoveEmptyEntries))
                 {
                     int i = 0; var pfx = new StringBuilder();
-                    while (i < raw.Length && "~&@%+".IndexOf(raw[i]) >= 0) pfx.Append(raw[i++]);
+                    while (i < raw.Length && prefixChars.IndexOf(raw[i]) >= 0) pfx.Append(raw[i++]);
                     string nm = raw[i..];
                     if (nm.Length > 0) c.Members[nm] = pfx.ToString();
                 }
@@ -203,18 +211,18 @@ public sealed class IrcSessionState
 
     // ---- helpers (all under _lock) ----
 
-    private Chan? Find(string ch) => _chans.FirstOrDefault(c => c.Name.Equals(ch, OIC));
+    private Chan? Find(string ch) => _chans.FirstOrDefault(c => _cmp.Equals(c.Name, ch));
 
     private Chan Ensure(string ch)
     {
         var c = Find(ch);
-        if (c == null) { c = new Chan { Name = ch }; _chans.Add(c); }
+        if (c == null) { c = new Chan(_cmp) { Name = ch }; _chans.Add(c); }
         return c;
     }
 
     private void Remove(string ch)
     {
-        int i = _chans.FindIndex(c => c.Name.Equals(ch, OIC));
+        int i = _chans.FindIndex(c => _cmp.Equals(c.Name, ch));
         if (i >= 0) _chans.RemoveAt(i);
     }
 
@@ -235,21 +243,7 @@ public sealed class IrcSessionState
         return false;
     }
 
-    /// <summary>Decodes ISUPPORT value escapes: \xHH (e.g. \x20 -> space).</summary>
-    public static string DecodeIsupport(string s)
-    {
-        if (s.IndexOf("\\x", OIC) < 0) return s;
-        var sb = new StringBuilder(s.Length);
-        for (int i = 0; i < s.Length; i++)
-        {
-            if (s[i] == '\\' && i + 3 < s.Length && (s[i + 1] == 'x' || s[i + 1] == 'X')
-                && Uri.IsHexDigit(s[i + 2]) && Uri.IsHexDigit(s[i + 3]))
-            {
-                sb.Append((char)Convert.ToInt32(s.Substring(i + 2, 2), 16));
-                i += 3;
-            }
-            else sb.Append(s[i]);
-        }
-        return sb.ToString();
-    }
+    /// <summary>Decodes ISUPPORT value escapes: \xHH (e.g. \x20 -> space). Kept for callers; the canonical
+    /// implementation now lives on <see cref="IrcIsupport"/>.</summary>
+    public static string DecodeIsupport(string s) => IrcIsupport.DecodeIsupport(s);
 }

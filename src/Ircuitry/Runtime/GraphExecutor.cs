@@ -405,6 +405,7 @@ public static class GraphExecutor
         public IReadOnlyList<RecentMsg> History(string target, string sub, int count, int timeoutMs)
             => Out().RequestHistory(target, sub, count, timeoutMs);
         public string IrcInfo(string what, string channel) => Out().IrcInfo(what, channel);
+        public bool HasCap(string cap) => Out().HasCap(cap);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

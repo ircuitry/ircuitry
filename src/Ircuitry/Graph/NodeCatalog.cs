@@ -250,6 +250,15 @@ public static class NodeCatalog
 
     /// <summary>The confined codebase root for a <c>code.*</c> node - always the node's own <c>root</c> param
     /// (never an AI argument), so the model cannot widen its own sandbox.</summary>
+    // Guard a cap-gated IRCv3 command: send it only if the connection negotiated one of the required caps;
+    // otherwise log a clear, user-facing reason so the action doesn't silently vanish (the bug where a SETNAME
+    // / REDACT / METADATA on a server that never enabled the cap just did nothing with no feedback).
+    private static void CapGated(INodeContext c, string human, string line, params string[] caps)
+    {
+        foreach (var cap in caps) if (c.HasCap(cap)) { c.Raw(line); return; }
+        c.Log(human + " skipped: this server hasn't enabled the IRCv3 \"" + caps[0] + "\" capability it needs.", Ircuitry.Core.LogLevel.System);
+    }
+
     private static string CodeRoot(INodeContext c) => c.Resolve(c.Param("root"));
 
     /// <summary>Run a code-tool body: put the result (or a tidy error) in <paramref name="resultPin"/> and
@@ -969,7 +978,7 @@ public static class NodeCatalog
                 Outputs = new[] { Ex("then") },
                 Params = new[] { P("name", "Real name", ParamType.Text, "", "ircuitry • cozy bot") },
                 SummaryParam = "name",
-                Exec = c => { var n = c.InOr(1, c.Resolve(c.Param("name"))).Trim(); if (n.Length > 0) c.Raw("SETNAME :" + n); c.Pulse(0); },
+                Exec = c => { var n = c.InOr(1, c.Resolve(c.Param("name"))).Trim(); if (n.Length > 0) CapGated(c, "Set Name (SETNAME)", "SETNAME :" + n, "setname"); c.Pulse(0); },
             },
             new()
             {
@@ -1018,7 +1027,7 @@ public static class NodeCatalog
                     var target = c.InOr(1, c.Resolve(c.Param("target"))); if (target.Length == 0) target = c.Var("replyto");
                     var mid = c.InOr(2, c.Resolve(c.Param("msgid"))).Trim();
                     var reason = c.Resolve(c.Param("reason"));
-                    if (target.Length > 0 && mid.Length > 0) c.Raw("REDACT " + target + " " + mid + (reason.Length > 0 ? " :" + reason : ""));
+                    if (target.Length > 0 && mid.Length > 0) CapGated(c, "Redact (REDACT)", "REDACT " + target + " " + mid + (reason.Length > 0 ? " :" + reason : ""), "draft/message-redaction", "message-redaction");
                     c.Pulse(0);
                 },
             },
@@ -1072,9 +1081,9 @@ public static class NodeCatalog
             {
                 TypeId = "irc.me", Icon = "identification-card", Title = "My Info", Subtitle = "ircv3",
                 Category = NodeCategory.Ircv3,
-                Description = "Reads the bot's own live, tracked state: its nick, the network it's connected to, the channels it's in (comma-separated), or its enabled IRCv3 caps. Wire 'value' anywhere.",
+                Description = "Reads the bot's own live, tracked state: its nick, the network it's connected to, the channels it's in (comma-separated), its enabled IRCv3 caps, or what the server supports (ISUPPORT: PREFIX, CHANTYPES, CASEMAPPING, NICKLEN...). Wire 'value' anywhere.",
                 Outputs = new[] { Tx("value") },
-                Params = new[] { P("field", "What", ParamType.Choice, "nick", "", new[] { "nick", "network", "channels", "caps" }) },
+                Params = new[] { P("field", "What", ParamType.Choice, "nick", "", new[] { "nick", "network", "channels", "caps", "isupport", "prefix", "chantypes", "casemapping" }) },
                 SummaryParam = "field",
                 Exec = c => c.SetOut(0, c.IrcInfo(c.Param("field"), "")),
             },
@@ -1111,7 +1120,7 @@ public static class NodeCatalog
                 {
                     var ch = c.Resolve(c.Param("channel")).Trim(); var nn = c.Resolve(c.Param("newname")).Trim();
                     var reason = c.Resolve(c.Param("reason"));
-                    if (ch.Length > 0 && nn.Length > 0) c.Raw("RENAME " + ch + " " + nn + (reason.Length > 0 ? " :" + reason : ""));
+                    if (ch.Length > 0 && nn.Length > 0) CapGated(c, "Rename Channel (RENAME)", "RENAME " + ch + " " + nn + (reason.Length > 0 ? " :" + reason : ""), "draft/channel-rename");
                     c.Pulse(0);
                 },
             },
@@ -1129,7 +1138,7 @@ public static class NodeCatalog
                     var target = c.Resolve(c.Param("target")).Trim(); if (target.Length == 0) target = "*";
                     var key = c.Resolve(c.Param("key")).Trim();
                     var val = c.InOr(1, c.Resolve(c.Param("value")));
-                    if (key.Length > 0) c.Raw("METADATA " + target + " SET " + key + (val.Length > 0 ? " :" + val : ""));
+                    if (key.Length > 0) CapGated(c, "Set Metadata (METADATA)", "METADATA " + target + " SET " + key + (val.Length > 0 ? " :" + val : ""), "draft/metadata-2", "metadata", "draft/metadata");
                     c.Pulse(0);
                 },
             },
@@ -3104,9 +3113,9 @@ public static class NodeCatalog
             {
                 TypeId = "logic.regex", Icon = "magnifying-glass", Title = "Regex Match", Subtitle = "condition",
                 Category = NodeCategory.Filter,
-                Description = "Matches text against a pattern; branches and outputs capture groups $1 and $2.",
+                Description = "Matches text against a pattern; branches match / no match. The first four capture groups are on the $1-$4 pins, AND every group is exposed as a token you can drop into any field downstream for the rest of the run: {1}, {2}, {3}... for numbered groups and {name} for named groups like (?<name>...). {0} is the whole match.",
                 Inputs = new[] { Ex(), Tx("text") },
-                Outputs = new[] { Ex("match"), Ex("no match"), Tx("$1"), Tx("$2") },
+                Outputs = new[] { Ex("match"), Ex("no match"), Tx("$1"), Tx("$2"), Tx("$3"), Tx("$4") },
                 Params = new[] { P("pattern", "Pattern", ParamType.Text, "", "(\\d+)"), P("ci", "Ignore case", ParamType.Bool, "true") },
                 SummaryParam = "pattern",
                 Exec = c =>
@@ -3117,8 +3126,20 @@ public static class NodeCatalog
                         var m = Regex.Match(text, c.Param("pattern"), c.ParamBool("ci") ? RegexOptions.IgnoreCase : RegexOptions.None, TimeSpan.FromMilliseconds(250));
                         if (m.Success)
                         {
+                            // $1..$4 pins (group 1 falls back to the whole match when the pattern has no groups)
                             c.SetOut(2, m.Groups.Count > 1 ? m.Groups[1].Value : m.Value);
                             c.SetOut(3, m.Groups.Count > 2 ? m.Groups[2].Value : "");
+                            c.SetOut(4, m.Groups.Count > 3 ? m.Groups[3].Value : "");
+                            c.SetOut(5, m.Groups.Count > 4 ? m.Groups[4].Value : "");
+                            // expose EVERY group as a resolvable token for the rest of the run - {1}..{n} and {name}
+                            // for named groups - which is what people reach for instead of wiring the pins
+                            c.SetVar("0", m.Value);
+                            for (int g = 1; g < m.Groups.Count; g++)
+                            {
+                                var grp = m.Groups[g];
+                                c.SetVar(g.ToString(), grp.Value);
+                                if (!int.TryParse(grp.Name, out _)) c.SetVar(grp.Name, grp.Value);   // named group -> {name}
+                            }
                             c.Pulse(0);
                         }
                         else c.Pulse(1);
@@ -3266,14 +3287,14 @@ public static class NodeCatalog
             {
                 TypeId = "data.math", Icon = "calculator", Title = "Math", Subtitle = "data",
                 Category = NodeCategory.Data,
-                Description = "Computes A (op) B as a number. Pair with variables for counters and scores.",
+                Description = "Computes A (op) B as a number. The A/B fields take {tokens} (e.g. {score}, {count}) as well as plain numbers, so you can do math on variables in place. Pair with Set Variable for counters and scores.",
                 Inputs = new[] { Tx("a"), Tx("b") },
                 Outputs = new[] { Tx("result") },
-                Params = new[] { P("op", "Op", ParamType.Choice, "+", "", new[] { "+", "-", "×", "÷", "%", "min", "max" }), P("a", "A", ParamType.Text, "0"), P("b", "B", ParamType.Text, "1") },
+                Params = new[] { P("op", "Op", ParamType.Choice, "+", "", new[] { "+", "-", "×", "÷", "%", "min", "max" }), P("a", "A", ParamType.Text, "0", "0 or {var}"), P("b", "B", ParamType.Text, "1", "1 or {var}") },
                 SummaryParam = "op",
                 Exec = c =>
                 {
-                    double a = ParseNum(c.InOr(0, c.Param("a"))), b = ParseNum(c.InOr(1, c.Param("b")));
+                    double a = ParseNum(c.InOr(0, c.Resolve(c.Param("a")))), b = ParseNum(c.InOr(1, c.Resolve(c.Param("b"))));
                     double r = c.Param("op") switch { "+" => a + b, "-" => a - b, "×" => a * b, "÷" => b != 0 ? a / b : 0, "%" => b != 0 ? a % b : 0, "min" => Math.Min(a, b), "max" => Math.Max(a, b), _ => a };
                     c.SetOut(0, FormatNum(r));
                 },

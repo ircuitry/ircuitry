@@ -620,7 +620,7 @@ public static partial class ControlServer
             foreach (var kv in _tokens) obj[kv.Key] = new { user = kv.Value.User, role = kv.Value.Role };
             File.WriteAllText(TokenFile, JsonSerializer.Serialize(new { tokens = obj }, new JsonSerializerOptions { WriteIndented = true }));
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("token persist failed: " + ex.Message); }
     }
 
     private static void LoadOrMintTokens()
