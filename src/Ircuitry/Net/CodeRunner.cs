@@ -61,9 +61,11 @@ public static class CodeRunner
             using var p = Process.Start(psi);
             if (p == null) return ("", exe + " could not start");
 
-            // hand the context to stdin as JSON too (for scripts that prefer parsing it)
-            try { p.StandardInput.Write(ToJson(ctx)); } catch { }
-            p.StandardInput.Close();
+            // hand the context to stdin as JSON too (for scripts that prefer parsing it). If the interpreter
+            // died instantly (e.g. `node` not installed in this image), both the write and the close throw a
+            // broken-pipe error - swallow them so the REAL cause (stderr / exit code 127) is what we report,
+            // not a confusing "Pipe is broken.".
+            try { p.StandardInput.Write(ToJson(ctx)); p.StandardInput.Close(); } catch { }
 
             var outBuf = new StringBuilder();
             var errBuf = new StringBuilder();
