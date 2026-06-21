@@ -459,8 +459,7 @@ public sealed class IrcuitryGame : Game
         {
             if (d.path.EndsWith(".ircbot", StringComparison.OrdinalIgnoreCase)) (_screen as MainScreen)?.OnIrcbotDrop(d.pos, d.path);
             else if (d.path.EndsWith(".ircnode", StringComparison.OrdinalIgnoreCase)) (_screen as MainScreen)?.OnNodeDrop(d.pos, d.path);
-            else if (d.path.EndsWith(".ics", StringComparison.OrdinalIgnoreCase) || Directory.Exists(d.path))
-                (_screen as MainScreen)?.OnCalendarDrop(d.pos, d.path);
+            else (_screen as MainScreen)?.OnFileDrop(d.pos, d.path);   // any file -> a node's file-path param (or calendar)
         }
     }
 
@@ -506,6 +505,7 @@ public sealed class IrcuitryGame : Game
         if (IsActive) _screen.Update(_input, _clock);
 
         DrainFileDrops();
+        Ircuitry.Core.FilePicker.Drain();   // apply any finished native file-picker choices
         if (_reloadRequested) { _reloadRequested = false; _app.ReloadIfChangedOnDisk(); }
         // poll the deep-link inbox every frame (a cheap File.Exists): inotify/FileSystemWatcher drops
         // events under rapid open-link clicks, which made links need many tries. Polling never misses.

@@ -228,8 +228,11 @@ public static class NodeCatalog
         => System.Text.Json.JsonSerializer.Serialize(
             msgs.Select(m => new { nick = m.Nick, channel = m.Channel, text = m.Text, id = m.Msgid }));
 
-    private static ParamDef P(string key, string label, ParamType t = ParamType.Text, string def = "", string ph = "", string[]? choices = null, Func<Node, bool>? visibleWhen = null, bool secret = false)
-        => new() { Key = key, Label = label, Type = t, Default = def, Placeholder = ph, Choices = choices, VisibleWhen = visibleWhen, Secret = secret };
+    private static ParamDef P(string key, string label, ParamType t = ParamType.Text, string def = "", string ph = "", string[]? choices = null, Func<Node, bool>? visibleWhen = null, bool secret = false, bool file = false)
+        => new() { Key = key, Label = label, Type = t, Default = def, Placeholder = ph, Choices = choices, VisibleWhen = visibleWhen, Secret = secret, File = file };
+
+    /// <summary>A convenience for a file-path param (Browse button + drop-a-file-on-the-node support).</summary>
+    private static ParamDef PF(string key, string label, string def = "", string ph = "") => P(key, label, ParamType.Text, def, ph, file: true);
 
     /// <summary>A growable list param: rows the user adds with an "Add" button (pair = key+value rows).</summary>
     private static ParamDef PL(string key, string label, bool pair, string addLabel)
@@ -3747,6 +3750,20 @@ public static class NodeCatalog
                 d.Params = ps.ToArray();
             }
         }
+
+        // file-path params: the inspector shows a Browse button and the node accepts a file dropped onto it
+        var filePaths = new HashSet<string>
+        {
+            "file.read:path", "file.write:path",
+            "zim.info:path", "zim.search:path", "zim.article:path",
+            "media.info:path", "media.organize:path", "media.transform:path",
+            "archive.zip:source", "archive.unzip:zip",
+            "cal.add:path", "file.ical:source", "cal.search:source",
+            "net.http:file", "dcc.send:file",
+        };
+        foreach (var d in list)
+            foreach (var p in d.Params)
+                if (filePaths.Contains(d.TypeId + ":" + p.Key)) p.File = true;
 
         _builtins = list;
         LoadCustom();   // merge in any installed community .ircnode files

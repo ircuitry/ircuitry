@@ -675,6 +675,23 @@ public sealed partial class MainScreen : IScreen
     }
 
     /// <summary>Dropping an .ics file/folder sets the source on the calendar node under the cursor, or spawns one there.</summary>
+    /// <summary>A plain OS file dropped onto the canvas: if it lands on a node with a file-path param, fill it;
+    /// otherwise fall back to the calendar behaviour (.ics / a folder spawns a Calendar node).</summary>
+    public void OnFileDrop(Vector2 screen, string path)
+    {
+        var node = _editor.NodeAt(screen);
+        var fp = node?.Def.FileParam;
+        if (node != null && fp != null)
+        {
+            node.SetParam(fp.Key, path);
+            _editor.Selection.Clear(); _editor.Selection.Add(node.Id);
+            _app.MarkDirty();
+            Bot.Log.Add(LogLevel.System, fp.Label + " " + Ircuitry.Core.Icons.Glyph("arrow-right") + " " + System.IO.Path.GetFileName(path.TrimEnd('/', '\\')));
+            return;
+        }
+        if (path.EndsWith(".ics", StringComparison.OrdinalIgnoreCase) || System.IO.Directory.Exists(path)) OnCalendarDrop(screen, path);
+    }
+
     public void OnCalendarDrop(Vector2 screen, string path)
     {
         if (!(path.EndsWith(".ics", StringComparison.OrdinalIgnoreCase) || System.IO.Directory.Exists(path))) return;
@@ -1246,6 +1263,7 @@ public sealed partial class MainScreen : IScreen
         else if (Modal) pick = c.Pointer;
         else if (DockResizeCursor(out var dc)) pick = dc;                  // hovering (or dragging) a panel's resize border
         else if (_editor.IsGrabbing) pick = c.Grab;                       // keep grabbing even if the pointer strays off-canvas
+        else if (_l.Canvas.Contains(In.Mouse) && _editor.OverFrameResize(In.Mouse)) pick = MouseCursor.SizeNWSE;   // sticky-note resize corner
         else if (_l.Canvas.Contains(In.Mouse)) pick = In.Shift ? c.Crosshair : c.Hand;
         else pick = c.Pointer;
         try { Mouse.SetCursor(pick); } catch { }
@@ -2791,7 +2809,17 @@ public sealed partial class MainScreen : IScreen
                 case ParamType.List:
                     next = DrawListParam(r, id, ref y, x, w, cur, pdef.Pair, pdef.AddLabel); break;
                 default:
-                    next = _ui.TextField(id, new RectF(x, y, w, 30), cur, pdef.Placeholder); y += 40; break;
+                    if (pdef.File)   // file path: text field + a Browse button (native picker); drop a file on the node too
+                    {
+                        const float bw = 34f;
+                        next = _ui.TextField(id, new RectF(x, y, w - bw - 6, 30), cur, pdef.Placeholder);
+                        var bn = n; var bk = pdef.Key;
+                        if (_ui.Button("browse." + id, new RectF(x + w - bw, y, bw, 30), Ircuitry.Core.Icons.Glyph("folder-open"), Theme.Cyan))
+                            Ircuitry.Core.FilePicker.Open("Choose a file", p => { bn.SetParam(bk, p); _app.MarkDirty(); });
+                        y += 40;
+                    }
+                    else { next = _ui.TextField(id, new RectF(x, y, w, 30), cur, pdef.Placeholder); y += 40; }
+                    break;
             }
             if (next != cur)
             {

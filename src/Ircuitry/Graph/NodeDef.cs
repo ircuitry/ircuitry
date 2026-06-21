@@ -31,6 +31,10 @@ public sealed class ParamDef
     /// the value in secrets.json and writes a <c>{{secret.NAME}}</c> reference here.</summary>
     public bool Secret;
 
+    /// <summary>A file path: the inspector shows a Browse button (native picker) and the node accepts a
+    /// file dropped onto it from the OS, which fills this param.</summary>
+    public bool File;
+
     /// <summary>Optional: hide this field in the inspector unless the predicate (over the node) is true.</summary>
     public System.Func<Node, bool>? VisibleWhen;
 }
@@ -75,6 +79,9 @@ public sealed class NodeDef
 
     /// <summary>Whether new instances default to being streamed as a bot-tools workflow step.</summary>
     public bool StreamByDefault;
+
+    /// <summary>The first file-path param, if any (drives drop-a-file-on-the-node and the inspector Browse button).</summary>
+    public ParamDef? FileParam => System.Array.Find(Params, p => p.File);
 
     public bool IsTrigger => TriggerEvent != null;
     public bool HasExecIn => System.Array.Exists(Inputs, p => p.Kind.IsExec());

@@ -237,6 +237,7 @@ public static class SelfTest
         fails += BotMergeTest();
         fails += DccTest();
         fails += MultilineSendTest();
+        fails += FileParamTest();
         fails += CapabilityCorsTest();
         fails += ThemeRoundTripTest();
         fails += WebhookTest();
@@ -696,6 +697,18 @@ public static class SelfTest
         for (int i = 1; i < wb.Count - 1; i++) { if (wb[i].Contains("draft/multiline-concat")) sawConcat = true; recon.Append(body(wb[i])); }
         fails += Expect("ml-wrap-concat", wb[0].Contains("BATCH +r1 draft/multiline #c") && wb[wb.Count - 1] == "BATCH -r1"
             && sawConcat && recon.ToString() == longLine, string.Join(" | ", wb));
+        return fails;
+    }
+
+    /// <summary>File-path params are flagged (so the inspector shows Browse and the node accepts a dropped file).</summary>
+    private static int FileParamTest()
+    {
+        int fails = 0;
+        fails += Expect("fp-zim", NodeCatalog.Get("zim.info").FileParam?.Key == "path", "");
+        fails += Expect("fp-read", NodeCatalog.Get("file.read").FileParam?.Key == "path", "");
+        fails += Expect("fp-ical", NodeCatalog.Get("file.ical").FileParam?.Key == "source", "");
+        fails += Expect("fp-http", NodeCatalog.Get("net.http").FileParam?.Key == "file", "");
+        fails += Expect("fp-none", NodeCatalog.Get("event.command").FileParam == null, "");
         return fails;
     }
 
