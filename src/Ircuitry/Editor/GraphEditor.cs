@@ -176,9 +176,20 @@ public sealed class GraphEditor
     }
     public Frame AddFrame(Vector2 worldPos) { var f = Frame.Create(worldPos - new Vector2(150, 15)); Graph.Frames.Add(f); _frameSel = f.Id; Selection.Clear(); return f; }
     public void DeleteFrame(string id) { Graph.Frames.RemoveAll(f => f.Id == id); if (_frameSel == id) _frameSel = null; }
-    private const float FrameHandle = 16f;
+    private const float FrameHandle = 18f;   // resize grip: drawn + grab-zone size, kept constant in screen px
     private string? FrameTitleAt(Vector2 mw) { for (int i = Graph.Frames.Count - 1; i >= 0; i--) if (Graph.Frames[i].TitleBar.Contains(mw)) return Graph.Frames[i].Id; return null; }
-    private string? FrameHandleAt(Vector2 mw) { for (int i = Graph.Frames.Count - 1; i >= 0; i--) { var f = Graph.Frames[i]; if (!f.Collapsed && new RectF(f.Pos.X + f.Size.X - FrameHandle, f.Pos.Y + f.Size.Y - FrameHandle, FrameHandle, FrameHandle).Contains(mw)) return f.Id; } return null; }
+    private string? FrameHandleAt(Vector2 mw)
+    {
+        float h = FrameHandle / MathF.Max(0.01f, Cam.Zoom);   // a constant on-screen grab zone, whatever the zoom
+        for (int i = Graph.Frames.Count - 1; i >= 0; i--)
+        {
+            var f = Graph.Frames[i];
+            if (!f.Collapsed && new RectF(f.Pos.X + f.Size.X - h, f.Pos.Y + f.Size.Y - h, h, h).Contains(mw)) return f.Id;
+        }
+        return null;
+    }
+    /// <summary>True when the screen-space mouse is over a frame's resize grip (or actively resizing) - drives the SizeNWSE cursor.</summary>
+    public bool OverFrameResize(Vector2 screenMouse) => _mode == Mode.ResizeFrame || (_mode == Mode.Idle && FrameHandleAt(Cam.ScreenToWorld(screenMouse)) != null);
 
     /// <summary>True while the user is actively panning the canvas or dragging nodes (for a "grab" cursor).</summary>
     public bool IsGrabbing => _mode is Mode.Panning or Mode.DragNodes;
@@ -964,7 +975,14 @@ public sealed class GraphEditor
                     ty += lh;
                 }
             }
-            if (sel && !f.Collapsed) r.Disc(new Vector2(rect.Right - 8, rect.Bottom - 8), 3.2f, col);   // resize-handle hint
+            if (!f.Collapsed)   // always-visible resize grip (bottom-right) so the note reads as resizable
+            {
+                var br = new Vector2(rect.Right - 4, rect.Bottom - 4);
+                var gc = Theme.WithAlpha(col, sel ? 0.98f : 0.6f);
+                float w = sel ? 2.2f : 1.6f;
+                for (float o = FrameHandle; o >= FrameHandle * 0.45f; o -= FrameHandle * 0.42f)
+                    r.Line(new Vector2(br.X - o, br.Y), new Vector2(br.X, br.Y - o), gc, w);
+            }
         }
     }
 
