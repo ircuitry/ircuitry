@@ -236,6 +236,7 @@ public static class SelfTest
         fails += ToolkitTest();
         fails += BotMergeTest();
         fails += DccTest();
+        fails += MultilineSendTest();
         fails += CapabilityCorsTest();
         fails += ThemeRoundTripTest();
         fails += WebhookTest();
@@ -656,6 +657,46 @@ public static class SelfTest
             catch { }
         }
         return false;
+    }
+
+    /// <summary>Multiline replies: a newline message becomes a draft/multiline BATCH when the cap is on,
+    /// one command per line otherwise (the spec's fallback), with blank lines dropped.</summary>
+    private static int MultilineSendTest()
+    {
+        int fails = 0;
+        var single = Ircuitry.Irc.IrcClient.BuildSendLines("PRIVMSG", "#c", "hello world", "", false, "r1");
+        fails += Expect("ml-single", single.Count == 1 && single[0] == "PRIVMSG #c :hello world", string.Join(" | ", single));
+
+        var fb = Ircuitry.Irc.IrcClient.BuildSendLines("PRIVMSG", "#c", "one\n\ntwo", "", false, "r1");
+        fails += Expect("ml-fallback", fb.Count == 2 && fb[0] == "PRIVMSG #c :one" && fb[1] == "PRIVMSG #c :two", string.Join(" | ", fb));
+
+        var fbTag = Ircuitry.Irc.IrcClient.BuildSendLines("NOTICE", "bob", "a\nb", "+reply=x", false, "r1");
+        fails += Expect("ml-fallback-tag", fbTag.Count == 2 && fbTag[0] == "@+reply=x NOTICE bob :a" && fbTag[1] == "NOTICE bob :b", string.Join(" | ", fbTag));
+
+        var batch = Ircuitry.Irc.IrcClient.BuildSendLines("PRIVMSG", "#c", "one\ntwo", "+reply=x", true, "r1");
+        fails += Expect("ml-batch", batch.Count == 4
+            && batch[0] == "@+reply=x BATCH +r1 draft/multiline #c"
+            && batch[1] == "@batch=r1 PRIVMSG #c :one"
+            && batch[2] == "@batch=r1 PRIVMSG #c :two"
+            && batch[3] == "BATCH -r1", string.Join(" | ", batch));
+
+        // long single line: word-wrapped (split on spaces, no data lost, each piece within the byte limit)
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < 60; i++) sb.Append("alpha bravo charlie ");
+        string longLine = sb.ToString().Trim();                  // ~1200 bytes, one logical line
+        Func<string, string> body = l => { int ci = l.IndexOf(" :", StringComparison.Ordinal); return ci >= 0 ? l[(ci + 2)..] : l; };
+
+        var wf = Ircuitry.Irc.IrcClient.BuildSendLines("PRIVMSG", "#c", longLine, "", false, "r1");
+        var rejoin = new System.Text.StringBuilder(); bool underLimit = true;
+        foreach (var l in wf) { var b = body(l); if (System.Text.Encoding.UTF8.GetByteCount(b) > 400) underLimit = false; if (rejoin.Length > 0) rejoin.Append(' '); rejoin.Append(b); }
+        fails += Expect("ml-wrap-fallback", wf.Count > 1 && underLimit && rejoin.ToString() == longLine, wf.Count + " lines");
+
+        var wb = Ircuitry.Irc.IrcClient.BuildSendLines("PRIVMSG", "#c", longLine, "", true, "r1");
+        var recon = new System.Text.StringBuilder(); bool sawConcat = false;
+        for (int i = 1; i < wb.Count - 1; i++) { if (wb[i].Contains("draft/multiline-concat")) sawConcat = true; recon.Append(body(wb[i])); }
+        fails += Expect("ml-wrap-concat", wb[0].Contains("BATCH +r1 draft/multiline #c") && wb[wb.Count - 1] == "BATCH -r1"
+            && sawConcat && recon.ToString() == longLine, string.Join(" | ", wb));
+        return fails;
     }
 
     /// <summary>DCC: CTCP offer parsing, the 32-bit IP conversion, filename sanitising, and a real loopback

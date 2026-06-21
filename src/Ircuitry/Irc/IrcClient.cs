@@ -24,7 +24,7 @@ public sealed class IrcClient
         "message-tags", "server-time", "account-tag", "account-notify",
         "away-notify", "extended-join", "multi-prefix", "chghost", "sasl",
         "draft/chathistory", "chathistory",   // request both the draft and ratified cap names
-        "draft/bot-cmds", "draft/bot-tools", "batch",   // IRCv3 bot-tools spec
+        "draft/bot-cmds", "draft/bot-tools", "batch", "draft/multiline",   // bot-tools + multiline replies
     };
 
     private TcpClient? _tcp;
@@ -149,8 +149,8 @@ public sealed class IrcClient
     }
 
     private static string Clean(string s) => s.Replace("\r", " ").Replace("\n", " ");
-    public void Privmsg(string target, string text) => SendRaw($"PRIVMSG {target} :{Trim(Clean(text))}");
-    public void Notice(string target, string text) => SendRaw($"NOTICE {target} :{Trim(Clean(text))}");
+    public void Privmsg(string target, string text) => SendMsg("PRIVMSG", target, text, "");
+    public void Notice(string target, string text) => SendMsg("NOTICE", target, text, "");
     public void Join(string channel) => SendRaw($"JOIN {Clean(channel)}");
     public void Part(string channel, string reason) => SendRaw($"PART {Clean(channel)} :{Clean(reason)}");
     public void Nick(string nick) => SendRaw($"NICK {Clean(nick)}");
@@ -168,25 +168,110 @@ public sealed class IrcClient
 
     /// <summary>Reply threaded to a message (IRCv3 +draft/reply client tag).</summary>
     public void ReplyThreaded(string target, string msgid, string text)
-    {
-        string pre = msgid.Length > 0 ? "@+draft/reply=" + msgid + " " : "";
-        SendRaw(pre + $"PRIVMSG {Clean(target)} :{Trim(Clean(text))}");
-    }
+        => SendMsg("PRIVMSG", target, text, msgid.Length > 0 ? "+draft/reply=" + msgid : "");
 
     // ---- generic client-tagged sends (bot-cmds / bot-tools) ----
     private static string Pre(string clientTags) => string.IsNullOrEmpty(clientTags) ? "" : "@" + clientTags + " ";
-    public void PrivmsgTagged(string target, string text, string clientTags) => SendRaw(Pre(clientTags) + $"PRIVMSG {Clean(target)} :{Trim(Clean(text))}");
-    public void NoticeTagged(string target, string text, string clientTags) => SendRaw(Pre(clientTags) + $"NOTICE {Clean(target)} :{Trim(Clean(text))}");
+    public void PrivmsgTagged(string target, string text, string clientTags) => SendMsg("PRIVMSG", target, text, clientTags);
+    public void NoticeTagged(string target, string text, string clientTags) => SendMsg("NOTICE", target, text, clientTags);
     public void TagMsg(string target, string clientTags) => SendRaw(Pre(clientTags) + "TAGMSG " + Clean(target));
 
-    // Truncate to ~400 *bytes* of UTF-8 (IRC limits are byte-based), without splitting a char.
-    private static string Trim(string s)
+    private int _batchSeq;
+    private const int MaxMultilineLines = 20;   // cap lines per message so a long AI reply can't flood
+
+    // Sends a PRIVMSG/NOTICE; an embedded-newline message goes out as a single draft/multiline BATCH when
+    // the server supports it, otherwise one command per line (the spec's fallback). See BuildSendLines.
+    private void SendMsg(string cmd, string target, string text, string clientTags)
     {
-        if (Encoding.UTF8.GetByteCount(s) <= 400) return s;
-        int chars = s.Length;
-        while (chars > 0 && Encoding.UTF8.GetByteCount(s[..chars]) > 400) chars -= Math.Max(1, (Encoding.UTF8.GetByteCount(s[..chars]) - 400) / 4);
-        while (chars > 0 && Encoding.UTF8.GetByteCount(s[..chars]) > 400) chars--;
-        return s[..chars];
+        string r = "ml" + System.Threading.Interlocked.Increment(ref _batchSeq).ToString("x");
+        foreach (var line in BuildSendLines(cmd, Clean(target), text, clientTags, HasCap("draft/multiline"), r))
+            SendRaw(line);
+    }
+
+    private const int MaxLineBytes = 400;   // content bytes per IRC line (well under the 512 incl. prefix/CRLF)
+
+    /// <summary>Builds the raw protocol line(s) for a (possibly multiline / over-length) PRIVMSG/NOTICE.
+    /// Author newlines become separate lines; a line longer than one IRC line is word-wrapped (split on spaces,
+    /// only hard-splitting a single over-long token). With the draft/multiline cap everything goes out as one
+    /// BATCH, and the length-wrapped continuations carry draft/multiline-concat (preserving the boundary space)
+    /// so capable clients rejoin them into the original line; otherwise each piece is its own command.</summary>
+    internal static List<string> BuildSendLines(string cmd, string target, string text, string clientTags, bool multilineCap, string batchRef)
+    {
+        var outl = new List<string>();
+        string pre = Pre(clientTags);
+        string raw = (text ?? "").Replace("\r", "");
+        // (text, concat, space): concat = this piece continues the previous wire-line (length wrap, not an
+        // author newline); space = when rejoining a concat piece, a space must precede it.
+        var pieces = new List<(string text, bool concat, bool space)>();
+        foreach (var logical in raw.Split('\n'))
+        {
+            var wl = WrapLogical(logical, MaxLineBytes);
+            for (int i = 0; i < wl.Count && pieces.Count < MaxMultilineLines; i++)
+                pieces.Add((wl[i].text, i > 0, wl[i].space));
+            if (pieces.Count >= MaxMultilineLines) break;
+        }
+        if (pieces.Count == 0) return outl;
+        if (pieces.Count == 1) { outl.Add(pre + cmd + " " + target + " :" + pieces[0].text); return outl; }
+        if (multilineCap)
+        {
+            outl.Add(pre + "BATCH +" + batchRef + " draft/multiline " + target);
+            foreach (var p in pieces)
+            {
+                string tags = "batch=" + batchRef, body = p.text;
+                if (p.concat) { tags += ";draft/multiline-concat"; if (p.space) body = " " + body; }
+                outl.Add("@" + tags + " " + cmd + " " + target + " :" + body);
+            }
+            outl.Add("BATCH -" + batchRef);
+        }
+        else
+        {
+            for (int i = 0; i < pieces.Count; i++) outl.Add((i == 0 ? pre : "") + cmd + " " + target + " :" + pieces[i].text);
+        }
+        return outl;
+    }
+
+    /// <summary>Word-wraps one line (no newlines) to <=max UTF-8 bytes per piece, breaking on spaces and only
+    /// hard-splitting a single token that is itself too long. Each piece carries whether rejoining it to the
+    /// previous piece needs a space (true for a space break, false for a mid-token hard split).</summary>
+    private static List<(string text, bool space)> WrapLogical(string line, int max)
+    {
+        var res = new List<(string, bool)>();
+        line = line.Replace("\r", "");
+        var cur = new StringBuilder();
+        bool curSpace = false;                                   // join flag for the piece being built
+        void flush() { if (cur.Length > 0) { res.Add((cur.ToString(), res.Count == 0 ? false : curSpace)); cur.Clear(); } }
+        foreach (var w in line.Split(' '))
+        {
+            if (w.Length == 0) continue;                         // collapse runs of spaces
+            if (Encoding.UTF8.GetByteCount(w) > max)             // a single token longer than a line: hard-split it
+            {
+                flush();
+                var chunks = HardChunks(w, max);
+                for (int i = 0; i < chunks.Count; i++) { cur.Append(chunks[i]); curSpace = (i == 0); flush(); }
+                curSpace = true;                                 // a following word rejoins by a space
+                continue;
+            }
+            if (cur.Length == 0) cur.Append(w);                  // start a piece (curSpace already set by the prior break)
+            else if (Encoding.UTF8.GetByteCount(cur.ToString()) + 1 + Encoding.UTF8.GetByteCount(w) <= max) cur.Append(' ').Append(w);
+            else { flush(); cur.Append(w); curSpace = true; }    // broke at a space boundary
+        }
+        flush();
+        return res;
+    }
+
+    // Split one over-long token into <=max-byte chunks without splitting a UTF-8 char.
+    private static List<string> HardChunks(string s, int max)
+    {
+        var res = new List<string>();
+        var sb = new StringBuilder(); int bytes = 0;
+        foreach (var ch in s)
+        {
+            int cb = Encoding.UTF8.GetByteCount(ch.ToString());
+            if (bytes + cb > max && sb.Length > 0) { res.Add(sb.ToString()); sb.Clear(); bytes = 0; }
+            sb.Append(ch); bytes += cb;
+        }
+        if (sb.Length > 0) res.Add(sb.ToString());
+        return res;
     }
 
     // ===================================================================

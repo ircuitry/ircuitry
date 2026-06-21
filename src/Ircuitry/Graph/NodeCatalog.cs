@@ -1141,14 +1141,9 @@ public static class NodeCatalog
                 SummaryParam = "text",
                 Exec = c =>
                 {
-                    var target = c.InOr(1, c.Resolve(c.Param("target"))); if (target.Length == 0) target = c.Var("replyto");
+                    var target = c.InOr(1, c.Resolve(c.Param("target"))); if (target.Length == 0) target = c.Var("replyto"); if (target.Length == 0) target = c.Var("channel");
                     var text = c.InOr(2, c.Resolve(c.Param("text")));
-                    var lines = text.Replace("\r", "").Split('\n');
-                    if (target.Length == 0 || lines.Length == 0) { c.Pulse(0); return; }
-                    string refid = "ml" + c.Node.Id;
-                    c.Raw("BATCH +" + refid + " draft/multiline " + target);
-                    foreach (var l in lines) c.Raw("@batch=" + refid + " PRIVMSG " + target + " :" + l);
-                    c.Raw("BATCH -" + refid);
+                    if (target.Length > 0 && text.Length > 0) c.Send(target, text);   // Send handles the draft/multiline batch + fallback
                     c.Pulse(0);
                 },
             },
