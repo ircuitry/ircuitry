@@ -123,18 +123,16 @@ public sealed partial class MainScreen
         r.Begin();
         r.RoundFill(box, Theme.PanelLo, 12f);
         r.RoundOutline(box, Theme.Hairline, 12f);
-        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "CHANNELS", new Vector2(box.X + 12, box.Y + 8), Theme.TextFaint);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "WINDOWS", new Vector2(box.X + 12, box.Y + 8), Theme.TextFaint);
         r.End();
 
         var f = r.Fonts.Get(FontKind.Sans, 13);
         float y = box.Y + 28;
-        var items = new List<(string id, string label, string sub)> { (StatusTab, Ircuitry.Core.Icons.Glyph("clipboard") + "  Status", "") };
-        if (conn != null)
-            foreach (var ch in conn.Session.Channels())
-                items.Add((ch, ch, conn.Session.MemberCount(ch) + ""));
+        var items = new List<(string id, string label, string sub, bool pm)> { (StatusTab, Ircuitry.Core.Icons.Glyph("clipboard") + "  Status", "", false) };
+        items.AddRange(IrcWindows(conn));
 
         r.Begin(BlendMode.Alpha, new RectF(box.X, box.Y + 24, box.W, box.H - 28).ToRectangle());
-        foreach (var (id, label, sub) in items)
+        foreach (var (id, label, sub, _) in items)
         {
             var row = new RectF(box.X + 6, y, box.W - 12, 26);
             bool sel = id == _ircSel;
@@ -149,16 +147,37 @@ public sealed partial class MainScreen
         r.End();
     }
 
+    // Every window worth showing: the channels we're in, plus any other target we've actually seen a message
+    // from. That second part is what surfaces private-message queries (a PM's "channel" is the sender's nick)
+    // and any one-off window - so the viewer shows everywhere something happened, not just joined channels.
+    private List<(string id, string label, string sub, bool pm)> IrcWindows(ServerConn? conn)
+    {
+        var list = new List<(string id, string label, string sub, bool pm)>();
+        if (conn == null) return list;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ch in conn.Session.Channels())
+            if (seen.Add(ch)) list.Add((ch, Ircuitry.Core.Icons.Glyph("hash") + "  " + ch, conn.Session.MemberCount(ch).ToString(), false));
+        foreach (var m in Bot.Runtime.RecentMessages(200))
+        {
+            string w = m.Channel;
+            if (w.Length == 0 || !seen.Add(w)) continue;
+            bool pm = !conn.Session.IsChannel(w);
+            list.Add((w, (pm ? Ircuitry.Core.Icons.Glyph("chat-circle") : Ircuitry.Core.Icons.Glyph("hash")) + "  " + w, pm ? "dm" : "", pm));
+        }
+        return list;
+    }
+
     private void DrawIrcChannelView(Renderer r, RectF box, ServerConn? conn)
     {
         string ch = _ircSel;
+        bool pm = conn != null && !conn.Session.IsChannel(ch);
         string topic = conn?.Session.Topic(ch) ?? "";
         // topic bar
         var topicBar = new RectF(box.X, box.Y, box.W, 34);
         r.Begin();
         r.RoundFill(topicBar, Theme.WithAlpha(Theme.Teal, 0.14f), 10f);
         r.Text(r.Fonts.Get(FontKind.SansBold, 13), ch, new Vector2(topicBar.X + 12, topicBar.Y + 4), Theme.Mix(Theme.Teal, Theme.Text, 0.5f));
-        r.Text(r.Fonts.Get(FontKind.Sans, 12), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 12), topic.Length > 0 ? topic : "(no topic set)", box.W - 24), new Vector2(topicBar.X + 12, topicBar.Y + 18), Theme.TextDim);
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 12), topic.Length > 0 ? topic : (pm ? "private messages" : "(no topic set)"), box.W - 24), new Vector2(topicBar.X + 12, topicBar.Y + 18), Theme.TextDim);
         r.End();
 
         var content = new RectF(box.X, box.Y + 40, box.W, box.H - 40);
@@ -307,7 +326,7 @@ public sealed partial class MainScreen
         r.Begin();
         var f = r.Fonts.Get(FontKind.Mono, 11);
         string foot = conn == null ? "read-only · start the bot to watch it live"
-            : $"read-only · {conn.Session.Channels().Count} channel(s) · scroll to replay";
+            : $"read-only · {IrcWindows(conn).Count} window(s) · scroll to replay";
         r.Text(f, foot, new Vector2(win.X + 18, win.Bottom - 24), Theme.TextFaint);
         r.End();
     }
