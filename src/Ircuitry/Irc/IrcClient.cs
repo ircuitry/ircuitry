@@ -386,6 +386,9 @@ public sealed class IrcClient
 
     private void Handle(IrcMessage m)
     {
+        // a reply correlated to one of our labeled-response requests is data-only: collect it, fire no triggers
+        if (TryLabeled(m)) return;
+
         // protocol plumbing first
         if (m.Is("PING")) { SendNow("PONG :" + m.Trailing); }
         else if (m.Is("CAP")) HandleCap(m);
@@ -610,6 +613,13 @@ public sealed class IrcClient
                 }
                 break;
 
+            case 761: case 770: // RPL_KEYVALUE - a METADATA GET result (fallback path, no labeled-response)
+                lock (_metaLock) foreach (var w in _metaWaiters) w.Accept(m);
+                break;
+            case 762: case 766: case 771: // RPL_METADATAEND / ERR_NOMATCHINGKEY - the GET is done
+                lock (_metaLock) foreach (var w in _metaWaiters) w.Done();
+                break;
+
             case 903: // SASL success
                 if (_saslActive) { _saslActive = false; Status?.Invoke("SASL authenticated.", false); EndCap(); }
                 break;
@@ -650,5 +660,111 @@ public sealed class IrcClient
         try { if (tcs.Task.Wait(Math.Clamp(timeoutMs, 500, 30000))) tok = tcs.Task.Result; } catch { }
         lock (_fhLock) if (_fhTcs == tcs) _fhTcs = null;
         return tok ?? "";
+    }
+
+    // ===================================================================
+    //  IRCv3 labeled-response: correlate a command's reply by a unique label tag
+    // ===================================================================
+    private int _labelSeq;
+    private readonly Dictionary<string, Labeled> _labeled = new();
+    private readonly object _labeledLock = new();
+
+    private sealed class Labeled
+    {
+        public readonly TaskCompletionSource<List<IrcMessage>> Tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly List<IrcMessage> Msgs = new();
+        public string BatchRef = "";
+        public bool BatchOpen;
+    }
+
+    // Collect a message that belongs to a pending labeled-response request (a single labeled reply, a labeled
+    // batch and its contents, or an empty ACK). Returns true when consumed, so Handle fires no trigger for it.
+    private bool TryLabeled(IrcMessage m)
+    {
+        lock (_labeledLock)
+        {
+            if (_labeled.Count == 0) return false;
+            if (m.Tags.TryGetValue("label", out var lbl) && _labeled.TryGetValue(lbl, out var w))
+            {
+                if (m.Is("BATCH") && m.P(0).StartsWith("+")) { w.BatchRef = m.P(0)[1..]; w.BatchOpen = true; return true; }
+                if (m.Is("ACK")) { w.Tcs.TrySetResult(new(w.Msgs)); return true; }   // server acknowledged with nothing to return
+                w.Msgs.Add(m); w.Tcs.TrySetResult(new(w.Msgs)); return true;          // a single un-batched labeled reply
+            }
+            if (m.Tags.TryGetValue("batch", out var br))
+                foreach (var w2 in _labeled.Values)
+                    if (w2.BatchOpen && w2.BatchRef == br) { w2.Msgs.Add(m); return true; }
+            if (m.Is("BATCH") && m.P(0).StartsWith("-"))
+            {
+                string r = m.P(0)[1..];
+                foreach (var w2 in _labeled.Values)
+                    if (w2.BatchOpen && w2.BatchRef == r) { w2.BatchOpen = false; w2.Tcs.TrySetResult(new(w2.Msgs)); return true; }
+            }
+            return false;
+        }
+    }
+
+    /// <summary>Send a command and collect the server's reply correlated by IRCv3 labeled-response: a single
+    /// labeled message, a labeled batch, or an empty ACK. The collected lines fire no triggers. Returns null if
+    /// labeled-response isn't enabled (or we're offline), so the caller can fall back to another correlation.</summary>
+    public List<IrcMessage>? Request(string command, int timeoutMs)
+    {
+        if (State != IrcState.Connected || !HasCap("labeled-response")) return null;
+        string label = "ic" + Interlocked.Increment(ref _labelSeq).ToString("x");
+        var w = new Labeled();
+        lock (_labeledLock) _labeled[label] = w;
+        try
+        {
+            SendNow("@label=" + label + " " + command);
+            return w.Tcs.Task.Wait(Math.Clamp(timeoutMs, 500, 30000)) ? w.Tcs.Task.Result : null;
+        }
+        catch { return null; }
+        finally { lock (_labeledLock) _labeled.Remove(label); }
+    }
+
+    // ---- IRCv3 METADATA GET (draft/metadata-2): read a key off a target, blocking until the reply ----
+    private readonly object _metaLock = new();
+    private readonly List<MetaWaiter> _metaWaiters = new();
+
+    private sealed class MetaWaiter
+    {
+        public readonly TaskCompletionSource<bool> Tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly string _target, _key;
+        public string Value = "";
+        public MetaWaiter(string target, string key) { _target = target; _key = key; }
+        // RPL_KEYVALUE 761: <client> <target> <key> <visibility> :<value>
+        public void Accept(IrcMessage m)
+        {
+            if (m.Params.Count >= 3 && m.P(1).Equals(_target, StringComparison.OrdinalIgnoreCase)
+                && m.P(2).Equals(_key, StringComparison.OrdinalIgnoreCase)) Value = m.Trailing;
+        }
+        public void Done() => Tcs.TrySetResult(true);
+    }
+
+    private bool HasMetadataCap() => HasCap("draft/metadata-2") || HasCap("metadata") || HasCap("draft/metadata");
+
+    /// <summary>Read a metadata key from a target via METADATA GET. Correlates with labeled-response when the
+    /// server offers it, else collects the RPL_KEYVALUE / RPL_METADATAEND numerics. Blocks until the reply or
+    /// timeout; returns "" if unset, unsupported, or it times out.</summary>
+    public string MetadataGet(string target, string key, int timeoutMs)
+    {
+        if (State != IrcState.Connected || !HasMetadataCap()) return "";
+        target = Clean(target).Trim(); key = Clean(key).Trim();
+        if (target.Length == 0 || key.Length == 0) return "";
+        string cmd = "METADATA " + target + " GET " + key;
+
+        var labeled = Request(cmd, timeoutMs);                 // clean path: labeled-response correlation
+        if (labeled != null)
+        {
+            foreach (var m in labeled)
+                if (m.IsNumeric(out int n) && (n == 761 || n == 770) && m.Params.Count >= 3
+                    && m.P(2).Equals(key, StringComparison.OrdinalIgnoreCase)) return m.Trailing;
+            return "";
+        }
+
+        var w = new MetaWaiter(target, key);                   // fallback: collect the metadata numerics by target/key
+        lock (_metaLock) _metaWaiters.Add(w);
+        try { SendNow(cmd); return w.Tcs.Task.Wait(Math.Clamp(timeoutMs, 500, 30000)) ? w.Value : ""; }
+        catch { return ""; }
+        finally { lock (_metaLock) _metaWaiters.Remove(w); }
     }
 }

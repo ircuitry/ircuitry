@@ -1144,6 +1144,35 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "irc.metadata", Icon = "folder-open", Title = "Get Metadata", Subtitle = "draft",
+                Category = NodeCategory.Ircv3,
+                Description = "Reads a metadata key off a target (IRCv3 draft/metadata-2 METADATA GET) - someone's avatar, status, homepage URL, and so on. Blocks until the server replies, correlating the answer with labeled-response when the server offers it (otherwise the metadata numerics). The read-side mirror of Set Metadata: wire 'value' anywhere, or hand it to Ask AI as a tool so the bot can look people up.",
+                Inputs = new[] { Ex(), Tx("target"), Tx("key") },
+                Outputs = new[] { Ex("then"), Tx("value"), To("tool") },
+                Params = new[]
+                {
+                    P("name", "Tool name (for AI)", ParamType.Text, "get_metadata", "get_metadata"),
+                    P("target", "Target", ParamType.Text, "*", "* = self, or #chan / nick"),
+                    P("key", "Key", ParamType.Text, "", "url / avatar / status / ..."),
+                    P("timeout", "Wait up to (seconds)", ParamType.Int, "6", "6"),
+                },
+                SummaryParam = "key",
+                Exec = c =>
+                {
+                    string target = c.In(1);
+                    if (target.Length == 0) target = c.Var("__arg.target");      // when called as an AI tool
+                    if (target.Length == 0) target = c.Resolve(c.Param("target"));
+                    if (target.Length == 0) target = "*";
+                    string key = c.In(2);
+                    if (key.Length == 0) key = c.Var("__arg.key");
+                    if (key.Length == 0) key = c.Resolve(c.Param("key"));
+                    int to = Math.Clamp(c.ParamInt("timeout", 6), 1, 30) * 1000;
+                    c.SetOut(1, key.Length > 0 ? c.MetadataGet(target, key, to) : "");
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
                 TypeId = "action.multiline", Icon = "file-text", Title = "Send Multiline", Subtitle = "draft",
                 Category = NodeCategory.Ircv3,
                 Description = "Sends several lines as one logical message (draft/multiline batch). One line per row in the text.",

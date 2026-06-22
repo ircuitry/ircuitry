@@ -831,6 +831,9 @@ public sealed class ServerConn : IRuntimeSink
         return ok ? (true, link) : (false, err);
     }
 
+    public string MetadataGet(string target, string key, int timeoutMs)
+        => _running ? _client.MetadataGet(target, key, timeoutMs) : "";
+
     public IReadOnlyList<RecentMsg> RequestHistory(string target, string sub, int count, int timeoutMs)
     {
         if (!_running) return System.Array.Empty<RecentMsg>();

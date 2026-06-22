@@ -406,6 +406,7 @@ public static class GraphExecutor
             => Out().RequestHistory(target, sub, count, timeoutMs);
         public string IrcInfo(string what, string channel) => Out().IrcInfo(what, channel);
         public bool HasCap(string cap) => Out().HasCap(cap);
+        public string MetadataGet(string target, string key, int timeoutMs) => Out().MetadataGet(target, key, timeoutMs);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

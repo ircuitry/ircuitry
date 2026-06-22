@@ -32,6 +32,9 @@ public sealed class MockIrcServer : IDisposable
     public string ExpectSaslPass = "";
     public volatile string SaslMechUsed = "";   // the mechanism the client chose (PLAIN / EXTERNAL / SCRAM-SHA-256)
     public volatile bool SaslOk;                 // set true once the mock has accepted authentication
+    public bool OfferLabeledResponse = true;     // advertise labeled-response in CAP LS (off to test the fallback path)
+    public readonly Dictionary<string, string> Metadata = new();   // key -> value the mock answers METADATA GET with
+    public volatile bool SawLabeledRequest;      // set true if a METADATA GET arrived carrying a label tag
 
     public MockIrcServer(IReadOnlyList<(int, string)>? script = null)
     {
@@ -75,7 +78,7 @@ public sealed class MockIrcServer : IDisposable
             string nick = "user";
             bool injected = false;
             string saslMech = "", scBare = "", scServerFirst = "";
-            int saslStep = 0;
+            int saslStep = 0, metaSeq = 0;
             byte[] scSalt = Array.Empty<byte>();
             string? line;
             while (!_stop && (line = reader.ReadLine()) != null)
@@ -85,7 +88,28 @@ public sealed class MockIrcServer : IDisposable
                 if (body.StartsWith('@')) { int sp = body.IndexOf(' '); body = sp >= 0 ? body[(sp + 1)..] : ""; }
 
                 if (body.StartsWith("NICK ", StringComparison.Ordinal)) nick = body[5..].Trim();
-                else if (body.StartsWith("CAP LS", StringComparison.Ordinal)) Send(":mock CAP * LS :message-tags server-time multi-prefix account-tag draft/bot-cmds draft/bot-tools batch echo-message setname draft/message-redaction draft/metadata-2 sasl=PLAIN,EXTERNAL,SCRAM-SHA-256");
+                else if (body.StartsWith("CAP LS", StringComparison.Ordinal)) Send(":mock CAP * LS :message-tags server-time multi-prefix account-tag draft/bot-cmds draft/bot-tools batch echo-message setname draft/message-redaction draft/metadata-2 sasl=PLAIN,EXTERNAL,SCRAM-SHA-256" + (OfferLabeledResponse ? " labeled-response" : ""));
+                else if (body.StartsWith("METADATA ", StringComparison.Ordinal) && body.Contains(" GET ", StringComparison.Ordinal))
+                {
+                    var parts = body.Split(' ', StringSplitOptions.RemoveEmptyEntries);   // METADATA <target> GET <key>
+                    string mtarget = parts.Length > 1 ? parts[1] : "*";
+                    string mkey = parts.Length > 3 ? parts[3] : "";
+                    string mval = Metadata.TryGetValue(mkey, out var mv) ? mv : "";
+                    string label = TagOf(line, "label");
+                    if (label.Length > 0) SawLabeledRequest = true;
+                    if (label.Length > 0)   // labeled-response: wrap the answer in a labeled batch
+                    {
+                        string bref = "MB" + (++metaSeq);
+                        Send($"@label={label} BATCH +{bref} labeled-response");
+                        if (mval.Length > 0) Send($"@batch={bref} :mock 761 {nick} {mtarget} {mkey} * :{mval}");
+                        Send($"BATCH -{bref}");
+                    }
+                    else                    // fallback: bare metadata numerics
+                    {
+                        if (mval.Length > 0) Send($":mock 761 {nick} {mtarget} {mkey} * :{mval}");
+                        Send($":mock 762 {nick} :end of metadata");
+                    }
+                }
                 else if (body.StartsWith("AUTHENTICATE", StringComparison.Ordinal))
                 {
                     string arg = body.Length > 13 ? body[13..].Trim() : "";
@@ -173,6 +197,20 @@ public sealed class MockIrcServer : IDisposable
         })
         { IsBackground = true, Name = "mock-inject" };
         t.Start();
+    }
+
+    // pull one message-tag value out of a raw wire line ("@a=1;label=X CMD ..." -> "X")
+    private static string TagOf(string line, string key)
+    {
+        if (line.Length == 0 || line[0] != '@') return "";
+        int sp = line.IndexOf(' ');
+        string tags = sp >= 0 ? line[1..sp] : line[1..];
+        foreach (var t in tags.Split(';'))
+        {
+            int eq = t.IndexOf('=');
+            if (eq > 0 && t[..eq] == key) return t[(eq + 1)..];
+        }
+        return "";
     }
 
     // ---- tiny SCRAM-SHA-256 server helpers (self-test only) ----

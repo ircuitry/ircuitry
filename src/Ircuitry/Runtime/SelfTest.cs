@@ -43,6 +43,8 @@ public static class SelfTest
         public string IrcInfo(string what, string channel) => what == "filehost" ? FilehostUrl : "";
         public readonly HashSet<string> Caps = new(StringComparer.OrdinalIgnoreCase);   // negotiated caps to simulate
         public bool HasCap(string cap) => Caps.Contains(cap);
+        public readonly Dictionary<string, string> MetaSeed = new();   // metadata values a METADATA GET node will read
+        public string MetadataGet(string target, string key, int timeoutMs) => MetaSeed.TryGetValue(key, out var v) ? v : "";
         public System.Collections.Generic.List<string> LastRun = new();
         public void RunCompleted(System.Collections.Generic.IReadOnlyCollection<string> executedTypes) { LastRun = new(executedTypes); }
         public readonly List<RecentMsg> RecentSeed = new();   // what SuperAI's recent_messages tool sees
@@ -257,6 +259,7 @@ public static class SelfTest
         fails += RegexCaptureTest();
         fails += MathTokenTest();
         fails += SaslLoopTest();
+        fails += MetadataTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3118,6 +3121,54 @@ public static class SelfTest
             for (int i = 0; i < 160 && !ok; i++) { Thread.Sleep(50); if (mock.SaslOk && mock.SaslMechUsed == label) ok = true; }
             rt.Stop(); Thread.Sleep(80);
             fails += Expect("sasl-mech-" + mech, ok, "mech=" + mock.SaslMechUsed + " ok=" + mock.SaslOk);
+        }
+        return fails;
+    }
+
+    /// <summary>METADATA GET (the read-side mirror of Set Metadata) via the new Get Metadata node: node wiring
+    /// against a seeded sink, then end to end against the mock over BOTH labeled-response correlation and the
+    /// metadata-numeric fallback (labeled-response withheld).</summary>
+    private static int MetadataTest()
+    {
+        int fails = 0;
+
+        // node wiring: the value the sink returns flows out and into a reply
+        {
+            var g = new NodeGraph();
+            var cmd = N(g, "event.command", 0, 0); cmd.SetParam("command", "ava");
+            var meta = N(g, "irc.metadata", 200, 0); meta.SetParam("target", "{nick}"); meta.SetParam("key", "avatar");
+            var rep = N(g, "action.reply", 400, 0);
+            g.Connect(cmd.Id, 0, meta.Id, 0);
+            g.Connect(meta.Id, 0, rep.Id, 0);
+            g.Connect(meta.Id, 1, rep.Id, 1);
+            var s = new FakeSink(); s.MetaSeed["avatar"] = "http://pic/a.png";
+            GraphExecutor.Fire(g, s, cmd, Vars("!ava", "amy", "#c"));
+            fails += Expect("metadata-node-value", s.Sent.Count == 1 && s.Sent[0].text == "http://pic/a.png", Dump(s));
+        }
+
+        // end to end: labeled-response path, then the same with labeled-response withheld (numeric fallback)
+        foreach (var labeled in new[] { true, false })
+        {
+            using var mock = new MockIrcServer(new[] { (1, ":alice!a@h PRIVMSG #ircuitry-test :!ava") });
+            mock.OfferLabeledResponse = labeled;
+            mock.Metadata["avatar"] = "https://pic.example/a.png";
+            var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+            var g = new NodeGraph();
+            var cmd = g.Add(NodeCatalog.Get("event.command"), Vector2.Zero); cmd.SetParam("command", "ava");
+            var meta = g.Add(NodeCatalog.Get("irc.metadata"), new Vector2(200, 0)); meta.SetParam("target", "*"); meta.SetParam("key", "avatar");
+            var reply = g.Add(NodeCatalog.Get("action.reply"), new Vector2(400, 0));
+            g.Connect(cmd.Id, 0, meta.Id, 0); g.Connect(meta.Id, 0, reply.Id, 0); g.Connect(meta.Id, 1, reply.Id, 1);
+            rt.Start(g, new IrcSettings { Host = "127.0.0.1", Port = mock.Port, UseTls = false, Nick = "metabot", Channels = "#ircuitry-test", SaslPass = "" });
+
+            bool ok = false;
+            for (int i = 0; i < 200 && !ok; i++)
+            {
+                Thread.Sleep(50);
+                if (mock.Sent().Any(o => o.Contains("PRIVMSG #ircuitry-test") && o.Contains("https://pic.example/a.png"))) ok = true;
+            }
+            rt.Stop(); Thread.Sleep(100);
+            fails += Expect("metadata-get-" + (labeled ? "labeled" : "fallback"), ok, "sent: " + string.Join(" | ", mock.Sent()));
+            fails += Expect("metadata-path-" + (labeled ? "labeled" : "fallback"), mock.SawLabeledRequest == labeled, "sawLabeled=" + mock.SawLabeledRequest);
         }
         return fails;
     }

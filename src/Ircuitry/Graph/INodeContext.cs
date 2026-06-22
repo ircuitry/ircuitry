@@ -75,6 +75,10 @@ public interface INodeContext
     /// <summary>True if the named IRCv3 capability is enabled on the connection this flow is acting on, so a
     /// node can check a cap-gated command (SETNAME / REDACT / METADATA) will work before sending it.</summary>
     bool HasCap(string cap);
+
+    /// <summary>Read a metadata key off a target (IRCv3 METADATA GET): blocks the worker until the reply or
+    /// timeout, then returns the value ("" if unset / unsupported). Correlated by labeled-response when available.</summary>
+    string MetadataGet(string target, string key, int timeoutMs);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

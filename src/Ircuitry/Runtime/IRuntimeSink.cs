@@ -90,6 +90,10 @@ public interface IRuntimeSink
     /// without a live server (dry runs/tests) unless they model caps.</summary>
     bool HasCap(string cap) => false;
 
+    /// <summary>Read a metadata key off a target (IRCv3 METADATA GET), blocking until the reply or timeout.
+    /// "" on sinks without a live server.</summary>
+    string MetadataGet(string target, string key, int timeoutMs) => "";
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);
