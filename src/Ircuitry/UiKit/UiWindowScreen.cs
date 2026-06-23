@@ -25,6 +25,7 @@ public sealed class UiWindowScreen : IScreen
     private string? _hoverId, _pressId, _focusId;
     private readonly object _evLock = new();
     private readonly List<UiEvent> _events = new();
+    private Scene3DRenderer? _r3d;
 
     public UiWindowScreen(GraphicsDevice gd) { _gd = gd; }
 
@@ -82,7 +83,8 @@ public sealed class UiWindowScreen : IScreen
     public void Draw(Renderer r, Clock clock)
     {
         var scene = _scene;
-        r.Begin();
+        if (scene.World != null) (_r3d ??= new Scene3DRenderer(_gd)).Draw(scene.World);   // 3D world first (with depth)
+        r.Begin();                                                                        // then the 2D overlay on top
         foreach (var e in scene.Elements)
             if (e.Visible) DrawElement(r, scene, e, clock);
         r.End();

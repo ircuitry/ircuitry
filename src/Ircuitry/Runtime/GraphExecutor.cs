@@ -430,6 +430,8 @@ public static class GraphExecutor
         public void UiAnimate(string windowId, string elementId, Ircuitry.UiKit.Tween tween) => Out().UiAnimate(windowId, elementId, tween);
         public void UiRemove(string windowId, string elementId) => Out().UiRemove(windowId, elementId);
         public void UiClose(string windowId) => Out().UiClose(windowId);
+        public void UiScene3D(string windowId, Ircuitry.UiKit.Camera cam) => Out().UiScene3D(windowId, cam);
+        public void UiMesh(string windowId, Ircuitry.UiKit.Obj3D mesh) => Out().UiMesh(windowId, mesh);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

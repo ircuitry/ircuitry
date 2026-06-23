@@ -97,6 +97,8 @@ public interface INodeContext
     void UiAnimate(string windowId, string elementId, Ircuitry.UiKit.Tween tween);
     void UiRemove(string windowId, string elementId);
     void UiClose(string windowId);
+    void UiScene3D(string windowId, Ircuitry.UiKit.Camera cam);
+    void UiMesh(string windowId, Ircuitry.UiKit.Obj3D mesh);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

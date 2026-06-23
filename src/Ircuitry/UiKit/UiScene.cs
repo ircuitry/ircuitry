@@ -16,10 +16,11 @@ public sealed class UiScene
     public int Width = 800;
     public int Height = 600;
     public uint Bg = 0x141018FF;                 // RGBA
+    public Scene3D? World;                       // optional 3D world, drawn behind the 2D overlay (game + HUD)
     public List<UiElement> Elements = new();
 
-    /// <summary>Advance every element's tweens by <paramref name="dt"/> seconds.</summary>
-    public void Advance(float dt) { foreach (var e in Elements) e.Advance(dt); }
+    /// <summary>Advance the 3D world + every 2D element's tweens by <paramref name="dt"/> seconds.</summary>
+    public void Advance(float dt) { World?.Advance(dt); foreach (var e in Elements) e.Advance(dt); }
 
     public UiElement? Find(string id) => Elements.Find(e => e.Id == id);
 
@@ -48,9 +49,16 @@ public sealed class UiEvent
 
 public enum UiKind { Panel, Text, Image, Rect, Button, Input }
 
+/// <summary>Anything a <see cref="Tween"/> can animate (2D elements and 3D objects) - exposes named float props.</summary>
+public interface ITweenTarget
+{
+    float Get(string prop);
+    void Set(string prop, float value);
+}
+
 /// <summary>One drawable: a kind, geometry, style, optional text/image, and any running tweens. Coordinates are
 /// in window pixels; when <see cref="Parent"/> is set they are relative to that element's top-left.</summary>
-public sealed class UiElement
+public sealed class UiElement : ITweenTarget
 {
     public string Id = "";
     public UiKind Kind = UiKind.Panel;
@@ -110,7 +118,7 @@ public sealed class Tween
     public string Ease = "easeInOut";            // linear|easeIn|easeOut|easeInOut|back|bounce
     public bool Loop, PingPong, Done;
 
-    public void Advance(float dt, UiElement e)
+    public void Advance(float dt, ITweenTarget e)
     {
         if (Done) return;
         Elapsed += dt;

@@ -4113,6 +4113,48 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "ui.scene3d", Icon = "perspective", Title = "UI 3D Scene", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Give a window a 3D world (rendered by MonoGame's 3D pipeline, behind any 2D overlay) and pose its camera: an eye position, a look-at target, and a field of view. Add meshes with UI 3D Mesh.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""),
+                    P("eyeX", "Eye X", ParamType.Text, "0", ""), P("eyeY", "Eye Y", ParamType.Text, "3", ""), P("eyeZ", "Eye Z", ParamType.Text, "8", ""),
+                    P("lookX", "Look X", ParamType.Text, "0", ""), P("lookY", "Look Y", ParamType.Text, "0", ""), P("lookZ", "Look Z", ParamType.Text, "0", ""),
+                    P("fov", "Field of view", ParamType.Text, "55", "degrees"),
+                },
+                Exec = c => { c.UiScene3D(c.Resolve(c.Param("window")), new Ircuitry.UiKit.Camera { Px = ParseF(c.Resolve(c.Param("eyeX"))), Py = ParseF(c.Resolve(c.Param("eyeY")), 3f), Pz = ParseF(c.Resolve(c.Param("eyeZ")), 8f), Tx = ParseF(c.Resolve(c.Param("lookX"))), Ty = ParseF(c.Resolve(c.Param("lookY"))), Tz = ParseF(c.Resolve(c.Param("lookZ"))), Fov = ParseF(c.Resolve(c.Param("fov")), 55f) }); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.mesh", Icon = "cube", Title = "UI 3D Mesh", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Add or update a 3D primitive (box / sphere / plane / cylinder) in a window's 3D world: position, rotation (degrees), scale and colour. Animate px/py/pz, rx/ry/rz or sx/sy/sz with UI Animate.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "mesh", ""),
+                    P("shape", "Shape", ParamType.Choice, "box", "", new[] { "box", "sphere", "plane", "cylinder" }),
+                    P("x", "X", ParamType.Text, "0", ""), P("y", "Y", ParamType.Text, "0", ""), P("z", "Z", ParamType.Text, "0", ""),
+                    P("rx", "Rotate X", ParamType.Text, "0", ""), P("ry", "Rotate Y", ParamType.Text, "0", ""), P("rz", "Rotate Z", ParamType.Text, "0", ""),
+                    P("sx", "Scale X", ParamType.Text, "1", ""), P("sy", "Scale Y", ParamType.Text, "1", ""), P("sz", "Scale Z", ParamType.Text, "1", ""),
+                    P("color", "Colour", ParamType.Text, "#C8C2D6", "#rrggbb"),
+                },
+                SummaryParam = "shape",
+                Exec = c =>
+                {
+                    var shape = c.Param("shape") switch { "sphere" => Ircuitry.UiKit.Mesh3D.Sphere, "plane" => Ircuitry.UiKit.Mesh3D.Plane, "cylinder" => Ircuitry.UiKit.Mesh3D.Cylinder, _ => Ircuitry.UiKit.Mesh3D.Box };
+                    c.UiMesh(c.Resolve(c.Param("window")), new Ircuitry.UiKit.Obj3D
+                    {
+                        Id = c.Resolve(c.Param("id")), Mesh = shape,
+                        Px = ParseF(c.Resolve(c.Param("x"))), Py = ParseF(c.Resolve(c.Param("y"))), Pz = ParseF(c.Resolve(c.Param("z"))),
+                        Rx = ParseF(c.Resolve(c.Param("rx"))), Ry = ParseF(c.Resolve(c.Param("ry"))), Rz = ParseF(c.Resolve(c.Param("rz"))),
+                        Sx = ParseF(c.Resolve(c.Param("sx")), 1f), Sy = ParseF(c.Resolve(c.Param("sy")), 1f), Sz = ParseF(c.Resolve(c.Param("sz")), 1f),
+                        Color = UiColor(c.Resolve(c.Param("color")), 0xC8C2D6FF),
+                    }); c.Pulse(0);
+                },
+            },
+            new()
+            {
                 TypeId = "ui.remove", Icon = "trash", Title = "UI Remove", Subtitle = "ui", Category = NodeCategory.Ui,
                 Description = "Remove an element from a window by id. Leave the id blank to clear the whole window (keeping it open).",
                 Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },

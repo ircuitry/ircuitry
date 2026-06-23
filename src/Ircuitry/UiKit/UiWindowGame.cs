@@ -26,7 +26,7 @@ public sealed class UiWindowGame : Game
 
     private string? _scenePath, _shotPath;
     private int _shotFrames = 18;
-    private bool _shotTaken, _demoMode;
+    private bool _shotTaken, _demoMode, _demo3d;
     private volatile UiScene? _incoming;
 
     public static int Run(string[] args)
@@ -43,6 +43,7 @@ public sealed class UiWindowGame : Game
             PreferredBackBufferHeight = 600,
             PreferMultiSampling = false,
             GraphicsProfile = GraphicsProfile.Reach,
+            PreferredDepthStencilFormat = DepthFormat.Depth24Stencil8,   // for the 3D surface
             SynchronizeWithVerticalRetrace = true,
         };
         Content.RootDirectory = "Content";
@@ -55,6 +56,7 @@ public sealed class UiWindowGame : Game
             if (args[i] == "--scene" && i + 1 < args.Length) _scenePath = args[i + 1];
             if (args[i] == "--shot" && i + 1 < args.Length) _shotPath = args[i + 1];
             if (args[i] == "--frames" && i + 1 < args.Length && int.TryParse(args[i + 1], out var f)) _shotFrames = f;
+            if (args[i] == "--demo3d") _demo3d = true;
         }
     }
 
@@ -64,7 +66,8 @@ public sealed class UiWindowGame : Game
         _r = new Renderer(GraphicsDevice, _fonts);
         _screen = new UiWindowScreen(GraphicsDevice);
         _demoMode = _scenePath == null;
-        var scene = !_demoMode && File.Exists(_scenePath!) ? UiScene.FromJson(File.ReadAllText(_scenePath!)) : DemoScene();
+        var scene = !_demoMode && File.Exists(_scenePath!) ? UiScene.FromJson(File.ReadAllText(_scenePath!))
+                  : _demo3d ? Demo3DScene() : DemoScene();
         ApplyScene(scene);
         Window.TextInput += (_, e) => _input.PushChar(e.Character);   // SDL layout-correct typed chars for inputs
         new Thread(StdinLoop) { IsBackground = true, Name = "ui-stdin" }.Start();
@@ -165,6 +168,29 @@ public sealed class UiWindowGame : Game
         s.Elements.Add(img);
         s.Elements.Add(new UiElement { Id = "go", Kind = UiKind.Button, Parent = "card", X = 32, Y = 300, W = 160, H = 48, Text = "Click me", Color = 0x6C5CE7FF, TextColor = 0xFFFFFFFF, Radius = 14f, FontSize = 17 });
         s.Elements.Add(new UiElement { Id = "say", Kind = UiKind.Input, Parent = "card", X = 210, Y = 300, W = 280, H = 48, Text = "", Color = 0x554F66FF, TextColor = 0xF2EEF7FF, FontSize = 16 });
+        return s;
+    }
+
+    // A 3D world (lit primitives with live tweens) composited under a 2D HUD - proves the 3D surface + the
+    // game-with-overlay model in a single screenshot.
+    private static UiScene Demo3DScene()
+    {
+        var s = new UiScene { Title = "ircuitry 3D ~ nodes drawing a world", Width = 760, Height = 460, Bg = 0x0E0B14FF };
+        var w = new Scene3D { Cam = new Camera { Px = 0f, Py = 3.6f, Pz = 8f, Tx = 0f, Ty = 0.4f, Tz = 0f, Fov = 50f } };
+        w.Objects.Add(new Obj3D { Id = "ground", Mesh = Mesh3D.Plane, Px = 0, Py = -1f, Pz = 0, Sx = 16, Sy = 1, Sz = 16, Color = 0x2A2740FF });
+        var cube = new Obj3D { Id = "cube", Mesh = Mesh3D.Box, Px = -2.4f, Py = 0, Pz = 0, Sx = 1.6f, Sy = 1.6f, Sz = 1.6f, Color = 0xFF6FB5FF };
+        cube.Tweens.Add(new Tween { Prop = "ry", From = 0, To = 360, Duration = 4f, Ease = "linear", Loop = true });
+        w.Objects.Add(cube);
+        var ball = new Obj3D { Id = "ball", Mesh = Mesh3D.Sphere, Px = 0.5f, Py = 0.2f, Pz = 0.4f, Sx = 2f, Sy = 2f, Sz = 2f, Color = 0x6C5CE7FF };
+        ball.Tweens.Add(new Tween { Prop = "py", From = 0.2f, To = 1.7f, Duration = 1.3f, Ease = "easeInOut", PingPong = true });
+        w.Objects.Add(ball);
+        var cyl = new Obj3D { Id = "cyl", Mesh = Mesh3D.Cylinder, Px = 2.7f, Py = 0, Pz = -0.4f, Sx = 1.1f, Sy = 2.2f, Sz = 1.1f, Color = 0x4EC4B2FF };
+        cyl.Tweens.Add(new Tween { Prop = "rx", From = 0, To = 360, Duration = 6f, Ease = "linear", Loop = true });
+        w.Objects.Add(cyl);
+        s.World = w;
+        s.Elements.Add(new UiElement { Id = "hud", Kind = UiKind.Text, X = 24, Y = 20, Text = "3D world + 2D HUD, all from nodes", Font = "display", FontSize = 24, Color = 0xF2EEF7FF });
+        s.Elements.Add(new UiElement { Id = "badge", Kind = UiKind.Panel, X = 24, Y = 408, W = 230, H = 34, Color = 0x1E1B26FF, Radius = 10 });
+        s.Elements.Add(new UiElement { Id = "badgetxt", Kind = UiKind.Text, Parent = "badge", X = 12, Y = 8, Text = "MonoGame 3D pipeline", Font = "mono", FontSize = 14, Color = 0x9C95AEFF });
         return s;
     }
 }

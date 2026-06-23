@@ -57,9 +57,11 @@ public static class SelfTest
         private Ircuitry.UiKit.UiScene US(string w) { if (!UiScenes.TryGetValue(w, out var s)) { s = new(); UiScenes[w] = s; } return s; }
         public void UiWindow(string id, string title, int w, int h, uint bg) { var s = US(id); if (title.Length > 0) s.Title = title; if (w > 0) s.Width = w; if (h > 0) s.Height = h; s.Bg = bg; }
         public void UiUpsert(string id, Ircuitry.UiKit.UiElement e) { var s = US(id); int i = s.Elements.FindIndex(x => x.Id == e.Id); if (i >= 0) s.Elements[i] = e; else s.Elements.Add(e); }
-        public void UiAnimate(string id, string eid, Ircuitry.UiKit.Tween t) { US(id).Find(eid)?.Tweens.Add(t); }
-        public void UiRemove(string id, string eid) { var s = US(id); if (eid.Length == 0) s.Elements.Clear(); else s.Elements.RemoveAll(x => x.Id == eid); }
+        public void UiAnimate(string id, string eid, Ircuitry.UiKit.Tween t) { var s = US(id); var e = s.Find(eid); if (e != null) e.Tweens.Add(t); else s.World?.Find(eid)?.Tweens.Add(t); }
+        public void UiRemove(string id, string eid) { var s = US(id); if (eid.Length == 0) { s.Elements.Clear(); s.World?.Objects.Clear(); } else { s.Elements.RemoveAll(x => x.Id == eid); s.World?.Objects.RemoveAll(o => o.Id == eid); } }
         public void UiClose(string id) { UiScenes.Remove(id); }
+        public void UiScene3D(string id, Ircuitry.UiKit.Camera cam) { var s = US(id); s.World ??= new(); s.World.Cam = cam; }
+        public void UiMesh(string id, Ircuitry.UiKit.Obj3D m) { var s = US(id); s.World ??= new(); int i = s.World.Objects.FindIndex(o => o.Id == m.Id); if (i >= 0) s.World.Objects[i] = m; else s.World.Objects.Add(m); }
     }
 
     private static Node N(NodeGraph g, string type, float x, float y)
@@ -3545,6 +3547,25 @@ public static class SelfTest
         var miss = new FakeSink();
         GraphExecutor.Fire(g2, miss, on, UiVars("click", "other", ""));
         fails += Expect("ui-on-filter", !miss.Logs.Exists(l => l.Contains("HIT")), "On UI Event ignores a different element id");
+
+        // 3D surface: ui.scene3d + ui.mesh build the world; ui.animate drives a 3D object (px lookup), and the
+        // Obj3D tween moves through ITweenTarget
+        var g3 = new NodeGraph();
+        var st3 = N(g3, "event.start", 0, 0);
+        var sc3 = N(g3, "ui.scene3d", 200, 0); sc3.SetParam("window", "main"); sc3.SetParam("eyeZ", "10"); sc3.SetParam("fov", "60");
+        var m1 = N(g3, "ui.mesh", 400, 0); m1.SetParam("window", "main"); m1.SetParam("id", "box1"); m1.SetParam("shape", "box"); m1.SetParam("x", "2"); m1.SetParam("color", "#FF00AA");
+        var m2 = N(g3, "ui.mesh", 600, 0); m2.SetParam("window", "main"); m2.SetParam("id", "ball"); m2.SetParam("shape", "sphere"); m2.SetParam("sx", "2"); m2.SetParam("sy", "2"); m2.SetParam("sz", "2");
+        var sp = N(g3, "ui.animate", 800, 0); sp.SetParam("window", "main"); sp.SetParam("id", "box1"); sp.SetParam("prop", "ry"); sp.SetParam("from", "0"); sp.SetParam("to", "360"); sp.SetParam("duration", "4"); sp.SetParam("ease", "linear"); sp.SetParam("loop", "true");
+        g3.Connect(st3.Id, 0, sc3.Id, 0); g3.Connect(sc3.Id, 0, m1.Id, 0); g3.Connect(m1.Id, 0, m2.Id, 0); g3.Connect(m2.Id, 0, sp.Id, 0);
+        var s3 = new FakeSink();
+        GraphExecutor.Fire(g3, s3, st3, Vars("", "alice", "#test"));
+        var world = s3.UiScenes.TryGetValue("main", out var sc) ? sc.World : null;
+        fails += Expect("ui-3d-world", world != null && System.Math.Abs(world!.Cam.Pz - 10f) < 0.01f && world.Cam.Fov == 60f, "ui.scene3d sets the camera");
+        var box = world?.Find("box1"); var ball3 = world?.Find("ball");
+        fails += Expect("ui-3d-mesh", box?.Mesh == Ircuitry.UiKit.Mesh3D.Box && box.Px == 2f && ball3?.Mesh == Ircuitry.UiKit.Mesh3D.Sphere && ball3.Sx == 2f, "ui.mesh adds box + sphere into the world");
+        fails += Expect("ui-3d-animate", box != null && box.Tweens.Count == 1 && box.Tweens[0].Prop == "ry" && box.Tweens[0].Loop, "ui.animate attaches a tween to a 3D mesh");
+        if (box != null) { box.Advance(0.5f); }   // 0.5/4 of 0..360 = 45deg, through ITweenTarget
+        fails += Expect("ui-3d-tween", box != null && System.Math.Abs(box.Ry - 45f) < 1f, $"Obj3D tween drives rotation, got {box?.Ry}");
         return fails;
     }
 

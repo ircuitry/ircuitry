@@ -118,6 +118,10 @@ public interface IRuntimeSink
     void UiRemove(string windowId, string elementId) { }
     /// <summary>Close a window.</summary>
     void UiClose(string windowId) { }
+    /// <summary>Set up (or update) the window's 3D world camera - it renders behind the 2D overlay.</summary>
+    void UiScene3D(string windowId, Ircuitry.UiKit.Camera cam) { }
+    /// <summary>Add or replace a 3D mesh (by id) in the window's 3D world.</summary>
+    void UiMesh(string windowId, Ircuitry.UiKit.Obj3D mesh) { }
 
     // persistent per-bot variable store
     string GetState(string key);

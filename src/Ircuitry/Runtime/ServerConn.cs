@@ -140,13 +140,46 @@ public sealed class ServerConn : IRuntimeSink
     public void UiAnimate(string id, string elementId, Ircuitry.UiKit.Tween t)
     {
         if (id.Length == 0) id = "main";
-        lock (_uiGate) { var e = UiSceneFor(id).Find(elementId); if (e != null) { e.Tweens.Add(t); UiStream(id, UiSceneFor(id)); } }
+        lock (_uiGate)
+        {
+            var s = UiSceneFor(id);
+            var e = s.Find(elementId);
+            if (e != null) e.Tweens.Add(t);
+            else { var o = s.World?.Find(elementId); if (o != null) o.Tweens.Add(t); else return; }   // 2D element or 3D mesh
+            UiStream(id, s);
+        }
     }
 
     public void UiRemove(string id, string elementId)
     {
         if (id.Length == 0) id = "main";
-        lock (_uiGate) { var s = UiSceneFor(id); if (elementId.Length == 0) s.Elements.Clear(); else s.Elements.RemoveAll(x => x.Id == elementId); UiStream(id, s); }
+        lock (_uiGate)
+        {
+            var s = UiSceneFor(id);
+            if (elementId.Length == 0) { s.Elements.Clear(); s.World?.Objects.Clear(); }
+            else { s.Elements.RemoveAll(x => x.Id == elementId); s.World?.Objects.RemoveAll(o => o.Id == elementId); }
+            UiStream(id, s);
+        }
+    }
+
+    public void UiScene3D(string id, Ircuitry.UiKit.Camera cam)
+    {
+        if (id.Length == 0) id = "main";
+        lock (_uiGate) { var s = UiSceneFor(id); s.World ??= new Ircuitry.UiKit.Scene3D(); s.World.Cam = cam; UiStream(id, s); }
+    }
+
+    public void UiMesh(string id, Ircuitry.UiKit.Obj3D mesh)
+    {
+        if (id.Length == 0) id = "main";
+        if (mesh.Id.Length == 0) return;
+        lock (_uiGate)
+        {
+            var s = UiSceneFor(id); s.World ??= new Ircuitry.UiKit.Scene3D();
+            int i = s.World.Objects.FindIndex(o => o.Id == mesh.Id);
+            if (i >= 0) { if (mesh.Tweens.Count == 0) mesh.Tweens = s.World.Objects[i].Tweens; s.World.Objects[i] = mesh; }
+            else s.World.Objects.Add(mesh);
+            UiStream(id, s);
+        }
     }
 
     public void UiClose(string id)
