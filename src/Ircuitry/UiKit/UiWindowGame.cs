@@ -26,7 +26,7 @@ public sealed class UiWindowGame : Game
 
     private string? _scenePath, _shotPath;
     private int _shotFrames = 18;
-    private bool _shotTaken;
+    private bool _shotTaken, _demoMode;
     private volatile UiScene? _incoming;
 
     public static int Run(string[] args)
@@ -63,8 +63,10 @@ public sealed class UiWindowGame : Game
         _fonts = new Fonts(Path.Combine(AppContext.BaseDirectory, "assets", "fonts"));
         _r = new Renderer(GraphicsDevice, _fonts);
         _screen = new UiWindowScreen(GraphicsDevice);
-        var scene = _scenePath != null && File.Exists(_scenePath) ? UiScene.FromJson(File.ReadAllText(_scenePath)) : DemoScene();
+        _demoMode = _scenePath == null;
+        var scene = !_demoMode && File.Exists(_scenePath!) ? UiScene.FromJson(File.ReadAllText(_scenePath!)) : DemoScene();
         ApplyScene(scene);
+        Window.TextInput += (_, e) => _input.PushChar(e.Character);   // SDL layout-correct typed chars for inputs
         new Thread(StdinLoop) { IsBackground = true, Name = "ui-stdin" }.Start();
     }
 
@@ -89,9 +91,27 @@ public sealed class UiWindowGame : Game
         _clock.Tick(gt);
         var inc = _incoming;
         if (inc != null) { _incoming = null; ApplyScene(inc); }
-        _input.Update();
+        if (IsActive) _input.Update();
         _screen.Update(_input, _clock);
+        foreach (var ev in _screen.DrainEvents())
+        {
+            // stream the interaction to the host (the node graph) as one line; the host fires a UI-event trigger
+            Console.Out.WriteLine("@UIEVENT " + UiScene.EventJson(ev));
+            try { Console.Out.Flush(); } catch { }
+            if (_demoMode) DemoReact(ev);
+        }
+        _input.EndFrame();
         base.Update(gt);
+    }
+
+    // until the node host consumes events, the built-in demo reacts locally so a click is visibly alive: the
+    // button pops + relabels, the logo bounces.
+    private void DemoReact(UiEvent ev)
+    {
+        if (ev.Type != "click" || ev.Id != "go") return;
+        var s = _screen.Scene;
+        if (s.Find("go") is { } b) { b.Text = "Clicked!"; b.Tweens.Add(new Tween { Prop = "scale", From = 1.18f, To = 1f, Duration = 0.35f, Ease = "back" }); }
+        s.Find("logo")?.Tweens.Add(new Tween { Prop = "scale", From = 1.3f, To = 1f, Duration = 0.55f, Ease = "bounce" });
     }
 
     protected override void Draw(GameTime gt)
@@ -144,6 +164,7 @@ public sealed class UiWindowGame : Game
         img.Tweens.Add(new Tween { Prop = "y", From = 140, To = 200, Duration = 1.1f, Ease = "easeInOut", PingPong = true });
         s.Elements.Add(img);
         s.Elements.Add(new UiElement { Id = "go", Kind = UiKind.Button, Parent = "card", X = 32, Y = 300, W = 160, H = 48, Text = "Click me", Color = 0x6C5CE7FF, TextColor = 0xFFFFFFFF, Radius = 14f, FontSize = 17 });
+        s.Elements.Add(new UiElement { Id = "say", Kind = UiKind.Input, Parent = "card", X = 210, Y = 300, W = 280, H = 48, Text = "", Color = 0x554F66FF, TextColor = 0xF2EEF7FF, FontSize = 16 });
         return s;
     }
 }

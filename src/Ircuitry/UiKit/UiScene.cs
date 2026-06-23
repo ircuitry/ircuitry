@@ -32,6 +32,18 @@ public sealed class UiScene
     };
     public string ToJson() => JsonSerializer.Serialize(this, J);
     public static UiScene FromJson(string s) { try { return JsonSerializer.Deserialize<UiScene>(s, J) ?? new(); } catch { return new(); } }
+
+    public static string EventJson(UiEvent e) => JsonSerializer.Serialize(e, J);
+    public static UiEvent EventFromJson(string s) { try { return JsonSerializer.Deserialize<UiEvent>(s, J) ?? new(); } catch { return new(); } }
+}
+
+/// <summary>An interaction the window-host process streams back to the graph: a button click, a text-input
+/// submit (Enter), or a window close. Becomes a UI-event trigger in the node runtime.</summary>
+public sealed class UiEvent
+{
+    public string Type = "";    // click | submit | close
+    public string Id = "";      // the element id that fired it
+    public string Value = "";   // for submit: the input's text
 }
 
 public enum UiKind { Panel, Text, Image, Rect, Button, Input }
