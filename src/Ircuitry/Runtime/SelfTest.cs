@@ -3561,9 +3561,9 @@ public static class SelfTest
 
         var sw = Add("logic.switch", 440, 0);
         sw.SetParam("value", "{1}");
-        sw.SetParam("cases", CasesJson("NICK", "USER", "PING", "JOIN", "PART", "PRIVMSG", "NOTICE", "QUIT", "TOPIC", "MODE", "CAP"));
+        sw.SetParam("cases", CasesJson("NICK", "USER", "PING", "JOIN", "PART", "PRIVMSG", "NOTICE", "QUIT", "TOPIC", "MODE", "CAP", "WHOIS"));
         g.Connect(rx.Id, 0, sw.Id, 0);   // match -> switch
-        // switch outs: 0 default, 1 NICK, 2 USER, 3 PING, 4 JOIN, 5 PART, 6 PRIVMSG, 7 NOTICE, 8 QUIT, 9 TOPIC, 10 MODE, 11 CAP
+        // switch outs: 0 default, 1 NICK, 2 USER, 3 PING, 4 JOIN, 5 PART, 6 PRIVMSG, 7 NOTICE, 8 QUIT, 9 TOPIC, 10 MODE, 11 CAP, 12 WHOIS
 
         // NICK: reject a nick already held by another conn (433), else store conn<->nick and try to register
         var nickA = Add("db.set", 660, -240); nickA.SetParam("table", "cn"); nickA.SetParam("key", "{conn}"); nickA.SetParam("value", "{2}");
@@ -3948,6 +3948,61 @@ public static class SelfTest
         var mfTadd = ToggleChar("cm", "{mchan}", "t", true, 2700, 3080); g.Connect(mSw.Id, 11, mfTadd.Id, 0); g.Connect(mfTadd.Id, 0, mBcLoop.Id, 0);
         var mfTrem = ToggleChar("cm", "{mchan}", "t", false, 2700, 3220); g.Connect(mSw.Id, 12, mfTrem.Id, 0); g.Connect(mfTrem.Id, 0, mBcLoop.Id, 0);
 
+        // ---- WHOIS (switch out 12): 311 user, 312 server, 319 channels (@/+), 318 end; 401 if no such nick ----
+        var wReqGet = Add("db.get", 200, 3500); wReqGet.SetParam("table", "cn"); wReqGet.SetParam("key", "{conn}");
+        var wReqVar = Add("data.setvar", 400, 3500); wReqVar.SetParam("name", "wrnick");   // requester nick (numeric target)
+        g.Connect(wReqGet.Id, 0, wReqVar.Id, 1);
+        g.Connect(sw.Id, 12, wReqVar.Id, 0);
+        var wNcGet = Add("db.get", 200, 3580); wNcGet.SetParam("table", "nc"); wNcGet.SetParam("key", "{2}");
+        var wExists = Add("logic.if", 600, 3500); wExists.SetParam("op", "is empty");
+        g.Connect(wNcGet.Id, 0, wExists.Id, 1);
+        g.Connect(wReqVar.Id, 0, wExists.Id, 0);
+        var w401 = Add("socket.send", 600, 3440); w401.SetParam("conn", "{conn}"); w401.SetParam("data", ":ircuitry 401 {wrnick} {2} :No such nick/channel"); w401.SetParam("append", "crlf");
+        g.Connect(wExists.Id, 0, w401.Id, 0);          // empty -> no such nick
+        var wTcVar = Add("data.setvar", 800, 3580); wTcVar.SetParam("name", "wtconn");   // target's conn id
+        g.Connect(wNcGet.Id, 0, wTcVar.Id, 1);
+        g.Connect(wExists.Id, 1, wTcVar.Id, 0);        // exists -> gather + reply
+        var wCuGet = Add("db.get", 800, 3660); wCuGet.SetParam("table", "cu"); wCuGet.SetParam("key", "{wtconn}");
+        var wUserVar = Add("data.setvar", 1000, 3580); wUserVar.SetParam("name", "wuser");
+        g.Connect(wCuGet.Id, 0, wUserVar.Id, 1);
+        g.Connect(wTcVar.Id, 0, wUserVar.Id, 0);
+        var w311 = Add("socket.send", 1000, 3500); w311.SetParam("conn", "{conn}"); w311.SetParam("data", ":ircuitry 311 {wrnick} {2} {wuser} ircuitry * :{wuser}"); w311.SetParam("append", "crlf");
+        g.Connect(wUserVar.Id, 0, w311.Id, 0);
+        var w312 = Add("socket.send", 1200, 3500); w312.SetParam("conn", "{conn}"); w312.SetParam("data", ":ircuitry 312 {wrnick} {2} ircuitry :ircuitry IRC server (nodes)"); w312.SetParam("append", "crlf");
+        g.Connect(w311.Id, 0, w312.Id, 0);
+        // 319 channels with @/+ prefixes: loop the target's channels (cc), look up status (st) per channel
+        var wChInit = Add("data.setvar", 1000, 3660); wChInit.SetParam("name", "wchans"); wChInit.SetParam("value", "");
+        g.Connect(w312.Id, 0, wChInit.Id, 0);
+        var wCcGet = Add("db.get", 1000, 3720); wCcGet.SetParam("table", "cc"); wCcGet.SetParam("key", "{wtconn}");
+        var wChLoop = Add("logic.forEach", 1200, 3660); wChLoop.SetParam("sep", "space"); wChLoop.SetParam("var", "wch");
+        g.Connect(wChInit.Id, 0, wChLoop.Id, 0);
+        g.Connect(wCcGet.Id, 0, wChLoop.Id, 1);
+        var wStGet = Add("db.get", 1000, 3800); wStGet.SetParam("table", "st"); wStGet.SetParam("key", "{wch} {wtconn}");
+        var wStVar = Add("data.setvar", 1200, 3760); wStVar.SetParam("name", "wcst");
+        g.Connect(wStGet.Id, 0, wStVar.Id, 1);
+        g.Connect(wChLoop.Id, 0, wStVar.Id, 0);
+        var wStFmt = Add("data.format", 1200, 3860); wStFmt.SetParam("template", "{wcst}");
+        var wIfO = Add("logic.if", 1400, 3760); wIfO.SetParam("op", "contains"); wIfO.SetParam("b", "o");
+        g.Connect(wStFmt.Id, 0, wIfO.Id, 1);
+        g.Connect(wStVar.Id, 0, wIfO.Id, 0);
+        var wIfV = Add("logic.if", 1400, 3840); wIfV.SetParam("op", "contains"); wIfV.SetParam("b", "v");
+        g.Connect(wStFmt.Id, 0, wIfV.Id, 1);
+        g.Connect(wIfO.Id, 1, wIfV.Id, 0);
+        var wPfxAt = Add("data.setvar", 1600, 3720); wPfxAt.SetParam("name", "wpfx"); wPfxAt.SetParam("value", "@");
+        var wPfxPlus = Add("data.setvar", 1600, 3800); wPfxPlus.SetParam("name", "wpfx"); wPfxPlus.SetParam("value", "+");
+        var wPfxNone = Add("data.setvar", 1600, 3880); wPfxNone.SetParam("name", "wpfx"); wPfxNone.SetParam("value", "");
+        g.Connect(wIfO.Id, 0, wPfxAt.Id, 0);
+        g.Connect(wIfV.Id, 0, wPfxPlus.Id, 0);
+        g.Connect(wIfV.Id, 1, wPfxNone.Id, 0);
+        var wChApp = Add("data.setvar", 1800, 3800); wChApp.SetParam("name", "wchans"); wChApp.SetParam("value", "{wchans} {wpfx}{wch}");
+        g.Connect(wPfxAt.Id, 0, wChApp.Id, 0);
+        g.Connect(wPfxPlus.Id, 0, wChApp.Id, 0);
+        g.Connect(wPfxNone.Id, 0, wChApp.Id, 0);
+        var w319 = Add("socket.send", 1400, 3660); w319.SetParam("conn", "{conn}"); w319.SetParam("data", ":ircuitry 319 {wrnick} {2} :{wchans}"); w319.SetParam("append", "crlf");
+        g.Connect(wChLoop.Id, 1, w319.Id, 0);          // channels gathered -> 319
+        var w318 = Add("socket.send", 1600, 3660); w318.SetParam("conn", "{conn}"); w318.SetParam("data", ":ircuitry 318 {wrnick} {2} :End of /WHOIS list"); w318.SetParam("append", "crlf");
+        g.Connect(w319.Id, 0, w318.Id, 0);
+
         return g;
     }
 
@@ -4060,6 +4115,14 @@ public static class SelfTest
             a.Send("MODE #mod +t"); b.WaitFor(s => s.Contains("MODE #mod +t"), 8000);
             b.Send("TOPIC #mod :hijack");
             fails += Expect("ircdn-enf-t", b.WaitFor(s => s.Contains(" 482 "), 8000), "+t blocks non-op bob TOPIC (482)");
+
+            // WHOIS: 311 user line, 319 channels (bob is in #test and #mod), 318 end; unknown nick -> 401
+            a.Send("WHOIS bob");
+            fails += Expect("ircdn-whois", a.WaitFor(s => s.Contains(" 311 ") && s.Contains("bob"), 8000), "WHOIS bob returns 311 user line");
+            fails += Expect("ircdn-whois-chans", a.WaitFor(s => s.Contains(" 319 ") && s.Contains("#test"), 8000), "WHOIS shows bob's channels");
+            fails += Expect("ircdn-whois-end", a.WaitFor(s => s.Contains(" 318 ") && s.Contains("bob"), 8000), "WHOIS ends with 318");
+            a.Send("WHOIS nobody");
+            fails += Expect("ircdn-whois-401", a.WaitFor(s => s.Contains(" 401 ") && s.Contains("nobody"), 8000), "WHOIS unknown nick -> 401");
 
             // PART: bob leaves; alice sees it and bob is removed (a later channel message must not reach him)
             b.Send("PART #test :bye");
