@@ -3500,6 +3500,34 @@ public static class SelfTest
     /// so it can be dropped straight into a workspace.</summary>
     public static string EmitIrcdNodeGraph() => Ircuitry.Graph.GraphSerializer.Save(BuildIrcdNodeGraph(6667), "IRCd (nodes)");
 
+    /// <summary>`--publish-ircd [bot]`: drop the freshly-built all-node IRCd graph straight into the workspace
+    /// in place - replacing the named bot's graph (creating the bot if missing) and writing workspace.ircuitry
+    /// back. A running app's file-watcher reloads the change; no copy/paste, no import, no token round-trip.
+    /// Returns a process exit code (0 ok).</summary>
+    public static int PublishIrcdToWorkspace(string botName)
+    {
+        try
+        {
+            var path = System.IO.Path.Combine(Ircuitry.App.AppModel.WorkspaceDir, "workspace.ircuitry");
+            if (!System.IO.File.Exists(path))
+            {
+                Console.Error.WriteLine($"no workspace at {path} - start ircuitry once to create it");
+                return 1;
+            }
+            var (bots, active, groups) = Ircuitry.App.WorkspaceSerializer.Load(System.IO.File.ReadAllText(path));
+            var graph = BuildIrcdNodeGraph(6667);
+            var bot = bots.FirstOrDefault(b => string.Equals(b.Name, botName, StringComparison.OrdinalIgnoreCase));
+            string verb;
+            if (bot != null) { bot.Graph = graph; verb = "updated"; }
+            else { bot = new Ircuitry.App.Bot(botName) { Graph = graph }; bots.Add(bot); active = bots.Count - 1; verb = "created"; }
+            System.IO.File.WriteAllText(path, Ircuitry.App.WorkspaceSerializer.Save(bots, active, groups));
+            Console.WriteLine($"{verb} \"{bot.Name}\" -> {graph.Nodes.Count} nodes / {graph.Connections.Count} wires in {path}");
+            Console.WriteLine("a running ircuitry will reload it; restart the bot to apply to a live session.");
+            return 0;
+        }
+        catch (Exception ex) { Console.Error.WriteLine("publish failed: " + ex.Message); return 1; }
+    }
+
     private static NodeGraph BuildIrcdNodeGraph(int port) => BuildIrcdNodeGraph(port, false);
 
     private static NodeGraph BuildIrcdNodeGraph(int port, bool tls)

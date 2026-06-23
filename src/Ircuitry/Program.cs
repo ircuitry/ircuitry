@@ -20,6 +20,15 @@ public static class Program
             Console.WriteLine(Ircuitry.Runtime.SelfTest.EmitIrcdNodeGraph());   // the all-node IRCd as .ircbot JSON
             return;
         }
+        if (Array.IndexOf(args, "--publish-ircd") >= 0)
+        {
+            // Write the freshly-built all-node IRCd straight into a bot in the workspace, in place (no copy/paste,
+            // no import). A running app's file-watcher reloads the change. Optional arg: the target bot name.
+            int pi = Array.IndexOf(args, "--publish-ircd");
+            string botName = pi + 1 < args.Length && !args[pi + 1].StartsWith("--") ? args[pi + 1] : "IRCd (nodes)";
+            Environment.Exit(Ircuitry.Runtime.SelfTest.PublishIrcdToWorkspace(botName));
+            return;
+        }
         if (Array.IndexOf(args, "--run") >= 0 || Array.IndexOf(args, "--headless") >= 0)
         {
             Environment.Exit(HeadlessRunner.Run(args));
