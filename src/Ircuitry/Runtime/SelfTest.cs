@@ -3548,7 +3548,7 @@ public static class SelfTest
         // On boot there are no live clients, so wipe all ephemeral session state - otherwise stale nc/cn
         // rows from the previous run make fresh registrations collide ("nick already in use").
         var wipe = Add("db.set", 0, -100); wipe.SetParam("mode", "clear");
-        wipe.SetParam("table", "cn nc cu cr mem nm cc st cm tp capneg");
+        wipe.SetParam("table", "cn nc cu cr rn mem nm cc st cm tp capneg");
         g.Connect(start.Id, 0, wipe.Id, 0);
         g.Connect(wipe.Id, 0, listen.Id, 0);
 
@@ -3581,9 +3581,18 @@ public static class SelfTest
         g.Connect(nickMine.Id, 1, nick433.Id, 0);   // held by someone else -> 433
         g.Connect(nickA.Id, 0, nickB.Id, 0);
 
-        // USER: store conn->user, then try to register
+        // USER: store conn->user, capture the realname (GECOS), then try to register
         var userA = Add("db.set", 660, -140); userA.SetParam("table", "cu"); userA.SetParam("key", "{conn}"); userA.SetParam("value", "{2}");
         g.Connect(sw.Id, 2, userA.Id, 0);
+        // realname: {3} is "<mode> <unused> :<realname>" - strip up to & incl. the first colon (data.regex is a
+        // pure transform, so it does NOT clobber the {1}/{2}/{3} run tokens). Empty (no colon) -> db.set deletes
+        // the key, so WHOIS falls back to the username.
+        var uRnFmt = Add("data.format", 660, -460); uRnFmt.SetParam("template", "{3}");
+        var uRnRx = Add("data.regex", 860, -460); uRnRx.SetParam("op", "replace"); uRnRx.SetParam("pattern", "^[^:]*:"); uRnRx.SetParam("replace", "");
+        g.Connect(uRnFmt.Id, 0, uRnRx.Id, 0);
+        var uRnSet = Add("db.set", 1060, -460); uRnSet.SetParam("table", "rn"); uRnSet.SetParam("key", "{conn}");
+        g.Connect(uRnRx.Id, 0, uRnSet.Id, 1);   // value <- extracted realname
+        g.Connect(userA.Id, 0, uRnSet.Id, 0);   // cu stored -> store realname
 
         // try-register: welcome only when nick set AND user set AND not already registered
         var getNick = Add("db.get", 660, 40); getNick.SetParam("table", "cn"); getNick.SetParam("key", "{conn}");
@@ -3598,7 +3607,7 @@ public static class SelfTest
         g.Connect(capnegGet.Id, 0, ifCapNeg.Id, 1);
         g.Connect(ifCapNeg.Id, 0, ifNick.Id, 0);   // not negotiating -> proceed
         g.Connect(nickB.Id, 0, ifCapNeg.Id, 0);    // NICK -> register entry (via CAP guard)
-        g.Connect(userA.Id, 0, ifCapNeg.Id, 0);    // USER -> register entry
+        g.Connect(uRnSet.Id, 0, ifCapNeg.Id, 0);   // USER (after realname stored) -> register entry
         g.Connect(getNick.Id, 0, ifNick.Id, 1); // A = nick
         g.Connect(ifNick.Id, 1, ifUser.Id, 0);  // false branch = nick present
         g.Connect(getUser.Id, 0, ifUser.Id, 1);
@@ -3966,8 +3975,12 @@ public static class SelfTest
         var wUserVar = Add("data.setvar", 1000, 3580); wUserVar.SetParam("name", "wuser");
         g.Connect(wCuGet.Id, 0, wUserVar.Id, 1);
         g.Connect(wTcVar.Id, 0, wUserVar.Id, 0);
-        var w311 = Add("socket.send", 1000, 3500); w311.SetParam("conn", "{conn}"); w311.SetParam("data", ":ircuitry 311 {wrnick} {2} {wuser} ircuitry * :{wuser}"); w311.SetParam("append", "crlf");
-        g.Connect(wUserVar.Id, 0, w311.Id, 0);
+        var wRnGet = Add("db.get", 800, 3640); wRnGet.SetParam("table", "rn"); wRnGet.SetParam("key", "{wtconn}"); wRnGet.SetParam("default", "{wuser}");
+        var wRealVar = Add("data.setvar", 1000, 3620); wRealVar.SetParam("name", "wreal");   // GECOS, falls back to username
+        g.Connect(wRnGet.Id, 0, wRealVar.Id, 1);
+        g.Connect(wUserVar.Id, 0, wRealVar.Id, 0);
+        var w311 = Add("socket.send", 1000, 3500); w311.SetParam("conn", "{conn}"); w311.SetParam("data", ":ircuitry 311 {wrnick} {2} {wuser} ircuitry * :{wreal}"); w311.SetParam("append", "crlf");
+        g.Connect(wRealVar.Id, 0, w311.Id, 0);
         var w312 = Add("socket.send", 1200, 3500); w312.SetParam("conn", "{conn}"); w312.SetParam("data", ":ircuitry 312 {wrnick} {2} ircuitry :ircuitry IRC server (nodes)"); w312.SetParam("append", "crlf");
         g.Connect(w311.Id, 0, w312.Id, 0);
         // 319 channels with @/+ prefixes: loop the target's channels (cc), look up status (st) per channel
@@ -4117,8 +4130,8 @@ public static class SelfTest
             fails += Expect("ircdn-enf-t", b.WaitFor(s => s.Contains(" 482 "), 8000), "+t blocks non-op bob TOPIC (482)");
 
             // WHOIS: 311 user line, 319 channels (bob is in #test and #mod), 318 end; unknown nick -> 401
-            a.Send("WHOIS bob");
-            fails += Expect("ircdn-whois", a.WaitFor(s => s.Contains(" 311 ") && s.Contains("bob"), 8000), "WHOIS bob returns 311 user line");
+            a.Send("WHOIS bob");   // bob registered as `USER bob 0 * :Bob` -> realname "Bob" (distinct from user "bob")
+            fails += Expect("ircdn-whois", a.WaitFor(s => s.Contains(" 311 ") && s.Contains("bob") && s.Contains(":Bob"), 8000), "WHOIS bob 311 shows parsed GECOS realname");
             fails += Expect("ircdn-whois-chans", a.WaitFor(s => s.Contains(" 319 ") && s.Contains("#test"), 8000), "WHOIS shows bob's channels");
             fails += Expect("ircdn-whois-end", a.WaitFor(s => s.Contains(" 318 ") && s.Contains("bob"), 8000), "WHOIS ends with 318");
             a.Send("WHOIS nobody");
