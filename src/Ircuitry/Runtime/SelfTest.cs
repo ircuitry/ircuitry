@@ -3546,10 +3546,20 @@ public static class SelfTest
         g.Connect(rx.Id, 0, sw.Id, 0);   // match -> switch
         // switch outs: 0 default, 1 NICK, 2 USER, 3 PING, 4 JOIN, 5 PART, 6 PRIVMSG, 7 NOTICE, 8 QUIT, 9 TOPIC, 10 MODE, 11 CAP
 
-        // NICK: store conn<->nick, then try to register
+        // NICK: reject a nick already held by another conn (433), else store conn<->nick and try to register
         var nickA = Add("db.set", 660, -240); nickA.SetParam("table", "cn"); nickA.SetParam("key", "{conn}"); nickA.SetParam("value", "{2}");
         var nickB = Add("db.set", 860, -240); nickB.SetParam("table", "nc"); nickB.SetParam("key", "{2}"); nickB.SetParam("value", "{conn}");
-        g.Connect(sw.Id, 1, nickA.Id, 0);
+        var nickGet = Add("db.get", 360, -320); nickGet.SetParam("table", "nc"); nickGet.SetParam("key", "{2}");
+        var nickFree = Add("logic.if", 360, -260); nickFree.SetParam("op", "is empty");
+        var nickMine = Add("logic.if", 360, -200); nickMine.SetParam("op", "="); nickMine.SetParam("b", "{conn}");
+        var nick433 = Add("socket.send", 360, -140); nick433.SetParam("conn", "{conn}"); nick433.SetParam("data", ":ircuitry 433 * {2} :Nickname is already in use"); nick433.SetParam("append", "crlf");
+        g.Connect(sw.Id, 1, nickFree.Id, 0);        // NICK case -> collision check
+        g.Connect(nickGet.Id, 0, nickFree.Id, 1);   // A = who currently holds {2}
+        g.Connect(nickGet.Id, 0, nickMine.Id, 1);
+        g.Connect(nickFree.Id, 0, nickA.Id, 0);     // free -> claim it
+        g.Connect(nickFree.Id, 1, nickMine.Id, 0);  // taken -> is it me?
+        g.Connect(nickMine.Id, 0, nickA.Id, 0);     // re-NICK by the same conn -> ok
+        g.Connect(nickMine.Id, 1, nick433.Id, 0);   // held by someone else -> 433
         g.Connect(nickA.Id, 0, nickB.Id, 0);
 
         // USER: store conn->user, then try to register
@@ -3745,6 +3755,8 @@ public static class SelfTest
             if (b == null) return fails;
             b.Send("NICK bob"); b.Send("USER bob 0 * :Bob");
             b.WaitFor(s => s.Contains(" 376 "), 8000);
+            var x = Dial();
+            if (x != null) { x.Send("NICK alice"); fails += Expect("ircdn-nick-collision", x.WaitFor(s => s.Contains(" 433 "), 6000), "duplicate nick -> 433"); }
             a.Send("JOIN #test");
             fails += Expect("ircdn-join", a.WaitFor(s => s.Contains("JOIN #test") && s.Contains(" 366 "), 8000), "alice joins #test with names");
             b.Send("JOIN #test");
