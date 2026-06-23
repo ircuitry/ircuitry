@@ -260,6 +260,7 @@ public static class SelfTest
         fails += MathTokenTest();
         fails += SaslLoopTest();
         fails += MetadataTest();
+        fails += McpErrorTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3170,6 +3171,21 @@ public static class SelfTest
             fails += Expect("metadata-get-" + (labeled ? "labeled" : "fallback"), ok, "sent: " + string.Join(" | ", mock.Sent()));
             fails += Expect("metadata-path-" + (labeled ? "labeled" : "fallback"), mock.SawLabeledRequest == labeled, "sawLabeled=" + mock.SawLabeledRequest);
         }
+        return fails;
+    }
+
+    /// <summary>A stdio MCP server that can't start (missing command in this environment) must surface the REAL
+    /// reason - exit code / stderr - not a bare "Broken pipe" from writing to the dead process.</summary>
+    private static int McpErrorTest()
+    {
+        int fails = 0;
+        string msg = ""; bool threw = false;
+        try { Ircuitry.App.Mcp.McpClient.ForConfig("stdio", "ircuitry-no-such-cmd-zzz --x", null, 2000); }
+        catch (Exception ex) { threw = true; msg = ex.Message; }
+        fails += Expect("mcp-badcmd-throws", threw, "a missing MCP command should throw");
+        fails += Expect("mcp-badcmd-not-brokenpipe", threw && msg.IndexOf("Broken pipe", StringComparison.OrdinalIgnoreCase) < 0, "should not be the bare broken-pipe message: " + msg);
+        fails += Expect("mcp-badcmd-clear", threw && (msg.Contains("exited") || msg.Contains("not found") || msg.Contains("node/npx")), "should name the real reason: " + msg);
+        Ircuitry.App.Mcp.McpClient.StopAll();
         return fails;
     }
 

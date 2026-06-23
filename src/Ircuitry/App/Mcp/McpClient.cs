@@ -33,16 +33,27 @@ public sealed class McpClient : IDisposable
     private int _id;
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
     private bool _initialized;
+    private string _command = "";                       // the stdio command, for diagnostics
+    private readonly object _errLock = new();
+    private readonly Queue<string> _stderr = new();     // bounded tail of the server's stderr (the real failure reason)
 
     private McpClient(string transport, string url = "") { _transport = transport; _url = url; }
 
     // ---- cache: reuse a live connection per config so we don't spawn a process per message ----
     private static readonly ConcurrentDictionary<string, McpClient> _cache = new();
+    // configs that just failed to start (e.g. a stdio command missing in this container) - back off so we report
+    // the real reason instead of respawning the process and writing to a dead pipe on every single message
+    private static readonly ConcurrentDictionary<string, (string msg, DateTime until)> _failed = new();
 
     /// <summary>Get (or create + initialize) a cached client for this config. Key it uniquely per node config.</summary>
     public static McpClient ForConfig(string transport, string commandOrUrl, List<(string, string)>? headers, int timeoutMs)
     {
         string key = transport + "" + commandOrUrl + "" + string.Join(";", (headers ?? new()).ConvertAll(h => h.Item1 + "=" + h.Item2));
+        if (_failed.TryGetValue(key, out var f))   // a recent hard failure: report the real reason, don't respawn every message
+        {
+            if (f.until > DateTime.UtcNow) throw new Exception(f.msg);
+            _failed.TryRemove(key, out _);          // cooldown elapsed - allow a fresh attempt (maybe it's fixed now)
+        }
         var c = _cache.GetOrAdd(key, _ => Create(transport, commandOrUrl, headers));
         if (!c.Alive)   // a stdio server that died - drop and respawn
         {
@@ -50,7 +61,18 @@ public sealed class McpClient : IDisposable
             try { c.Dispose(); } catch { }
             c = _cache.GetOrAdd(key, _ => Create(transport, commandOrUrl, headers));
         }
-        if (!c._initialized) lock (c) if (!c._initialized) { c.Initialize(timeoutMs); c._initialized = true; }
+        if (!c._initialized) lock (c) if (!c._initialized)
+        {
+            try { c.Initialize(timeoutMs); c._initialized = true; }
+            catch (Exception ex)
+            {
+                string msg = c.FailureMessage(ex);
+                _failed[key] = (msg, DateTime.UtcNow.AddSeconds(60));   // back off so we don't respawn every message
+                _cache.TryRemove(key, out _);
+                try { c.Dispose(); } catch { }
+                throw new Exception(msg);
+            }
+        }
         return c;
     }
 
@@ -71,6 +93,7 @@ public sealed class McpClient : IDisposable
 
     private void SpawnStdio(string command)
     {
+        _command = command;
         var psi = new ProcessStartInfo
         {
             FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
@@ -83,6 +106,36 @@ public sealed class McpClient : IDisposable
         _w = _proc.StandardInput;
         new Thread(() => { try { string? line; while ((line = _proc!.StandardOutput.ReadLine()) != null) OnLine(line); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("MCP stdout reader stopped: " + ex.Message); } })
             { IsBackground = true, Name = "mcp-read" }.Start();
+        // capture stderr so a failure ("npx: not found", a playwright crash, ...) has a real reason attached,
+        // instead of just the "Broken pipe" we'd otherwise hit writing to the dead process
+        new Thread(() => { try { string? line; while ((line = _proc!.StandardError.ReadLine()) != null) lock (_errLock) { _stderr.Enqueue(line.Trim()); while (_stderr.Count > 12) _stderr.Dequeue(); } } catch { } })
+            { IsBackground = true, Name = "mcp-err" }.Start();
+    }
+
+    private string StderrTail() { lock (_errLock) return string.Join(" | ", _stderr).Trim(); }
+
+    // Turn a write/init failure into a message that says WHY: if the stdio server already exited, surface its exit
+    // code and the tail of its stderr (e.g. "sh: npx: not found"), not the bare "Broken pipe" from the dead pipe.
+    private string FailureMessage(Exception ex)
+    {
+        if (_transport == "stdio" && _proc != null)
+        {
+            try { _proc.WaitForExit(400); } catch { }
+            if (_proc.HasExited)
+            {
+                int code = -1; try { code = _proc.ExitCode; } catch { }
+                string err = StderrTail();
+                string hint = (code == 127 || err.Contains("not found") || err.Contains("No such file")) ? " - is node/npx installed in this container?" : "";
+                return $"MCP server exited (code {code}){hint}" + (err.Length > 0 ? ": " + err : $" [{_command}]");
+            }
+        }
+        return $"MCP server '{_command}': {ex.Message}";
+    }
+
+    private void WriteLine(string msg)
+    {
+        try { lock (_writeLock) { _w!.WriteLine(msg); _w.Flush(); } }
+        catch (Exception ex) { throw new Exception(FailureMessage(ex)); }
     }
 
     private void OnLine(string line)
@@ -155,7 +208,7 @@ public sealed class McpClient : IDisposable
     {
         if (_transport == "http") { try { HttpCall(method, prms, null, 5000); } catch { } return; }
         var msg = JsonSerializer.Serialize(new { jsonrpc = "2.0", method, @params = prms }, Json);
-        lock (_writeLock) { _w!.WriteLine(msg); _w.Flush(); }
+        WriteLine(msg);
     }
 
     private JsonElement Request(string method, object? prms, int timeoutMs)
@@ -165,7 +218,7 @@ public sealed class McpClient : IDisposable
         var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[id] = tcs;
         var msg = JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = prms }, Json);
-        lock (_writeLock) { _w!.WriteLine(msg); _w.Flush(); }
+        WriteLine(msg);
         if (!tcs.Task.Wait(Math.Clamp(timeoutMs, 500, 60000))) { _pending.TryRemove(id, out _); throw new TimeoutException("MCP " + method + " timed out"); }
         return tcs.Task.Result;
     }
@@ -199,5 +252,6 @@ public sealed class McpClient : IDisposable
     {
         foreach (var kv in _cache) try { kv.Value.Dispose(); } catch { }
         _cache.Clear();
+        _failed.Clear();
     }
 }
