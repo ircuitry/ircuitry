@@ -266,6 +266,7 @@ public static class SelfTest
         fails += SocketLoopTest();
         fails += StartTriggerTest();
         fails += IrcdE2ETest();
+        fails += IrcdNodesRegisterTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3456,6 +3457,123 @@ public static class SelfTest
 
             a.Send("PING :xyz");
             fails += Expect("ircd-ping", a.WaitFor(s => s.Contains("PONG") && s.Contains(":xyz"), 12000), "alice should get a PONG");
+        }
+        finally
+        {
+            foreach (var p in peers) p.Close();
+            rt.Stop(); Thread.Sleep(150);
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
+    }
+
+    private static string CasesJson(params string[] cases)
+    {
+        var sb = new System.Text.StringBuilder("[");
+        for (int i = 0; i < cases.Length; i++) { if (i > 0) sb.Append(','); sb.Append('"').Append(cases[i]).Append('"'); }
+        return sb.Append(']').ToString();
+    }
+
+    // The IRCd built from ONLY built-in nodes - no code node. State lives in DB tables (cn=conn->nick,
+    // nc=nick->conn, cu=conn->user, cr=conn->registered, ...). logic.regex parses each line once and exposes
+    // {1}/{2}/{3} as run tokens; logic.switch dispatches on the command; logic.if gates registration. This is
+    // the registration slice (NICK/USER -> welcome); later commands extend the switch.
+    private static NodeGraph BuildIrcdNodeGraph(int port)
+    {
+        var g = new NodeGraph();
+        Node Add(string type, float x, float y) => g.Add(NodeCatalog.Get(type), new Vector2(x, y));
+
+        var start = Add("event.start", 0, -260);
+        var listen = Add("socket.listen", 0, -180);
+        listen.SetParam("proto", "tcp"); listen.SetParam("port", port.ToString()); listen.SetParam("framing", "line");
+        g.Connect(start.Id, 0, listen.Id, 0);
+
+        // parse every line once: {1}=command {2}=first arg {3}=trailing
+        var sdata = Add("event.socket.data", 0, 0);
+        var rx = Add("logic.regex", 220, 0);
+        rx.SetParam("pattern", @"^(\S+)\s*(\S*)\s*:?(.*)$"); rx.SetParam("ci", "false");
+        g.Connect(sdata.Id, 0, rx.Id, 0);
+        g.Connect(sdata.Id, 2, rx.Id, 1);   // socket data -> regex text
+
+        var sw = Add("logic.switch", 440, 0);
+        sw.SetParam("value", "{1}");
+        sw.SetParam("cases", CasesJson("NICK", "USER", "PING", "JOIN", "PART", "PRIVMSG", "NOTICE", "QUIT", "TOPIC", "MODE", "CAP"));
+        g.Connect(rx.Id, 0, sw.Id, 0);   // match -> switch
+        // switch outs: 0 default, 1 NICK, 2 USER, 3 PING, 4 JOIN, 5 PART, 6 PRIVMSG, 7 NOTICE, 8 QUIT, 9 TOPIC, 10 MODE, 11 CAP
+
+        // NICK: store conn<->nick, then try to register
+        var nickA = Add("db.set", 660, -240); nickA.SetParam("table", "cn"); nickA.SetParam("key", "{conn}"); nickA.SetParam("value", "{2}");
+        var nickB = Add("db.set", 860, -240); nickB.SetParam("table", "nc"); nickB.SetParam("key", "{2}"); nickB.SetParam("value", "{conn}");
+        g.Connect(sw.Id, 1, nickA.Id, 0);
+        g.Connect(nickA.Id, 0, nickB.Id, 0);
+
+        // USER: store conn->user, then try to register
+        var userA = Add("db.set", 660, -140); userA.SetParam("table", "cu"); userA.SetParam("key", "{conn}"); userA.SetParam("value", "{2}");
+        g.Connect(sw.Id, 2, userA.Id, 0);
+
+        // try-register: welcome only when nick set AND user set AND not already registered
+        var getNick = Add("db.get", 660, 40); getNick.SetParam("table", "cn"); getNick.SetParam("key", "{conn}");
+        var getUser = Add("db.get", 660, 120); getUser.SetParam("table", "cu"); getUser.SetParam("key", "{conn}");
+        var getReg = Add("db.get", 660, 200); getReg.SetParam("table", "cr"); getReg.SetParam("key", "{conn}");
+        var ifNick = Add("logic.if", 880, 40); ifNick.SetParam("op", "is empty");
+        var ifUser = Add("logic.if", 1060, 40); ifUser.SetParam("op", "is empty");
+        var ifReg = Add("logic.if", 1240, 40); ifReg.SetParam("op", "="); ifReg.SetParam("b", "1");
+        g.Connect(nickB.Id, 0, ifNick.Id, 0);   // NICK -> register entry
+        g.Connect(userA.Id, 0, ifNick.Id, 0);   // USER -> register entry (multi-source exec)
+        g.Connect(getNick.Id, 0, ifNick.Id, 1); // A = nick
+        g.Connect(ifNick.Id, 1, ifUser.Id, 0);  // false branch = nick present
+        g.Connect(getUser.Id, 0, ifUser.Id, 1);
+        g.Connect(ifUser.Id, 1, ifReg.Id, 0);   // false branch = user present
+        g.Connect(getReg.Id, 0, ifReg.Id, 1);
+
+        // welcome block (001..376), one Socket Send per line
+        var wnick = Add("data.setvar", 1240, 160); wnick.SetParam("name", "wnick");
+        g.Connect(getNick.Id, 0, wnick.Id, 1);   // wnick = the conn's nick
+        g.Connect(ifReg.Id, 1, wnick.Id, 0);     // false branch = not yet registered -> welcome
+        var regset = Add("db.set", 1240, 240); regset.SetParam("table", "cr"); regset.SetParam("key", "{conn}"); regset.SetParam("value", "1");
+        g.Connect(wnick.Id, 0, regset.Id, 0);
+        var wfmt = Add("data.format", 1440, 340);
+        wfmt.SetParam("template",
+            ":ircuitry 001 {wnick} :Welcome to the ircuitry IRC network {wnick}\n" +
+            ":ircuitry 002 {wnick} :Your host is ircuitry, running on nodes\n" +
+            ":ircuitry 003 {wnick} :This server is brand new\n" +
+            ":ircuitry 004 {wnick} ircuitry ircuitry o o\n" +
+            ":ircuitry 005 {wnick} CHANTYPES=# PREFIX=(o)@ NETWORK=ircuitry :are supported by this server\n" +
+            ":ircuitry 375 {wnick} :- ircuitry Message of the Day -\n" +
+            ":ircuitry 372 {wnick} :- An IRC server built entirely from ircuitry nodes.\n" +
+            ":ircuitry 376 {wnick} :End of /MOTD command.");
+        var wloop = Add("logic.forEach", 1440, 240); wloop.SetParam("sep", "newline");
+        g.Connect(regset.Id, 0, wloop.Id, 0);
+        g.Connect(wfmt.Id, 0, wloop.Id, 1);
+        var wsend = Add("socket.send", 1640, 240); wsend.SetParam("conn", "{conn}"); wsend.SetParam("data", "{item}"); wsend.SetParam("append", "crlf");
+        g.Connect(wloop.Id, 0, wsend.Id, 0);
+
+        return g;
+    }
+
+    /// <summary>The all-built-in-nodes IRCd (NO code node): boot it hostless and check a client registers via the
+    /// node graph alone - logic.regex parse, logic.switch dispatch, DB-table state, logic.if gating, welcome
+    /// fan-out. Needs no sandbox (no code node), so it runs anywhere.</summary>
+    private static int IrcdNodesRegisterTest()
+    {
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-ircdn-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(tmp);
+        Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+        int port = FreePort();
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+        var peers = new List<IrcPeer>();
+        int fails = 0;
+        try
+        {
+            rt.Start(BuildIrcdNodeGraph(port), new IrcSettings { Host = "", Nick = "ircd" });
+            IrcPeer? Dial() { for (int i = 0; i < 100; i++) { try { var p = new IrcPeer(port); peers.Add(p); return p; } catch { Thread.Sleep(50); } } return null; }
+            var a = Dial();
+            fails += Expect("ircdn-listen", a != null, $"node IRCd should listen on {port}");
+            if (a == null) return fails;
+            a.Send("NICK alice"); a.Send("USER alice 0 * :Alice");
+            fails += Expect("ircdn-register", a.WaitFor(s => s.Contains(" 001 alice ") && s.Contains(" 376 "), 8000), "all-node IRCd should register alice (001..376)");
         }
         finally
         {

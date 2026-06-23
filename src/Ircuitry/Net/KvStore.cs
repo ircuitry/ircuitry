@@ -14,8 +14,19 @@ public static class KvStore
 {
     private static readonly object Gate = new();
 
-    public static string Dir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry", "data");
+    // Follows the active workspace (IRCUITRY_HOME) exactly like AppModel.WorkspaceDir, so a relocated or
+    // throwaway/test workspace gets its own isolated db rather than always hitting ~/ircuitry/data.
+    public static string Dir
+    {
+        get
+        {
+            var ov = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+            var home = !string.IsNullOrEmpty(ov)
+                ? ov
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry");
+            return Path.Combine(home, "data");
+        }
+    }
 
     private static string PathFor(string table)
     {
