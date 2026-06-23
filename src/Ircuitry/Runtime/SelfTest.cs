@@ -3527,6 +3527,20 @@ public static class SelfTest
             return (init, set);
         }
 
+        // Ensure a single char is present (add) or absent (!add) in the string at table[keyTok]. Returns the db.set
+        // (entry=exit): wire prev -> it, its 'then' -> next. Reusable for channel mode flags (cm), etc.
+        Node ToggleChar(string table, string keyTok, string ch, bool add, float x, float y)
+        {
+            var get = Add("db.get", x, y + 70); get.SetParam("table", table); get.SetParam("key", keyTok);
+            var rm = Add("data.regex", x + 180, y + 70); rm.SetParam("op", "replace"); rm.SetParam("pattern", ch); rm.SetParam("replace", "");
+            g.Connect(get.Id, 0, rm.Id, 0);   // regex text <- current value (strip the char so we never duplicate)
+            Node valSrc = rm;
+            if (add) { var ap = Add("data.format", x + 360, y + 70); ap.SetParam("template", "{a}" + ch); g.Connect(rm.Id, 0, ap.Id, 0); valSrc = ap; }
+            var set = Add("db.set", x + 180, y); set.SetParam("table", table); set.SetParam("key", keyTok);
+            g.Connect(valSrc.Id, 0, set.Id, 1);   // value <- cleaned (+ the char on add)
+            return set;
+        }
+
         var start = Add("event.start", 0, -260);
         var listen = Add("socket.listen", 0, -180);
         listen.SetParam("proto", "tcp"); listen.SetParam("port", port.ToString()); listen.SetParam("framing", "line");
@@ -3834,9 +3848,16 @@ public static class SelfTest
         // set -> parse "<modestring> <arg>" from {mrest} (saves the outer {2}/{3} via {mchan}/{mrest} first)
         var mParseTxt = Add("data.format", 1900, 2080); mParseTxt.SetParam("template", "{mrest}");
         var mParse = Add("logic.regex", 2100, 2020); mParse.SetParam("pattern", "^(\\S+)\\s*(\\S*)"); mParse.SetParam("ci", "false");
-        g.Connect(mIsQuery.Id, 1, mParse.Id, 0);   // not query -> parse
         g.Connect(mParseTxt.Id, 0, mParse.Id, 1);
-        var mSw = Add("logic.switch", 2300, 2020); mSw.SetParam("value", "{1}"); mSw.SetParam("cases", CasesJson("+o", "-o", "+v", "-v")); mSw.SetParam("ci", "false");
+        // op-gate: only a channel operator may change modes (482 otherwise)
+        var mOpGet = Add("db.get", 1900, 2140); mOpGet.SetParam("table", "st"); mOpGet.SetParam("key", "{mchan} {conn}");
+        var mOpIf = Add("logic.if", 2050, 2080); mOpIf.SetParam("op", "contains"); mOpIf.SetParam("b", "o");
+        g.Connect(mOpGet.Id, 0, mOpIf.Id, 1);
+        g.Connect(mIsQuery.Id, 1, mOpIf.Id, 0);     // not query -> op-gate
+        var m482 = Add("socket.send", 2050, 2160); m482.SetParam("conn", "{conn}"); m482.SetParam("data", ":ircuitry 482 {mnick} {mchan} :You're not channel operator"); m482.SetParam("append", "crlf");
+        g.Connect(mOpIf.Id, 1, m482.Id, 0);         // not op -> 482
+        g.Connect(mOpIf.Id, 0, mParse.Id, 0);       // op -> parse + dispatch
+        var mSw = Add("logic.switch", 2300, 2020); mSw.SetParam("value", "{1}"); mSw.SetParam("cases", CasesJson("+o", "-o", "+v", "-v", "+i", "-i", "+m", "-m", "+n", "-n", "+t", "-t")); mSw.SetParam("ci", "false");
         g.Connect(mParse.Id, 0, mSw.Id, 0);
         // each case sets the new status value {mval}, then all converge to apply + broadcast
         var mvO = Add("data.setvar", 2500, 1980); mvO.SetParam("name", "mval"); mvO.SetParam("value", "o");
@@ -3862,6 +3883,15 @@ public static class SelfTest
         g.Connect(mBcGet.Id, 0, mBcLoop.Id, 1);
         var mBcSend = Add("socket.send", 3500, 2060); mBcSend.SetParam("conn", "{mbm}"); mBcSend.SetParam("data", ":{mnick}!user@ircuitry MODE {mchan} {1} {2}"); mBcSend.SetParam("append", "crlf");
         g.Connect(mBcLoop.Id, 0, mBcSend.Id, 0);
+        // channel flag modes (+i/-i/+m/-m/+n/-n/+t/-t): toggle the char in cm, then converge to the same broadcast
+        var mfIadd = ToggleChar("cm", "{mchan}", "i", true, 2700, 2240); g.Connect(mSw.Id, 5, mfIadd.Id, 0); g.Connect(mfIadd.Id, 0, mBcLoop.Id, 0);
+        var mfIrem = ToggleChar("cm", "{mchan}", "i", false, 2700, 2380); g.Connect(mSw.Id, 6, mfIrem.Id, 0); g.Connect(mfIrem.Id, 0, mBcLoop.Id, 0);
+        var mfMadd = ToggleChar("cm", "{mchan}", "m", true, 2700, 2520); g.Connect(mSw.Id, 7, mfMadd.Id, 0); g.Connect(mfMadd.Id, 0, mBcLoop.Id, 0);
+        var mfMrem = ToggleChar("cm", "{mchan}", "m", false, 2700, 2660); g.Connect(mSw.Id, 8, mfMrem.Id, 0); g.Connect(mfMrem.Id, 0, mBcLoop.Id, 0);
+        var mfNadd = ToggleChar("cm", "{mchan}", "n", true, 2700, 2800); g.Connect(mSw.Id, 9, mfNadd.Id, 0); g.Connect(mfNadd.Id, 0, mBcLoop.Id, 0);
+        var mfNrem = ToggleChar("cm", "{mchan}", "n", false, 2700, 2940); g.Connect(mSw.Id, 10, mfNrem.Id, 0); g.Connect(mfNrem.Id, 0, mBcLoop.Id, 0);
+        var mfTadd = ToggleChar("cm", "{mchan}", "t", true, 2700, 3080); g.Connect(mSw.Id, 11, mfTadd.Id, 0); g.Connect(mfTadd.Id, 0, mBcLoop.Id, 0);
+        var mfTrem = ToggleChar("cm", "{mchan}", "t", false, 2700, 3220); g.Connect(mSw.Id, 12, mfTrem.Id, 0); g.Connect(mfTrem.Id, 0, mBcLoop.Id, 0);
 
         return g;
     }
@@ -3934,6 +3964,10 @@ public static class SelfTest
             fails += Expect("ircdn-mode-voice", b.WaitFor(s => s.Contains("alice!") && s.Contains("MODE #test +v bob"), 8000), "bob sees +v from alice");
             b.Send("MODE #test");
             fails += Expect("ircdn-mode-query", b.WaitFor(s => s.Contains(" 324 ") && s.Contains("#test"), 8000), "MODE query returns 324");
+            a.Send("MODE #test +m");
+            fails += Expect("ircdn-mode-flag", b.WaitFor(s => s.Contains("MODE #test +m"), 8000), "alice (op) sets +m, bob sees it");
+            b.Send("MODE #test +n");   // bob is voiced, not op
+            fails += Expect("ircdn-mode-opgate", b.WaitFor(s => s.Contains(" 482 "), 8000), "non-op MODE change is rejected with 482");
 
             // PART: bob leaves; alice sees it and bob is removed (a later channel message must not reach him)
             b.Send("PART #test :bye");
