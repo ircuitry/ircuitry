@@ -51,6 +51,15 @@ public static class SelfTest
         public IReadOnlyList<RecentMsg> RecentMessages(int count) => RecentSeed;
         public readonly List<RecentMsg> HistorySeed = new();  // what a CHATHISTORY request returns
         public IReadOnlyList<RecentMsg> RequestHistory(string target, string sub, int count, int timeoutMs) => HistorySeed;
+
+        // node-authored UI: capture into in-memory scenes instead of spawning real windows
+        public readonly Dictionary<string, Ircuitry.UiKit.UiScene> UiScenes = new();
+        private Ircuitry.UiKit.UiScene US(string w) { if (!UiScenes.TryGetValue(w, out var s)) { s = new(); UiScenes[w] = s; } return s; }
+        public void UiWindow(string id, string title, int w, int h, uint bg) { var s = US(id); if (title.Length > 0) s.Title = title; if (w > 0) s.Width = w; if (h > 0) s.Height = h; s.Bg = bg; }
+        public void UiUpsert(string id, Ircuitry.UiKit.UiElement e) { var s = US(id); int i = s.Elements.FindIndex(x => x.Id == e.Id); if (i >= 0) s.Elements[i] = e; else s.Elements.Add(e); }
+        public void UiAnimate(string id, string eid, Ircuitry.UiKit.Tween t) { US(id).Find(eid)?.Tweens.Add(t); }
+        public void UiRemove(string id, string eid) { var s = US(id); if (eid.Length == 0) s.Elements.Clear(); else s.Elements.RemoveAll(x => x.Id == eid); }
+        public void UiClose(string id) { UiScenes.Remove(id); }
     }
 
     private static Node N(NodeGraph g, string type, float x, float y)
@@ -269,6 +278,7 @@ public static class SelfTest
         fails += IrcdNodesE2ETest();
         fails += IrcdNodesTlsTest();
         fails += UiTweenTest();
+        fails += UiNodesTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3497,6 +3507,47 @@ public static class SelfTest
     // nc=nick->conn, cu=conn->user, cr=conn->registered, ...). logic.regex parses each line once and exposes
     // {1}/{2}/{3} as run tokens; logic.switch dispatches on the command; logic.if gates registration. This is
     // the registration slice (NICK/USER -> welcome); later commands extend the switch.
+    /// <summary>The UI nodes build a scene through the sink (ui.window/panel/button/text/animate) and the On UI
+    /// Event trigger filters by window/event/id - exercised in-process with a FakeSink (no real windows).</summary>
+    private static int UiNodesTest()
+    {
+        int fails = 0;
+        // build a window from nodes: start -> window -> panel -> button -> text -> animate(card.x)
+        var g = new NodeGraph();
+        var start = N(g, "event.start", 0, 0);
+        var win = N(g, "ui.window", 200, 0); win.SetParam("window", "main"); win.SetParam("title", "Test UI"); win.SetParam("width", "640"); win.SetParam("height", "480"); win.SetParam("bg", "#101014");
+        var panel = N(g, "ui.panel", 400, 0); panel.SetParam("window", "main"); panel.SetParam("id", "card"); panel.SetParam("x", "10"); panel.SetParam("y", "10"); panel.SetParam("w", "300"); panel.SetParam("h", "200");
+        var btn = N(g, "ui.button", 600, 0); btn.SetParam("window", "main"); btn.SetParam("id", "go"); btn.SetParam("parent", "card"); btn.SetParam("text", "Go");
+        var txt = N(g, "ui.text", 800, 0); txt.SetParam("window", "main"); txt.SetParam("id", "lbl"); txt.SetParam("text", "hi {botnick}");
+        var anim = N(g, "ui.animate", 1000, 0); anim.SetParam("window", "main"); anim.SetParam("id", "card"); anim.SetParam("prop", "x"); anim.SetParam("from", "10"); anim.SetParam("to", "50"); anim.SetParam("duration", "1");
+        g.Connect(start.Id, 0, win.Id, 0); g.Connect(win.Id, 0, panel.Id, 0); g.Connect(panel.Id, 0, btn.Id, 0); g.Connect(btn.Id, 0, txt.Id, 0); g.Connect(txt.Id, 0, anim.Id, 0);
+
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, start, Vars("", "alice", "#test"));
+        bool hasWin = sink.UiScenes.TryGetValue("main", out var scene);
+        fails += Expect("ui-node-window", hasWin && scene!.Title == "Test UI" && scene.Width == 640 && scene.Height == 480, "ui.window builds the window");
+        var card = scene?.Find("card"); var go = scene?.Find("go"); var lbl = scene?.Find("lbl");
+        fails += Expect("ui-node-elements", card?.Kind == Ircuitry.UiKit.UiKind.Panel && go?.Kind == Ircuitry.UiKit.UiKind.Button && go.Parent == "card" && go.Text == "Go" && lbl?.Kind == Ircuitry.UiKit.UiKind.Text, "panel + button(parented) + text added");
+        fails += Expect("ui-node-token", lbl?.Text == "hi ircuitry", $"text resolves {{tokens}}, got '{lbl?.Text}'");
+        fails += Expect("ui-node-animate", card != null && card.Tweens.Count == 1 && card.Tweens[0].Prop == "x" && card.Tweens[0].To == 50f, "ui.animate attaches a tween");
+
+        // On UI Event filters: a click on "go" fires; a click on another id does not
+        var g2 = new NodeGraph();
+        var on = N(g2, "ui.on", 0, 0); on.SetParam("event", "click"); on.SetParam("id", "go");
+        var log = N(g2, "action.log", 300, 0); log.SetParam("text", "HIT {ui_value}");
+        g2.Connect(on.Id, 0, log.Id, 0);
+        Dictionary<string, string> UiVars(string ev, string id, string val) => new()
+        { ["window"] = "main", ["ui_event"] = ev, ["ui_id"] = id, ["ui_value"] = val, ["botnick"] = "ircuitry" };
+
+        var hit = new FakeSink();
+        GraphExecutor.Fire(g2, hit, on, UiVars("click", "go", "yo"));
+        fails += Expect("ui-on-match", hit.Logs.Exists(l => l.Contains("HIT") && l.Contains("yo")), "On UI Event fires + exposes {ui_value}");
+        var miss = new FakeSink();
+        GraphExecutor.Fire(g2, miss, on, UiVars("click", "other", ""));
+        fails += Expect("ui-on-filter", !miss.Logs.Exists(l => l.Contains("HIT")), "On UI Event ignores a different element id");
+        return fails;
+    }
+
     /// <summary>The declarative UI scene tween engine: easing, lerp, ping-pong, delay, JSON round-trip - the
     /// animation that the window-host render process advances each frame for node-authored UI.</summary>
     private static int UiTweenTest()

@@ -106,6 +106,19 @@ public interface IRuntimeSink
     /// <summary>Close a connection or a listener by id.</summary>
     void SocketClose(string id) { }
 
+    // ---- node-authored UI windows (UiKit) - real OS windows rendered by ircuitry's own renderer.
+    // No-ops on sinks without a live runtime (dry runs/tests/headless servers). ----
+    /// <summary>Open (or update) a window: title + size + background (0xRRGGBBAA).</summary>
+    void UiWindow(string windowId, string title, int width, int height, uint bg) { }
+    /// <summary>Add or replace an element (by its id) in a window's scene, then push the scene to the window.</summary>
+    void UiUpsert(string windowId, Ircuitry.UiKit.UiElement element) { }
+    /// <summary>Attach a tween to an element in a window's scene.</summary>
+    void UiAnimate(string windowId, string elementId, Ircuitry.UiKit.Tween tween) { }
+    /// <summary>Remove an element by id (empty id clears the whole window).</summary>
+    void UiRemove(string windowId, string elementId) { }
+    /// <summary>Close a window.</summary>
+    void UiClose(string windowId) { }
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);

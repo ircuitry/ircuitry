@@ -282,6 +282,20 @@ public static class NodeCatalog
         return outb;
     }
 
+    /// <summary>Parse a UI colour - "#rrggbb", "rrggbb", or "rrggbbaa" - to packed 0xRRGGBBAA. Falls back to
+    /// <paramref name="def"/> when blank/malformed (so a missing colour still draws sensibly).</summary>
+    private static uint UiColor(string s, uint def)
+    {
+        s = (s ?? "").Trim().TrimStart('#');
+        if (s.Length == 3) s = string.Concat(s[0], s[0], s[1], s[1], s[2], s[2]);
+        if (s.Length == 6) s += "ff";
+        if (s.Length == 8 && uint.TryParse(s, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var v)) return v;
+        return def;
+    }
+
+    private static string? NullIf(string s) => string.IsNullOrEmpty(s) ? null : s;
+    private static float ParseF(string s, float def = 0f) => float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : def;
+
     private static string CodeRoot(INodeContext c) => c.Resolve(c.Param("root"));
 
     /// <summary>Run a code-tool body: put the result (or a tidy error) in <paramref name="resultPin"/> and
@@ -3947,6 +3961,193 @@ public static class NodeCatalog
                     var (output, err) = CodeRunner.Run(c.Param("language"), c.Resolve(c.Param("code")), ctx, c.ParamInt("timeout", 5));
                     if (err != null) c.Log("code error: " + err, LogLevel.Error);
                     c.SetOut(1, output);
+                    c.Pulse(0);
+                },
+            },
+
+            // ===================== UI (node-authored cross-platform windows) =====================
+            new()
+            {
+                TypeId = "ui.window", Icon = "app-window", Title = "UI Window", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Open (or update) a real OS window painted by ircuitry's own renderer. Other UI nodes that share the same Window id add panels, text, media and controls to it; the window streams clicks and text back to On UI Event.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", "a name; share it across UI nodes"),
+                    P("title", "Title", ParamType.Text, "ircuitry", ""),
+                    P("width", "Width", ParamType.Int, "800", "800"),
+                    P("height", "Height", ParamType.Int, "600", "600"),
+                    P("bg", "Background", ParamType.Text, "#141018", "#rrggbb"),
+                },
+                SummaryParam = "title",
+                Exec = c => { c.UiWindow(c.Resolve(c.Param("window")), c.Resolve(c.Param("title")), c.ParamInt("width", 800), c.ParamInt("height", 600), UiColor(c.Resolve(c.Param("bg")), 0x141018FF)); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.text", Icon = "text-aa", Title = "UI Text", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Add or update a text label in a window (by its id). Set x/y, size, font and colour. Re-running with the same id updates the text - e.g. a live value.",
+                Inputs = new[] { Ex(), Tx("text") }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "label", ""),
+                    P("parent", "Parent id", ParamType.Text, "", "(optional) position relative to this element"),
+                    P("text", "Text", ParamType.Text, "Hello", "{tokens} ok"),
+                    P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
+                    P("size", "Font size", ParamType.Int, "18", ""),
+                    P("font", "Font", ParamType.Choice, "sans", "", new[] { "sans", "bold", "mono", "monobold", "display" }),
+                    P("color", "Colour", ParamType.Text, "#F2EEF7", "#rrggbb"),
+                },
+                SummaryParam = "text",
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Text, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), Text = c.InOr(1, c.Resolve(c.Param("text"))), FontSize = c.ParamInt("size", 18), Font = c.Param("font"), Color = UiColor(c.Resolve(c.Param("color")), 0xF2EEF7FF) }); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.panel", Icon = "square", Title = "UI Panel", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "A rounded panel/card (optionally with a centered label). Use it as a background or a container - give other elements its id as their Parent to position them inside it.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "panel", ""),
+                    P("parent", "Parent id", ParamType.Text, "", ""),
+                    P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
+                    P("w", "Width", ParamType.Int, "320", ""), P("h", "Height", ParamType.Int, "200", ""),
+                    P("color", "Colour", ParamType.Text, "#1E1B26", "#rrggbb"),
+                    P("radius", "Corner radius", ParamType.Int, "16", ""),
+                    P("text", "Label", ParamType.Text, "", "(optional)"),
+                },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Panel, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 320), H = c.ParamInt("h", 200), Color = UiColor(c.Resolve(c.Param("color")), 0x1E1B26FF), Radius = c.ParamInt("radius", 16), Text = c.Resolve(c.Param("text")) }); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.rect", Icon = "rectangle", Title = "UI Rect", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "A solid (or outlined) rectangle - a swatch, bar, divider or backdrop. Animate its size/position/colour with UI Animate.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "rect", ""),
+                    P("parent", "Parent id", ParamType.Text, "", ""),
+                    P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
+                    P("w", "Width", ParamType.Int, "120", ""), P("h", "Height", ParamType.Int, "120", ""),
+                    P("color", "Colour", ParamType.Text, "#FF6FB5", "#rrggbb"),
+                    P("filled", "Filled", ParamType.Bool, "true", ""),
+                },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Rect, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 120), H = c.ParamInt("h", 120), Color = UiColor(c.Resolve(c.Param("color")), 0xFF6FB5FF), Filled = c.ParamBool("filled") }); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.image", Icon = "image", Title = "UI Image", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Draw an image from a local file path into a window. Fades with its alpha (animate it with UI Animate). PNG/JPG/GIF/BMP.",
+                Inputs = new[] { Ex(), Tx("src") }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "image", ""),
+                    P("parent", "Parent id", ParamType.Text, "", ""),
+                    P("src", "Image path", ParamType.Text, "", "/path/to/pic.png", file: true),
+                    P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
+                    P("w", "Width", ParamType.Int, "96", ""), P("h", "Height", ParamType.Int, "96", ""),
+                },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Image, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 96), H = c.ParamInt("h", 96), Src = c.InOr(1, c.Resolve(c.Param("src"))) }); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.button", Icon = "cursor-click", Title = "UI Button", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "A clickable button. Clicking it fires On UI Event (event = click, id = this button's id) so you can wire the rest of the graph to it.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "go", ""),
+                    P("parent", "Parent id", ParamType.Text, "", ""),
+                    P("text", "Label", ParamType.Text, "Click me", ""),
+                    P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
+                    P("w", "Width", ParamType.Int, "160", ""), P("h", "Height", ParamType.Int, "48", ""),
+                    P("color", "Colour", ParamType.Text, "#6C5CE7", "#rrggbb"),
+                    P("textColor", "Text colour", ParamType.Text, "#FFFFFF", "#rrggbb"),
+                    P("radius", "Corner radius", ParamType.Int, "14", ""),
+                },
+                SummaryParam = "text",
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Button, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 160), H = c.ParamInt("h", 48), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x6C5CE7FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xFFFFFFFF), Radius = c.ParamInt("radius", 14) }); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.input", Icon = "textbox", Title = "UI Text Field", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "A text field the user can type into. Pressing Enter fires On UI Event (event = submit, id = this field's id, value = the text).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "field", ""),
+                    P("parent", "Parent id", ParamType.Text, "", ""),
+                    P("text", "Initial text", ParamType.Text, "", ""),
+                    P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
+                    P("w", "Width", ParamType.Int, "260", ""), P("h", "Height", ParamType.Int, "44", ""),
+                    P("color", "Colour", ParamType.Text, "#554F66", "#rrggbb"),
+                },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 260), H = c.ParamInt("h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF) }); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.animate", Icon = "sparkle", Title = "UI Animate", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Tween a property of an element from one value to another over a duration, with an easing curve - optionally looping or ping-ponging. The window advances it smoothly each frame.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "", "the element to animate"),
+                    P("prop", "Property", ParamType.Choice, "x", "", new[] { "x", "y", "w", "h", "alpha", "scale", "rotation", "radius" }),
+                    P("from", "From", ParamType.Text, "0", ""), P("to", "To", ParamType.Text, "100", ""),
+                    P("duration", "Duration (s)", ParamType.Text, "0.5", ""),
+                    P("ease", "Easing", ParamType.Choice, "easeInOut", "", new[] { "linear", "easeIn", "easeOut", "easeInOut", "back", "bounce" }),
+                    P("loop", "Loop", ParamType.Bool, "false", ""), P("pingpong", "Ping-pong", ParamType.Bool, "false", ""),
+                    P("delay", "Delay (s)", ParamType.Text, "0", ""),
+                },
+                SummaryParam = "prop",
+                Exec = c =>
+                {
+                    var t = new Ircuitry.UiKit.Tween
+                    {
+                        Prop = c.Param("prop"),
+                        From = ParseF(c.Resolve(c.Param("from"))), To = ParseF(c.Resolve(c.Param("to"))),
+                        Duration = ParseF(c.Resolve(c.Param("duration")), 0.5f), Delay = ParseF(c.Resolve(c.Param("delay"))),
+                        Ease = c.Param("ease"), Loop = c.ParamBool("loop"), PingPong = c.ParamBool("pingpong"),
+                    };
+                    c.UiAnimate(c.Resolve(c.Param("window")), c.Resolve(c.Param("id")), t); c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "ui.remove", Icon = "trash", Title = "UI Remove", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Remove an element from a window by id. Leave the id blank to clear the whole window (keeping it open).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[] { P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "", "(blank = clear all)") },
+                Exec = c => { c.UiRemove(c.Resolve(c.Param("window")), c.Resolve(c.Param("id"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.close", Icon = "x", Title = "UI Close", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Close a window.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[] { P("window", "Window", ParamType.Text, "main", "") },
+                Exec = c => { c.UiClose(c.Resolve(c.Param("window"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "ui.on", Icon = "hand-pointing", Title = "On UI Event", Subtitle = "trigger", Category = NodeCategory.Ui,
+                TriggerEvent = "ui",
+                Description = "Fires when a window control is used - a button click or a text-field submit (Enter). Filter by Window, event type and element id. Outputs the {ui_id}, the typed {ui_value} (for submit) and the {ui_event}.",
+                Outputs = new[] { Ex("then"), Tx("id"), Tx("value"), Tx("event") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "", "(any)"),
+                    P("event", "Event", ParamType.Choice, "any", "", new[] { "any", "click", "submit", "close" }),
+                    P("id", "Element id", ParamType.Text, "", "(any)"),
+                },
+                Exec = c =>
+                {
+                    string w = c.Resolve(c.Param("window"));
+                    string ev = c.Param("event");
+                    string id = c.Resolve(c.Param("id"));
+                    if (w.Length > 0 && w != c.Var("window")) return;
+                    if (ev.Length > 0 && ev != "any" && ev != c.Var("ui_event")) return;
+                    if (id.Length > 0 && id != c.Var("ui_id")) return;
+                    c.SetOut(1, c.Var("ui_id")); c.SetOut(2, c.Var("ui_value")); c.SetOut(3, c.Var("ui_event"));
                     c.Pulse(0);
                 },
             },

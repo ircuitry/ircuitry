@@ -106,6 +106,68 @@ public sealed class ServerConn : IRuntimeSink
     public int SocketBroadcast(string listenerId, byte[] data) => _sockets.Broadcast(listenerId, data);
     public void SocketClose(string id) => _sockets.Close(id);
 
+    // ---- node-authored UI windows: retained scenes per window id, painted by a child --ui-window process ----
+    private Ircuitry.UiKit.UiHost? _uiHost;
+    private readonly Dictionary<string, Ircuitry.UiKit.UiScene> _uiScenes = new();
+    private readonly object _uiGate = new();
+
+    private Ircuitry.UiKit.UiHost UiHost() => _uiHost ??=
+        new Ircuitry.UiKit.UiHost(OnUiEvent, (m, err) => _owner.LogFrom(Label, err ? LogLevel.Error : LogLevel.System, m));
+
+    private Ircuitry.UiKit.UiScene UiSceneFor(string w) { if (!_uiScenes.TryGetValue(w, out var s)) { s = new(); _uiScenes[w] = s; } return s; }
+    private void UiStream(string w, Ircuitry.UiKit.UiScene s) => UiHost().Send(w, s.ToJson());
+
+    public void UiWindow(string id, string title, int width, int height, uint bg)
+    {
+        if (id.Length == 0) id = "main";
+        lock (_uiGate) { var s = UiSceneFor(id); if (title.Length > 0) s.Title = title; if (width > 0) s.Width = width; if (height > 0) s.Height = height; s.Bg = bg; UiStream(id, s); }
+    }
+
+    public void UiUpsert(string id, Ircuitry.UiKit.UiElement e)
+    {
+        if (id.Length == 0) id = "main";
+        if (e.Id.Length == 0) return;
+        lock (_uiGate)
+        {
+            var s = UiSceneFor(id);
+            int i = s.Elements.FindIndex(x => x.Id == e.Id);
+            if (i >= 0) { if (e.Tweens.Count == 0) e.Tweens = s.Elements[i].Tweens; s.Elements[i] = e; }   // keep running tweens on a field update
+            else s.Elements.Add(e);
+            UiStream(id, s);
+        }
+    }
+
+    public void UiAnimate(string id, string elementId, Ircuitry.UiKit.Tween t)
+    {
+        if (id.Length == 0) id = "main";
+        lock (_uiGate) { var e = UiSceneFor(id).Find(elementId); if (e != null) { e.Tweens.Add(t); UiStream(id, UiSceneFor(id)); } }
+    }
+
+    public void UiRemove(string id, string elementId)
+    {
+        if (id.Length == 0) id = "main";
+        lock (_uiGate) { var s = UiSceneFor(id); if (elementId.Length == 0) s.Elements.Clear(); else s.Elements.RemoveAll(x => x.Id == elementId); UiStream(id, s); }
+    }
+
+    public void UiClose(string id)
+    {
+        if (id.Length == 0) id = "main";
+        lock (_uiGate) _uiScenes.Remove(id);
+        _uiHost?.Close(id);
+    }
+
+    // a child window streamed back an interaction -> fire the "ui" trigger family with its vars
+    private void OnUiEvent(string windowId, Ircuitry.UiKit.UiEvent ev)
+    {
+        if (!_running || _owner.RunGraph == null) return;
+        var v = BaseVars();
+        v["window"] = windowId;
+        v["ui_event"] = ev.Type;
+        v["ui_id"] = ev.Id;
+        v["ui_value"] = ev.Value;
+        FireFamily("ui", v);
+    }
+
     // matches a routing name (a node's "server" override) to this connection
     public bool Matches(string name)
     {
@@ -158,6 +220,7 @@ public sealed class ServerConn : IRuntimeSink
         try { _runQueue?.CompleteAdding(); } catch { /* already completed */ }   // workers drain + exit
         StopAllTyping();   // send +typing=done for anything still active before we drop the link
         _sockets.StopAll();   // close every listener + open socket
+        try { _uiHost?.StopAll(); } catch { }   // close every node-authored UI window
         try { _sockQueue?.CompleteAdding(); } catch { /* already completed */ }   // serial socket worker drains + exits
         _client.Disconnect();
     }

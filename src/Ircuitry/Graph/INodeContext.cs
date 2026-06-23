@@ -90,6 +90,13 @@ public interface INodeContext
     bool SocketSend(string connId, byte[] data, string udpRemote);
     int SocketBroadcast(string listenerId, byte[] data);
     void SocketClose(string id);
+
+    // ---- node-authored UI windows (UiKit) ----
+    void UiWindow(string windowId, string title, int width, int height, uint bg);
+    void UiUpsert(string windowId, Ircuitry.UiKit.UiElement element);
+    void UiAnimate(string windowId, string elementId, Ircuitry.UiKit.Tween tween);
+    void UiRemove(string windowId, string elementId);
+    void UiClose(string windowId);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

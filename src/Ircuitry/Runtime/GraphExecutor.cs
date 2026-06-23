@@ -425,6 +425,11 @@ public static class GraphExecutor
         public bool SocketSend(string connId, byte[] data, string udpRemote) => Out().SocketSend(connId, data, udpRemote);
         public int SocketBroadcast(string listenerId, byte[] data) => Out().SocketBroadcast(listenerId, data);
         public void SocketClose(string id) => Out().SocketClose(id);
+        public void UiWindow(string windowId, string title, int width, int height, uint bg) => Out().UiWindow(windowId, title, width, height, bg);
+        public void UiUpsert(string windowId, Ircuitry.UiKit.UiElement element) => Out().UiUpsert(windowId, element);
+        public void UiAnimate(string windowId, string elementId, Ircuitry.UiKit.Tween tween) => Out().UiAnimate(windowId, elementId, tween);
+        public void UiRemove(string windowId, string elementId) => Out().UiRemove(windowId, elementId);
+        public void UiClose(string windowId) => Out().UiClose(windowId);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);
