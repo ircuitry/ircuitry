@@ -432,6 +432,7 @@ public static class GraphExecutor
         public void UiClose(string windowId) => Out().UiClose(windowId);
         public void UiScene3D(string windowId, Ircuitry.UiKit.Camera cam) => Out().UiScene3D(windowId, cam);
         public void UiMesh(string windowId, Ircuitry.UiKit.Obj3D mesh) => Out().UiMesh(windowId, mesh);
+        public void UiWeb(string windowId, string url, string html, int width, int height, string title) => Out().UiWeb(windowId, url, html, width, height, title);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

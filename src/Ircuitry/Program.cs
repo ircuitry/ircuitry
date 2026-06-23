@@ -27,6 +27,13 @@ public static class Program
             Environment.Exit(Ircuitry.UiKit.UiWindowGame.Run(args));
             return;
         }
+        if (Array.IndexOf(args, "--ui-web") >= 0)
+        {
+            // The web-surface process: a native webview window (Photino) loading a URL/HTML, bridging the page
+            // to the graph. Separate from --ui-window because the renderer is the OS webview, not MonoGame.
+            Environment.Exit(Ircuitry.UiKit.UiWebProcess.Run(args));
+            return;
+        }
         if (Array.IndexOf(args, "--publish-ircd") >= 0)
         {
             // Write the freshly-built all-node IRCd straight into a bot in the workspace, in place (no copy/paste,

@@ -4155,6 +4155,22 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "ui.web", Icon = "browser", Title = "UI Web", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Open a web-surface window - a native webview (Photino) loading a URL or your own HTML. The page is the content (build a browser, a web app, a rich dashboard). Any window.external.sendMessage(text) from the page's JS fires On UI Event (event = message, value = text), so a web UI can drive the graph. Needs a system webview (WebView2 / WebKitGTK / WKWebView).",
+                Inputs = new[] { Ex(), Tx("url") }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "web", ""),
+                    P("url", "URL", ParamType.Text, "", "https://... (leave blank to use HTML)"),
+                    P("html", "HTML", ParamType.Multiline, "", "<h1>hi</h1> (used when URL is blank)"),
+                    P("title", "Title", ParamType.Text, "ircuitry web", ""),
+                    P("width", "Width", ParamType.Int, "900", ""), P("height", "Height", ParamType.Int, "640", ""),
+                },
+                SummaryParam = "url",
+                Exec = c => { c.UiWeb(c.Resolve(c.Param("window")), c.InOr(1, c.Resolve(c.Param("url"))), c.Resolve(c.Param("html")), c.ParamInt("width", 900), c.ParamInt("height", 640), c.Resolve(c.Param("title"))); c.Pulse(0); },
+            },
+            new()
+            {
                 TypeId = "ui.remove", Icon = "trash", Title = "UI Remove", Subtitle = "ui", Category = NodeCategory.Ui,
                 Description = "Remove an element from a window by id. Leave the id blank to clear the whole window (keeping it open).",
                 Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },

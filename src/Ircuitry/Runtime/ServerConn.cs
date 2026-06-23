@@ -114,6 +114,16 @@ public sealed class ServerConn : IRuntimeSink
     private Ircuitry.UiKit.UiHost UiHost() => _uiHost ??=
         new Ircuitry.UiKit.UiHost(OnUiEvent, (m, err) => _owner.LogFrom(Label, err ? LogLevel.Error : LogLevel.System, m));
 
+    private Ircuitry.UiKit.UiWebHost? _uiWebHost;
+    private Ircuitry.UiKit.UiWebHost UiWebHost() => _uiWebHost ??=
+        new Ircuitry.UiKit.UiWebHost(OnUiEvent, (m, err) => _owner.LogFrom(Label, err ? LogLevel.Error : LogLevel.System, m));
+
+    public void UiWeb(string id, string url, string html, int width, int height, string title)
+    {
+        if (id.Length == 0) id = "main";
+        UiWebHost().Open(id, url, html, width > 0 ? width : 900, height > 0 ? height : 640, title);
+    }
+
     private Ircuitry.UiKit.UiScene UiSceneFor(string w) { if (!_uiScenes.TryGetValue(w, out var s)) { s = new(); _uiScenes[w] = s; } return s; }
     private void UiStream(string w, Ircuitry.UiKit.UiScene s) => UiHost().Send(w, s.ToJson());
 
@@ -187,6 +197,7 @@ public sealed class ServerConn : IRuntimeSink
         if (id.Length == 0) id = "main";
         lock (_uiGate) _uiScenes.Remove(id);
         _uiHost?.Close(id);
+        _uiWebHost?.Close(id);
     }
 
     // a child window streamed back an interaction -> fire the "ui" trigger family with its vars
@@ -254,6 +265,7 @@ public sealed class ServerConn : IRuntimeSink
         StopAllTyping();   // send +typing=done for anything still active before we drop the link
         _sockets.StopAll();   // close every listener + open socket
         try { _uiHost?.StopAll(); } catch { }   // close every node-authored UI window
+        try { _uiWebHost?.StopAll(); } catch { }   // and every web-surface window
         try { _sockQueue?.CompleteAdding(); } catch { /* already completed */ }   // serial socket worker drains + exits
         _client.Disconnect();
     }

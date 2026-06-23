@@ -54,7 +54,7 @@ public sealed class UiHost
         if (ex != null) _wins.Remove(windowId);
         try
         {
-            var p = Process.Start(LaunchInfo());
+            var p = Process.Start(SelfLaunch("--ui-window"));
             if (p == null) { _log($"could not open UI window '{windowId}'", true); return null!; }
             var w = new Win { Proc = p, In = p.StandardInput };
             _wins[windowId] = w;
@@ -81,8 +81,9 @@ public sealed class UiHost
 
     private static void Kill(Win w) { try { w.Dead = true; if (!w.Proc.HasExited) w.Proc.Kill(true); } catch { } }
 
-    // relaunch this same executable in window mode (dotnet <dll> --ui-window, or <apphost> --ui-window)
-    private static ProcessStartInfo LaunchInfo()
+    /// <summary>Relaunch THIS executable in a sub-mode (dotnet &lt;dll&gt; &lt;args&gt;, or &lt;apphost&gt; &lt;args&gt;), wiring stdin+stdout.
+    /// Shared by the 2D/3D window host and the web-surface host.</summary>
+    public static ProcessStartInfo SelfLaunch(params string[] modeArgs)
     {
         var psi = new ProcessStartInfo
         {
@@ -92,18 +93,13 @@ public sealed class UiHost
             CreateNoWindow = false,
         };
         string exe = Environment.ProcessPath ?? "dotnet";
+        psi.FileName = exe;
         if (Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
         {
-            psi.FileName = exe;
             var dll = Assembly.GetEntryAssembly()?.Location;
             if (!string.IsNullOrEmpty(dll)) psi.ArgumentList.Add(dll);
-            psi.ArgumentList.Add("--ui-window");
         }
-        else
-        {
-            psi.FileName = exe;
-            psi.ArgumentList.Add("--ui-window");
-        }
+        foreach (var a in modeArgs) psi.ArgumentList.Add(a);
         return psi;
     }
 }

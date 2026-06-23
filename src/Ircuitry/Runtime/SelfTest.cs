@@ -62,6 +62,8 @@ public static class SelfTest
         public void UiClose(string id) { UiScenes.Remove(id); }
         public void UiScene3D(string id, Ircuitry.UiKit.Camera cam) { var s = US(id); s.World ??= new(); s.World.Cam = cam; }
         public void UiMesh(string id, Ircuitry.UiKit.Obj3D m) { var s = US(id); s.World ??= new(); int i = s.World.Objects.FindIndex(o => o.Id == m.Id); if (i >= 0) s.World.Objects[i] = m; else s.World.Objects.Add(m); }
+        public readonly List<(string id, string url, string html)> WebOpens = new();
+        public void UiWeb(string id, string url, string html, int w, int h, string title) { WebOpens.Add((id, url, html)); }
     }
 
     private static Node N(NodeGraph g, string type, float x, float y)
@@ -3566,6 +3568,15 @@ public static class SelfTest
         fails += Expect("ui-3d-animate", box != null && box.Tweens.Count == 1 && box.Tweens[0].Prop == "ry" && box.Tweens[0].Loop, "ui.animate attaches a tween to a 3D mesh");
         if (box != null) { box.Advance(0.5f); }   // 0.5/4 of 0..360 = 45deg, through ITweenTarget
         fails += Expect("ui-3d-tween", box != null && System.Math.Abs(box.Ry - 45f) < 1f, $"Obj3D tween drives rotation, got {box?.Ry}");
+
+        // web surface: ui.web routes a URL to the sink
+        var g4 = new NodeGraph();
+        var st4 = N(g4, "event.start", 0, 0);
+        var web = N(g4, "ui.web", 200, 0); web.SetParam("window", "site"); web.SetParam("url", "https://ircuitry.github.io");
+        g4.Connect(st4.Id, 0, web.Id, 0);
+        var s4 = new FakeSink();
+        GraphExecutor.Fire(g4, s4, st4, Vars("", "alice", "#test"));
+        fails += Expect("ui-web-open", s4.WebOpens.Count == 1 && s4.WebOpens[0].id == "site" && s4.WebOpens[0].url == "https://ircuitry.github.io", "ui.web opens a webview on the URL");
         return fails;
     }
 
