@@ -3482,6 +3482,10 @@ public static class SelfTest
     // nc=nick->conn, cu=conn->user, cr=conn->registered, ...). logic.regex parses each line once and exposes
     // {1}/{2}/{3} as run tokens; logic.switch dispatches on the command; logic.if gates registration. This is
     // the registration slice (NICK/USER -> welcome); later commands extend the switch.
+    /// <summary>The all-built-in-node IRCd (no code node) serialized as portable .ircbot JSON, for `--emit-ircd`
+    /// so it can be dropped straight into a workspace.</summary>
+    public static string EmitIrcdNodeGraph() => Ircuitry.Graph.GraphSerializer.Save(BuildIrcdNodeGraph(6667), "IRCd (nodes)");
+
     private static NodeGraph BuildIrcdNodeGraph(int port)
     {
         var g = new NodeGraph();

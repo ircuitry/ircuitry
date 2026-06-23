@@ -15,6 +15,11 @@ public static class Program
             Environment.Exit(Ircuitry.Runtime.SelfTest.RunAll());
             return;
         }
+        if (Array.IndexOf(args, "--emit-ircd") >= 0)
+        {
+            Console.WriteLine(Ircuitry.Runtime.SelfTest.EmitIrcdNodeGraph());   // the all-node IRCd as .ircbot JSON
+            return;
+        }
         if (Array.IndexOf(args, "--run") >= 0 || Array.IndexOf(args, "--headless") >= 0)
         {
             Environment.Exit(HeadlessRunner.Run(args));
