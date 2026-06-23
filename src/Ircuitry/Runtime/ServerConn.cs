@@ -80,6 +80,14 @@ public sealed class ServerConn : IRuntimeSink
         _cfg.SaslUser = Secrets.Expand(_cfg.SaslUser);
         _cfg.SaslPass = Secrets.Expand(_cfg.SaslPass);
         _cfg.ClientCertPass = Secrets.Expand(_cfg.ClientCertPass);
+        // pick the TLS client certificate: the user's if they set one, else an auto-generated per-bot CertFP
+        // identity (zero setup). The auto cert is presented for CertFP but does NOT by itself switch SASL to
+        // EXTERNAL - the user still chooses that; this just means it works the moment they do.
+        if (_cfg.UseTls)
+        {
+            if (_cfg.ClientCertPath.Length > 0) { _cfg.ResolvedCertPath = _cfg.ClientCertPath; _cfg.ResolvedCertPass = _cfg.ClientCertPass; }
+            else { _cfg.ResolvedCertPath = Ircuitry.App.ClientCert.EnsureDefault(_owner.OwnerName); _cfg.ResolvedCertPass = ""; }
+        }
         MessagesSeen = 0; _actionsFired = 0;
         _session.Reset();
         _running = true;
@@ -214,7 +222,9 @@ public sealed class ServerConn : IRuntimeSink
                 if (_client.HasCap("echo-message"))
                 {
                     string selfTarget = m.P(0);
-                    string selfChan = _session.IsChannel(selfTarget) ? selfTarget : (m.Nick ?? CurrentNick);
+                    // the window is the conversation target: a channel for a channel line, or the RECIPIENT for a
+                    // private message we sent (not our own nick) - so an echoed PM lands in the right query window
+                    string selfChan = selfTarget.Length > 0 ? selfTarget : CurrentNick;
                     string selfMsgid = m.Tag("msgid"); if (selfMsgid.Length == 0) selfMsgid = m.Tag("draft/msgid");
                     _owner.RecordMessage(CurrentNick, selfChan, m.Trailing, selfMsgid);
                     if (selfMsgid.Length > 0) SetState("last_self_msgid", selfMsgid);
@@ -375,9 +385,11 @@ public sealed class ServerConn : IRuntimeSink
     {
         var graph = _owner.RunGraph;
         if (graph == null) return;
-        var b64 = BotTools.BuildCommandList(graph);
-        if (!BotTools.Fits("+draft/bot-cmds=" + b64)) { _owner.LogFrom(Label, LogLevel.System, "command list too large to advertise (batching not yet supported)"); return; }
+        var b64 = BotTools.BuildCommandList(graph, out int included, out int total);
+        if (total == 0) return;
+        if (included == 0) { _owner.LogFrom(Label, LogLevel.System, "couldn't advertise any command (a single command's metadata exceeds one line)"); return; }
         _client.TagMsg(nick, "+draft/bot-cmds=" + b64);
+        if (included < total) _owner.LogFrom(Label, LogLevel.System, $"advertised {included} of {total} commands (the rest didn't fit one line)");
         System.Threading.Interlocked.Increment(ref _actionsFired);
     }
 

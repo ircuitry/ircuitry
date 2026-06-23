@@ -30,7 +30,9 @@ public sealed partial class MainScreen
     {
         // drawn inside the panel-chrome batch (no Begin/End here)
         var f = r.Fonts.Get(FontKind.Mono, 12);
-        r.TextRight(f, $"MSG {Bot.Runtime.MessagesSeen}   ACT {Bot.Runtime.ActionsFired}", p.Right - 168, p.Y + 12, Theme.TextFaint);
+        var rb = RemBot();   // remotely-hosted bot: show the server's real counts, not this desktop's local zeros
+        int msgs = rb?.Messages ?? Bot.Runtime.MessagesSeen, acts = rb?.Actions ?? Bot.Runtime.ActionsFired;
+        r.TextRight(f, $"MSG {msgs}   ACT {acts}", p.Right - 168, p.Y + 12, Theme.TextFaint);
     }
 
     private void DrawConsole(Renderer r)

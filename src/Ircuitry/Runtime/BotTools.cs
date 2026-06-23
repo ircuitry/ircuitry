@@ -48,7 +48,11 @@ public static class BotTools
     // =====================================================================
 
     /// <summary>Build the bot's command list from its graph's On Command nodes, base64-encoded.</summary>
-    public static string BuildCommandList(NodeGraph g)
+    public static string BuildCommandList(NodeGraph g) => BuildCommandList(g, out _, out _);
+
+    /// <summary>As above, but trims commands from the end until the advertisement fits one client line, and
+    /// reports how many of the bot's commands (<paramref name="total"/>) actually made it in (<paramref name="included"/>).</summary>
+    public static string BuildCommandList(NodeGraph g, out int included, out int total)
     {
         var commands = new List<object>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -76,9 +80,18 @@ public static class BotTools
             });
         }
 
-        var obj = new Dictionary<string, object?> { ["commands"] = commands };
-        if (!string.IsNullOrEmpty(prefix)) obj["prefix"] = prefix;
-        return Encode(obj);
+        total = commands.Count;
+        string b64;
+        while (true)   // drop commands from the end until the +draft/bot-cmds tag fits one line (vs advertising nothing)
+        {
+            var obj = new Dictionary<string, object?> { ["commands"] = commands };
+            if (!string.IsNullOrEmpty(prefix)) obj["prefix"] = prefix;
+            b64 = Encode(obj);
+            if (commands.Count == 0 || Fits("+draft/bot-cmds=" + b64)) break;
+            commands.RemoveAt(commands.Count - 1);
+        }
+        included = commands.Count;
+        return b64;
     }
 
     private static readonly string[] AllContexts = { "public", "private", "pm" };

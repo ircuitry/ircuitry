@@ -32,6 +32,7 @@ public sealed class ControlClient : IDisposable
     {
         public string Name = ""; public bool Running; public string Stat = ""; public int Nodes, Wires;
         public long Tokens; public int Errors, Queue;   // fleet-health metrics from the server
+        public int Messages, Actions;                    // IRC messages observed / actions sent (server's real counts)
         public bool Unapplied;   // running, but its stored graph differs from the graph the live runtime is executing
         // sharing, as this client sees it
         public string Owner = ""; public string Visibility = "public"; public bool Editable = true;
@@ -478,6 +479,8 @@ public sealed class ControlClient : IDisposable
                 Tokens = b.TryGetProperty("tokens", out var tk) && tk.TryGetInt64(out var tkl) ? tkl : 0,
                 Errors = b.TryGetProperty("errors", out var er) && er.TryGetInt32(out var eri) ? eri : 0,
                 Queue = b.TryGetProperty("queue", out var qd) && qd.TryGetInt32(out var qdi) ? qdi : 0,
+                Messages = b.TryGetProperty("messages", out var ms) && ms.TryGetInt32(out var msi) ? msi : 0,
+                Actions = b.TryGetProperty("actions", out var ax) && ax.TryGetInt32(out var axi) ? axi : 0,
                 Rev = b.TryGetProperty("rev", out var rv) && rv.TryGetInt64(out var rvl) ? rvl : 0,
                 Vars = b.TryGetProperty("vars", out var vv) && vv.ValueKind == JsonValueKind.Object
                     ? vv.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString())

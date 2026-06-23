@@ -568,19 +568,21 @@ public sealed class IrcClient
     // none is set or it can't be read (we log and fall back to an anonymous TLS handshake).
     private X509Certificate2Collection? LoadClientCerts()
     {
-        string path = _cfg.ClientCertPath.Trim();
+        string path = _cfg.ResolvedCertPath.Trim();
         if (path.Length == 0) return null;
         try
         {
             X509Certificate2 cert;
             string ext = Path.GetExtension(path).ToLowerInvariant();
             if (ext is ".pfx" or ".p12")
-                cert = new X509Certificate2(path, _cfg.ClientCertPass);
+                cert = new X509Certificate2(path, _cfg.ResolvedCertPass);
             else
                 cert = X509Certificate2.CreateFromPemFile(path);   // cert + private key from PEM (key may be in the same file)
+            string fp = cert.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256).ToLowerInvariant();
             // Some platforms (Windows/SChannel) need the cert round-tripped through a PFX blob to use its
             // private key in a TLS handshake; doing it everywhere is harmless and keeps CertFP working cross-OS.
             cert = new X509Certificate2(cert.Export(X509ContentType.Pkcs12));
+            Status?.Invoke("client cert ready - CertFP SHA-256 " + fp + " (register it with services to use SASL EXTERNAL)", false);
             return new X509Certificate2Collection(cert);
         }
         catch (Exception ex)

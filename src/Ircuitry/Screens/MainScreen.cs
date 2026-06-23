@@ -161,6 +161,7 @@ public sealed partial class MainScreen : IScreen
 
     // "Obby" - advanced bot-tools controls, collapsed by default in the inspector
     private bool _obbyConn, _obbyNode;
+    private string _certFp = "", _certFpKey = "";   // cached CertFP fingerprint shown in the server settings
 
     // test bench (dry-run without IRC)
     private bool _testOpen, _testJustOpened;
@@ -2815,7 +2816,8 @@ public sealed partial class MainScreen : IScreen
                         next = _ui.TextField(id, new RectF(x, y, w - bw - 6, 30), cur, pdef.Placeholder);
                         var bn = n; var bk = pdef.Key;
                         if (_ui.Button("browse." + id, new RectF(x + w - bw, y, bw, 30), Ircuitry.Core.Icons.Glyph("folder-open"), Theme.Cyan))
-                            Ircuitry.Core.FilePicker.Open("Choose a file", p => { bn.SetParam(bk, p); _app.MarkDirty(); });
+                            Ircuitry.Core.FilePicker.Open("Choose a file", p => { bn.SetParam(bk, p); _app.MarkDirty(); },
+                                () => PushToast("no file dialog on this system - type or paste the path into the field"));
                         y += 40;
                     }
                     else { next = _ui.TextField(id, new RectF(x, y, w, 30), cur, pdef.Placeholder); y += 40; }
@@ -3008,8 +3010,25 @@ public sealed partial class MainScreen : IScreen
         var mech = _ui.Choice("c.saslmech", new RectF(x, y, w, 30), new[] { "auto", "plain", "external", "scram" }, string.IsNullOrEmpty(s.SaslMech) ? "auto" : s.SaslMech);
         if (mech != s.SaslMech) { s.SaslMech = mech; _app.MarkDirty(); }
         y += 40;
-        y = Labeled(r, "CLIENT CERT - PEM or PFX (for EXTERNAL / CertFP)", x, y); s.ClientCertPath = Edit("c.certpath", new RectF(x, y, w, 30), s.ClientCertPath, "/path/to/cert.pem"); y += 40;
+        y = Labeled(r, "CLIENT CERT - PEM/PFX (blank = auto-generated)", x, y); s.ClientCertPath = Edit("c.certpath", new RectF(x, y, w, 30), s.ClientCertPath, "blank uses a cert we make for you"); y += 40;
         y = Labeled(r, "CLIENT CERT PASSPHRASE", x, y); SecretButton(r, "c.certpass", ref y, x, w, s.ClientCertPass, "cert passphrase", v => { s.ClientCertPass = v; _app.MarkDirty(); }); y += 4;
+        if (!Bot.IsRemote)   // the auto cert lives on this machine; for a remote bot it's on the server (see its console)
+        {
+            string certKey = Bot.Name + "|" + s.ClientCertPath + "|" + s.ClientCertPass;
+            if (certKey != _certFpKey)
+            {
+                _certFpKey = certKey;
+                string cp = s.ClientCertPath.Length > 0 ? s.ClientCertPath : Ircuitry.App.ClientCert.EnsureDefault(Bot.Name);
+                _certFp = Ircuitry.App.ClientCert.Fingerprint(cp, s.ClientCertPath.Length > 0 ? Ircuitry.Core.Secrets.Expand(s.ClientCertPass) : "");
+            }
+            if (_certFp.Length > 0)
+            {
+                y = Labeled(r, (s.ClientCertPath.Length > 0 ? "CERTFP" : "CERTFP (auto)") + " - register for SASL EXTERNAL", x, y);
+                r.Text(r.Fonts.Get(FontKind.Mono, 11), r.Ellipsize(r.Fonts.Get(FontKind.Mono, 11), _certFp, w - 58), new Vector2(x, y + 5), Theme.TextFaint);
+                if (_ui.Button("c.certfp.copy", new RectF(x + w - 52, y - 2, 52, 24), "copy", Theme.Cyan)) { try { Ircuitry.Core.Clipboard.SetText(_certFp); } catch { } PushToast("CertFP copied - register it with services (e.g. /msg NickServ CERT ADD)"); }
+                y += 32;
+            }
+        }
 
         _obbyConn = ObbyHeader(r, ref y, x, w, _obbyConn);
         if (_obbyConn)
@@ -4016,9 +4035,10 @@ public sealed partial class MainScreen : IScreen
         r.Text(f, "ircuitry v" + Ircuitry.App.AppInfo.Version, new Vector2(478, y), Theme.TextFaint);
 
         // flood send-queue gauge: warms green->red as the outgoing backlog grows toward an Excess Flood kill
-        if (Bot.Runtime.Running)
+        var rb = RemBot();   // remotely-hosted bot: use the server's live numbers, not this desktop's local zeros
+        if (rb?.Running ?? Bot.Runtime.Running)
         {
-            int depth = Bot.Runtime.OutQueueDepth;
+            int depth = rb?.Queue ?? Bot.Runtime.OutQueueDepth;
             float p = Math.Clamp(depth / 12f, 0f, 1f);
             var fill = Theme.Mix(Theme.Ok, Theme.Alert, p);
             r.Text(r.Fonts.Get(FontKind.Mono, 12), Ircuitry.Core.Icons.Glyph("paper-plane-tilt"), new Vector2(600, y), depth > 0 ? fill : Theme.TextFaint);
@@ -4029,8 +4049,8 @@ public sealed partial class MainScreen : IScreen
             r.RoundOutline(gx, Theme.Hairline, 5f);
         }
         // far-right slot priority: error badge (#15) > AI token meter (#18) > the usage hint
-        int errN = Bot.IsRemote ? 0 : Bot.Runtime.ErrorCount;
-        long tokTotal = Bot.IsRemote ? 0 : Bot.Runtime.TokensTotal;
+        int errN = rb?.Errors ?? (Bot.IsRemote ? 0 : Bot.Runtime.ErrorCount);
+        long tokTotal = rb?.Tokens ?? (Bot.IsRemote ? 0 : Bot.Runtime.TokensTotal);
         long tokCap = Bot.IsRemote ? 0 : Bot.Runtime.TokenCap;
         if (errN > 0)
         {

@@ -34,6 +34,10 @@ public partial class MainScreen
     /// <summary>Keep the remote session live every frame (drains its reply/event callbacks).</summary>
     private void RemotePump() => _remote?.Pump();
 
+    /// <summary>The server's status for the open bot when it's remotely hosted (fleet-health + live IRC metrics),
+    /// or null for a local bot - so per-bot gauges show the server's real numbers, not this desktop's zeros.</summary>
+    private ControlClient.RemoteBot? RemBot() => Bot.IsRemote ? Bot.Remote?.BotInfo(Bot.Name) : null;
+
     /// <summary>Handle an <c>ircuitry://connect</c> deep link (the cockpit's "Open in desktop app" button):
     /// pop the Remote panel pre-filled with this server and, if a token came along, connect straight away.</summary>
     private void HandleConnectLink(string link)

@@ -261,6 +261,8 @@ public static class SelfTest
         fails += SaslLoopTest();
         fails += MetadataTest();
         fails += McpErrorTest();
+        fails += BotCmdsFitTest();
+        fails += ClientCertTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3186,6 +3188,52 @@ public static class SelfTest
         fails += Expect("mcp-badcmd-not-brokenpipe", threw && msg.IndexOf("Broken pipe", StringComparison.OrdinalIgnoreCase) < 0, "should not be the bare broken-pipe message: " + msg);
         fails += Expect("mcp-badcmd-clear", threw && (msg.Contains("exited") || msg.Contains("not found") || msg.Contains("node/npx")), "should name the real reason: " + msg);
         Ircuitry.App.Mcp.McpClient.StopAll();
+        return fails;
+    }
+
+    /// <summary>The bot-cmds advertisement trims commands to fit one client line instead of dropping the whole
+    /// list when it's too big.</summary>
+    private static int BotCmdsFitTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        foreach (var c in new[] { "ping", "help" }) { var n = N(g, "event.command", 0, 0); n.SetParam("command", c); }
+        var b64 = BotTools.BuildCommandList(g, out int inc, out int tot);
+        fails += Expect("botcmds-small-all", inc == 2 && tot == 2 && BotTools.Fits("+draft/bot-cmds=" + b64), $"inc={inc} tot={tot}");
+
+        var big = new NodeGraph();
+        for (int i = 0; i < 400; i++) { var n = N(big, "event.command", 0, 0); n.SetParam("command", "command_number_" + i); n.Title = "A reasonably long description for command " + i + " to bloat the advertisement"; }
+        var bb = BotTools.BuildCommandList(big, out int binc, out int btot);
+        fails += Expect("botcmds-trim-fits", BotTools.Fits("+draft/bot-cmds=" + bb), "the trimmed list must fit one line");
+        fails += Expect("botcmds-trim-partial", binc > 0 && binc < btot && btot == 400, $"inc={binc} tot={btot}");
+        return fails;
+    }
+
+    /// <summary>The auto client certificate is generated, stable per identity, carries a private key (for the TLS
+    /// handshake) and yields a 64-hex SHA-256 CertFP fingerprint.</summary>
+    private static int ClientCertTest()
+    {
+        int fails = 0;
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-cert-" + Guid.NewGuid().ToString("N")[..8]);
+        Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+        try
+        {
+            string p1 = Ircuitry.App.ClientCert.EnsureDefault("Test Bot!");
+            fails += Expect("cert-generated", p1.Length > 0 && File.Exists(p1) && p1.EndsWith(".pfx"), p1);
+            string p2 = Ircuitry.App.ClientCert.EnsureDefault("Test Bot!");
+            fails += Expect("cert-stable", p1 == p2, "same identity must reuse the same cert, not regenerate");
+            string fp = Ircuitry.App.ClientCert.Fingerprint(p1);
+            fails += Expect("cert-fingerprint", fp.Length == 64 && fp.All(ch => "0123456789abcdef".IndexOf(ch) >= 0), "fp=" + fp);
+            bool hasKey = false;
+            try { using var c = new System.Security.Cryptography.X509Certificates.X509Certificate2(p1); hasKey = c.HasPrivateKey; } catch { }
+            fails += Expect("cert-has-private-key", hasKey, "the auto cert must carry its private key for TLS");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { Directory.Delete(tmp, true); } catch { }
+        }
         return fails;
     }
 

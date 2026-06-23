@@ -11,32 +11,40 @@ namespace Ircuitry.Core;
 /// handed back on the game thread via <see cref="Drain"/>.</summary>
 public static class FilePicker
 {
-    private static readonly ConcurrentQueue<(Action<string> apply, string path)> _results = new();
+    private static readonly ConcurrentQueue<Action> _results = new();
 
-    /// <summary>Open the picker. When the user chooses a file, <paramref name="onPicked"/> runs on the next
-    /// <see cref="Drain"/> (i.e. on the game thread, safe to mutate the graph).</summary>
-    public static void Open(string title, Action<string> onPicked)
+    /// <summary>Open the picker. On the next <see cref="Drain"/> (game thread): <paramref name="onPicked"/>(path)
+    /// if the user chose a file, or <paramref name="onUnavailable"/>() if there's no native file dialog installed -
+    /// so the caller can tell the user to paste a path instead of leaving a dead button.</summary>
+    public static void Open(string title, Action<string> onPicked, Action? onUnavailable = null)
     {
         Task.Run(() =>
         {
-            try { var p = RunDialog(title); if (!string.IsNullOrWhiteSpace(p)) _results.Enqueue((onPicked, p.Trim())); }
-            catch { /* no picker tool available - silently do nothing */ }
+            try
+            {
+                var p = RunDialog(title, out bool toolFound);
+                if (!toolFound) { if (onUnavailable != null) _results.Enqueue(onUnavailable); return; }
+                if (!string.IsNullOrWhiteSpace(p)) { var path = p.Trim(); _results.Enqueue(() => onPicked(path)); }
+            }
+            catch { if (onUnavailable != null) _results.Enqueue(onUnavailable); }
         });
     }
 
     /// <summary>Apply any finished pickers. Call once per frame on the game thread.</summary>
-    public static void Drain() { while (_results.TryDequeue(out var r)) { try { r.apply(r.path); } catch { } } }
+    public static void Drain() { while (_results.TryDequeue(out var a)) { try { a(); } catch { } } }
 
-    private static string? RunDialog(string title)
+    private static string? RunDialog(string title, out bool toolFound)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            return Run("powershell", "-NoProfile -STA -Command \"Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; if($d.ShowDialog() -eq 'OK'){[Console]::Out.Write($d.FileName)}\"", out _);
+            return Run("powershell", "-NoProfile -STA -Command \"Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; if($d.ShowDialog() -eq 'OK'){[Console]::Out.Write($d.FileName)}\"", out toolFound);
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            return Run("osascript", "-e \"POSIX path of (choose file with prompt \\\"" + Esc(title) + "\\\")\"", out _);
+            return Run("osascript", "-e \"POSIX path of (choose file with prompt \\\"" + Esc(title) + "\\\")\"", out toolFound);
         // Linux: prefer zenity, fall back to kdialog if zenity isn't installed (but not if the user cancelled it)
         var z = Run("zenity", "--file-selection --title=\"" + Esc(title) + "\"", out bool zenityRan);
-        if (zenityRan) return z;
-        return Run("kdialog", "--getopenfilename", out _);
+        if (zenityRan) { toolFound = true; return z; }
+        var k = Run("kdialog", "--getopenfilename", out bool kdialogRan);
+        toolFound = kdialogRan;
+        return k;
     }
 
     private static string Esc(string s) => s.Replace("\"", "'");

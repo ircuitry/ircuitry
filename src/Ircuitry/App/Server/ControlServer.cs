@@ -506,6 +506,8 @@ public static partial class ControlServer
                     tokens = b.Runtime.TokensTotal,        // fleet health: AI tokens spent
                     errors = b.Runtime.ErrorCount,         // node errors attributed
                     queue = b.Runtime.OutQueueDepth,       // outgoing send backlog
+                    messages = b.Runtime.MessagesSeen,     // IRC messages observed (so a remote tab's counter is real)
+                    actions = b.Runtime.ActionsFired,      // IRC actions sent
                     graph = JsonDocument.Parse(Ircuitry.Graph.GraphSerializer.Save(b.Graph, b.Name)).RootElement.Clone(),
                     servers = b.Servers.Select(s => new { s.Label, s.Host, s.Port, tls = s.UseTls, s.Nick, s.Channels, s.RealName, s.ConnectOnStartup }).ToArray(),
                     acl = AclView(c, b.Name),

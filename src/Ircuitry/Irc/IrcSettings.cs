@@ -32,8 +32,15 @@ public sealed class IrcSettings
 
     // Client TLS certificate (PEM/PFX). Enables SASL EXTERNAL / CertFP, the cert-based auth many networks
     // (Libera, OFTC...) prefer for bots: the fingerprint is your identity, no password on the wire at all.
+    // Leave blank to use an auto-generated per-bot cert (still presented for CertFP); set a path to override.
     public string ClientCertPath = "";
     public string ClientCertPass = "";   // passphrase for an encrypted key, if any
+
+    // Resolved at connect time (NOT serialized): the cert actually presented on the TLS handshake - the user's
+    // ClientCertPath when set, else the auto-generated default. Kept separate so the auto cert enables CertFP
+    // without changing SASL mechanism selection (which still keys off the user's explicit ClientCertPath).
+    public string ResolvedCertPath = "";
+    public string ResolvedCertPass = "";
 
     /// <summary>True if we have anything to authenticate with (a password, or a cert for EXTERNAL).</summary>
     public bool UseSasl => SaslPass.Length > 0
