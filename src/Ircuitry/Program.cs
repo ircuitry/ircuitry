@@ -20,6 +20,13 @@ public static class Program
             Console.WriteLine(Ircuitry.Runtime.SelfTest.EmitIrcdNodeGraph());   // the all-node IRCd as .ircbot JSON
             return;
         }
+        if (Array.IndexOf(args, "--ui-window") >= 0)
+        {
+            // A window-host render process: one OS window painting a UiScene with ircuitry's own renderer,
+            // fed a scene over stdin (or --scene <file>). The foundation of node-authored cross-platform UI.
+            Environment.Exit(Ircuitry.UiKit.UiWindowGame.Run(args));
+            return;
+        }
         if (Array.IndexOf(args, "--publish-ircd") >= 0)
         {
             // Write the freshly-built all-node IRCd straight into a bot in the workspace, in place (no copy/paste,

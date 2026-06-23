@@ -64,6 +64,10 @@ public sealed class Renderer
     public void Image(Texture2D tex, RectF dest) =>
         Sb.Draw(tex, dest.ToRectangle(), Color.White);
 
+    /// <summary>Draw a texture into a destination rect with a colour tint (white at &lt;1 alpha fades it).</summary>
+    public void Image(Texture2D tex, RectF dest, Color tint) =>
+        Sb.Draw(tex, dest.ToRectangle(), Pm(tint));
+
     // decoded base64 node icons, cached by key (typeId). null = decode failed (fall back to the emoji glyph).
     private readonly System.Collections.Generic.Dictionary<string, Texture2D?> _iconCache = new();
     public Texture2D? IconTexture(string key, string base64)

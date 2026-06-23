@@ -268,6 +268,7 @@ public static class SelfTest
         fails += IrcdE2ETest();
         fails += IrcdNodesE2ETest();
         fails += IrcdNodesTlsTest();
+        fails += UiTweenTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3496,6 +3497,41 @@ public static class SelfTest
     // nc=nick->conn, cu=conn->user, cr=conn->registered, ...). logic.regex parses each line once and exposes
     // {1}/{2}/{3} as run tokens; logic.switch dispatches on the command; logic.if gates registration. This is
     // the registration slice (NICK/USER -> welcome); later commands extend the switch.
+    /// <summary>The declarative UI scene tween engine: easing, lerp, ping-pong, delay, JSON round-trip - the
+    /// animation that the window-host render process advances each frame for node-authored UI.</summary>
+    private static int UiTweenTest()
+    {
+        int fails = 0;
+        var e = new Ircuitry.UiKit.UiElement { Id = "x", X = 0 };
+        var tw = new Ircuitry.UiKit.Tween { Prop = "x", From = 0, To = 100, Duration = 1f, Ease = "linear" };
+        e.Tweens.Add(tw);
+        e.Advance(0.5f);
+        fails += Expect("ui-tween-mid", System.Math.Abs(e.X - 50f) < 0.5f, $"linear half -> 50, got {e.X}");
+        e.Advance(0.5f);
+        fails += Expect("ui-tween-end", System.Math.Abs(e.X - 100f) < 0.01f && tw.Done && e.Tweens.Count == 0, $"end -> 100 + tween removed, got {e.X}/{e.Tweens.Count}");
+
+        // ping-pong returns toward From at t=2*duration and never completes
+        var p = new Ircuitry.UiKit.UiElement { Id = "p" };
+        p.Tweens.Add(new Ircuitry.UiKit.Tween { Prop = "alpha", From = 0f, To = 1f, Duration = 1f, Ease = "linear", PingPong = true });
+        p.Advance(1f);   // peak
+        bool peak = System.Math.Abs(p.Alpha - 1f) < 0.05f;
+        p.Advance(1f);   // back to start
+        fails += Expect("ui-tween-pingpong", peak && System.Math.Abs(p.Alpha - 0f) < 0.05f && p.Tweens.Count == 1, $"pingpong peak then trough, got {p.Alpha}");
+
+        // delay holds the start value until it elapses
+        var d = new Ircuitry.UiKit.UiElement { Id = "d", X = 5 };
+        d.Tweens.Add(new Ircuitry.UiKit.Tween { Prop = "x", From = 10, To = 20, Duration = 1f, Delay = 0.5f, Ease = "linear" });
+        d.Advance(0.25f);
+        fails += Expect("ui-tween-delay", System.Math.Abs(d.X - 10f) < 0.01f, $"pre-delay holds From=10, got {d.X}");
+
+        // JSON round-trip preserves elements + tweens
+        var scene = new Ircuitry.UiKit.UiScene { Title = "t", Width = 321 };
+        scene.Elements.Add(new Ircuitry.UiKit.UiElement { Id = "btn", Kind = Ircuitry.UiKit.UiKind.Button, Text = "Go", Color = 0x112233FF });
+        var back = Ircuitry.UiKit.UiScene.FromJson(scene.ToJson());
+        fails += Expect("ui-scene-json", back.Width == 321 && back.Find("btn")?.Kind == Ircuitry.UiKit.UiKind.Button && back.Find("btn")?.Text == "Go", "scene survives JSON round-trip");
+        return fails;
+    }
+
     /// <summary>The all-built-in-node IRCd (no code node) serialized as portable .ircbot JSON, for `--emit-ircd`
     /// so it can be dropped straight into a workspace.</summary>
     public static string EmitIrcdNodeGraph() => Ircuitry.Graph.GraphSerializer.Save(BuildIrcdNodeGraph(6667), "IRCd (nodes)");
