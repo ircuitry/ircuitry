@@ -39,6 +39,10 @@ public sealed class ThemeData
 
     public Color C(string key) => Colors.TryGetValue(key, out var c) ? c : Color.Magenta;
 
+    /// <summary>Like <see cref="C(string)"/> but falls back to a sibling key (then its default) when a theme
+    /// predates the key - so newer node-category accents stay cozy on older themes instead of going magenta.</summary>
+    public Color C(string key, string fallback) => Colors.TryGetValue(key, out var c) ? c : C(fallback);
+
     /// <summary>Canonical palette: (key, human label, group) in editor + serialization order.</summary>
     public static readonly (string Key, string Label, string Group)[] Palette =
     {
@@ -53,9 +57,10 @@ public sealed class ThemeData
         ("amber", "Honey", "Accents"), ("amberBright", "Honey bright", "Accents"),
         ("amberDim", "Honey dim", "Accents"),
         ("magenta", "Data", "Categories"), ("violet", "Logic", "Categories"),
-        ("lime", "Action", "Categories"), ("berry", "AI", "Categories"),
+        ("lime", "IRC", "Categories"), ("berry", "AI", "Categories"),
         ("sky", "Storage", "Categories"), ("teal", "IRCv3", "Categories"),
         ("blueberry", "Code", "Categories"),
+        ("coral", "Network", "Categories"), ("gold", "Media", "Categories"), ("mint", "UI", "Categories"),
         ("ok", "OK", "Status"), ("warn", "Warn", "Status"),
         ("alert", "Alert", "Status"), ("idle", "Idle", "Status"),
         ("text", "Text", "Text"), ("textDim", "Text dim", "Text"),
@@ -74,6 +79,7 @@ public sealed class ThemeData
         S("amber", 242, 174, 70); S("amberBright", 250, 200, 120); S("amberDim", 196, 146, 64);
         S("magenta", 240, 138, 158); S("violet", 176, 158, 226); S("lime", 140, 196, 84); S("berry", 198, 142, 214);
         S("sky", 116, 174, 224); S("teal", 78, 196, 178); S("blueberry", 124, 138, 210);
+        S("coral", 244, 150, 116); S("gold", 228, 196, 96); S("mint", 132, 222, 166);
         S("ok", 126, 196, 92); S("warn", 242, 182, 72); S("alert", 235, 116, 104); S("idle", 176, 162, 132);
         S("text", 86, 70, 48); S("textDim", 140, 122, 92); S("textFaint", 180, 164, 134); S("textInk", 251, 247, 236);
         return t;

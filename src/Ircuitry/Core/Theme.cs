@@ -68,12 +68,16 @@ public static class Theme
         NodeCategory.Event => Cyan,
         NodeCategory.Filter => Amber,
         NodeCategory.Logic => Violet,
-        NodeCategory.Action => Lime,
         NodeCategory.Data => Magenta,
         NodeCategory.Ai => Berry,
         NodeCategory.Storage => Sky,
-        NodeCategory.Code => Blueberry,
+        NodeCategory.Network => Active.C("coral", "amber"),   // new accents fall back cozily on older themes
+        NodeCategory.Irc => Lime,                             // core IRC keeps the old Action accent
         NodeCategory.Ircv3 => Teal,
+        NodeCategory.Code => Blueberry,
+        NodeCategory.Media => Active.C("gold", "amber"),
+        NodeCategory.Ui => Active.C("mint", "teal"),
+        NodeCategory.Action => Lime,
         _ => Idle,
     };
 
@@ -102,16 +106,20 @@ public static class Theme
     public static Color WithAlpha(Color c, float a) => new(c.R, c.G, c.B, (byte)MathHelper.Clamp(a * 255f, 0, 255));
 }
 
-/// <summary>Broad families a node can belong to, driving its accent color.</summary>
+/// <summary>Broad families a node can belong to, driving its accent color. Order here is the palette order.</summary>
 public enum NodeCategory
 {
-    Event,   // triggers - incoming IRC events
-    Filter,  // conditions / matching
-    Logic,   // flow control, variables
-    Action,  // outgoing IRC commands & effects
-    Data,    // values, transforms
-    Ai,      // AI generation, tools, memory
-    Storage, // files, database, calendar
-    Code,    // codebase programming tools (read/write/edit/search/run)
-    Ircv3,   // IRCv3 protocol extensions (caps, tags, drafts)
+    Event,    // triggers - anything that starts a flow (IRC, system, sockets, timers)
+    Filter,   // conditions / matching / guards
+    Logic,    // flow control, variables, subflow, human gates
+    Data,     // values & transforms
+    Ai,       // AI generation, tools, memory
+    Storage,  // persistence: database, files, calendar, archives
+    Network,  // sockets, HTTP, mail, DCC
+    Irc,      // core IRC commands (say, join, mode, kick, topic, ...)
+    Ircv3,    // IRCv3 protocol extensions (caps, tags, drafts)
+    Code,     // codebase / dev tools (read/write/edit/search/run/shell/containers)
+    Media,    // offline knowledge (zim) + media download/transform
+    Ui,       // node-authored UI: windows, panels, text, media, controls, animation
+    Action,   // vestigial (former catch-all) - no node maps here after the taxonomy fix
 }

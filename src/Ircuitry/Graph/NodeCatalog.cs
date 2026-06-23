@@ -3952,16 +3952,11 @@ public static class NodeCatalog
             },
         };
 
-        // tidy categorisation: AI + storage nodes live in their own groups regardless of where they were authored
+        // authoritative categorisation: one mapping is the source of truth for every node's family, so the
+        // palette stays tidy regardless of where a node was authored. See CategoryFor below.
         foreach (var d in list)
         {
-            d.Category = d.TypeId switch
-            {
-                "ai.reply" or "ai.tool" or "tool.reply" or "ai.memory" => NodeCategory.Ai,
-                "file.read" or "file.write" or "db.set" or "db.get" or "db.sql"
-                    or "file.ical" or "cal.add" or "cal.search" => NodeCategory.Storage,
-                _ => d.Category,
-            };
+            d.Category = CategoryFor(d.TypeId);
             // streaming as a bot-tools step is opt-in (advanced) - off for every node by default
             d.StreamByDefault = false;
             // every node that talks to IRC gains an optional "Send via server" override: blank routes the
@@ -3991,10 +3986,79 @@ public static class NodeCatalog
         LoadCustom();   // merge in any installed community .ircnode files
     }
 
+    /// <summary>The single source of truth for a node's category. A few type-ids are placed explicitly (the
+    /// prefixes overlap - e.g. action.* and irc.* split across IRC / IRCv3 / Network / Logic); everything else
+    /// falls to a prefix rule. Keep this list, not scattered per-def Category assignments, authoritative.</summary>
+    public static NodeCategory CategoryFor(string id)
+    {
+        switch (id)
+        {
+            // Logic & Flow (control flow, variables, subflow plumbing, human gates, utility)
+            case "logic.if": case "logic.regex": case "logic.switch": case "logic.cooldown":
+            case "logic.forEach": case "logic.repeat": case "logic.chance":
+            case "data.setvar": case "data.getvar":
+            case "flow.delay": case "flow.in": case "flow.arg": case "flow.return":
+            case "action.signal": case "action.log":
+            case "human.alert": case "human.loop":
+                return NodeCategory.Logic;
+
+            // Conditions / matching / guards
+            case "filter.contains": case "filter.fromUser": case "filter.fromAccount": case "filter.isBot":
+            case "irc.hasfilehost": case "mod.in": case "mod.out":
+                return NodeCategory.Filter;
+
+            case "tool.reply": return NodeCategory.Ai;
+
+            // Network
+            case "net.http": case "action.reconnect": return NodeCategory.Network;
+
+            // Core IRC commands
+            case "action.say": case "action.reply": case "action.join": case "action.part":
+            case "irc.topic": case "irc.kick": case "irc.mode": case "irc.action": case "irc.tempban":
+            case "irc.floodbudget": case "irc.raw": case "irc.me": case "irc.channel": case "irc.color":
+            case "irc.banmask":
+                return NodeCategory.Irc;
+
+            // IRCv3 extensions / drafts
+            case "irc.filehost": case "irc.typing.start": case "irc.typing.stop": case "irc.metadata":
+            case "action.react": case "action.reactid": case "action.replythread": case "action.setname":
+            case "action.away": case "action.tagmsg": case "action.redact": case "action.monitor":
+            case "action.chathistory": case "action.rename": case "action.metadata": case "action.multiline":
+            case "ircv3.recent": case "data.gettag":
+                return NodeCategory.Ircv3;
+
+            case "code.run": return NodeCategory.Code;   // runs JS/Python - a dev/code node
+        }
+
+        int dot = id.IndexOf('.');
+        string p = dot > 0 ? id[..dot] : id;
+        return p switch
+        {
+            "event" => NodeCategory.Event,
+            "logic" or "flow" => NodeCategory.Logic,
+            "filter" or "mod" => NodeCategory.Filter,
+            "ai" or "tool" => NodeCategory.Ai,
+            "db" or "file" or "cal" or "archive" => NodeCategory.Storage,
+            "socket" or "mail" or "dcc" or "net" => NodeCategory.Network,
+            "irc" => NodeCategory.Irc,
+            "ircv3" => NodeCategory.Ircv3,
+            "code" or "container" => NodeCategory.Code,
+            "zim" or "media" => NodeCategory.Media,
+            "ui" => NodeCategory.Ui,
+            "num" or "gen" or "data" => NodeCategory.Data,
+            _ => NodeCategory.Action,   // vestigial; nothing should land here
+        };
+    }
+
     /// <summary>Catalog grouped by category, in palette display order.</summary>
     public static IEnumerable<IGrouping<NodeCategory, NodeDef>> ByCategory()
     {
-        var order = new[] { NodeCategory.Event, NodeCategory.Filter, NodeCategory.Logic, NodeCategory.Data, NodeCategory.Ai, NodeCategory.Code, NodeCategory.Storage, NodeCategory.Action };
+        var order = new[]
+        {
+            NodeCategory.Event, NodeCategory.Filter, NodeCategory.Logic, NodeCategory.Data, NodeCategory.Ai,
+            NodeCategory.Storage, NodeCategory.Network, NodeCategory.Irc, NodeCategory.Ircv3, NodeCategory.Code,
+            NodeCategory.Media, NodeCategory.Ui, NodeCategory.Action,
+        };
         return All.GroupBy(d => d.Category).OrderBy(g => Array.IndexOf(order, g.Key));
     }
 }

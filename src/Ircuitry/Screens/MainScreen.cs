@@ -722,7 +722,7 @@ public sealed partial class MainScreen : IScreen
     public void DebugShowGh()
     {
         _l = DockLayout();
-        _openCat = NodeCategory.Action;
+        _openCat = NodeCategory.Event;
         if (NodeCatalog.TryGet("gh.run", out var def))
         {
             var n = _editor.Spawn(def, Vector2.Zero);
@@ -1590,10 +1590,14 @@ public sealed partial class MainScreen : IScreen
         NodeCategory.Logic => "Logic & Flow",
         NodeCategory.Data => "Text & Values",
         NodeCategory.Ai => "AI",
-        NodeCategory.Storage => "Files & Database",
-        NodeCategory.Code => "Code",
-        NodeCategory.Action => "Actions",
+        NodeCategory.Storage => "Storage",
+        NodeCategory.Network => "Network",
+        NodeCategory.Irc => "IRC",
         NodeCategory.Ircv3 => "IRCv3",
+        NodeCategory.Code => "Code & Dev",
+        NodeCategory.Media => "Media",
+        NodeCategory.Ui => "UI",
+        NodeCategory.Action => "Actions",
         _ => c.ToString(),
     };
 
@@ -1605,9 +1609,13 @@ public sealed partial class MainScreen : IScreen
         NodeCategory.Data => Ircuitry.Core.Icons.Glyph("hash"),
         NodeCategory.Ai => Ircuitry.Core.Icons.Glyph("robot"),
         NodeCategory.Storage => Ircuitry.Core.Icons.Glyph("floppy-disk"),
-        NodeCategory.Code => Ircuitry.Core.Icons.Glyph("laptop"),
-        NodeCategory.Action => Ircuitry.Core.Icons.Glyph("chat-circle"),
+        NodeCategory.Network => Ircuitry.Core.Icons.Glyph("globe"),
+        NodeCategory.Irc => Ircuitry.Core.Icons.Glyph("chat-circle"),
         NodeCategory.Ircv3 => Ircuitry.Core.Icons.Glyph("broadcast"),
+        NodeCategory.Code => Ircuitry.Core.Icons.Glyph("laptop"),
+        NodeCategory.Media => Ircuitry.Core.Icons.Glyph("image"),
+        NodeCategory.Ui => Ircuitry.Core.Icons.Glyph("app-window"),
+        NodeCategory.Action => Ircuitry.Core.Icons.Glyph("chat-circle"),
         _ => Ircuitry.Core.Icons.Glyph("puzzle-piece"),
     };
 
