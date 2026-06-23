@@ -3545,7 +3545,12 @@ public static class SelfTest
         var listen = Add("socket.listen", 0, -180);
         listen.SetParam("proto", "tcp"); listen.SetParam("port", port.ToString()); listen.SetParam("framing", "line");
         if (tls) listen.SetParam("tls", "true");   // auto-generates a self-signed server cert
-        g.Connect(start.Id, 0, listen.Id, 0);
+        // On boot there are no live clients, so wipe all ephemeral session state - otherwise stale nc/cn
+        // rows from the previous run make fresh registrations collide ("nick already in use").
+        var wipe = Add("db.set", 0, -100); wipe.SetParam("mode", "clear");
+        wipe.SetParam("table", "cn nc cu cr mem nm cc st cm tp capneg");
+        g.Connect(start.Id, 0, wipe.Id, 0);
+        g.Connect(wipe.Id, 0, listen.Id, 0);
 
         // parse every line once: {1}=command {2}=first arg {3}=trailing
         var sdata = Add("event.socket.data", 0, 0);
@@ -3631,7 +3636,18 @@ public static class SelfTest
         var jGetNick = Add("db.get", 460, 460); jGetNick.SetParam("table", "cn"); jGetNick.SetParam("key", "{conn}");
         var jNickVar = Add("data.setvar", 660, 460); jNickVar.SetParam("name", "jnick");
         g.Connect(jGetNick.Id, 0, jNickVar.Id, 1);
-        g.Connect(sw.Id, 4, jNickVar.Id, 0);
+        // +i invite-only gate: reject JOIN with 473 when the channel has +i set
+        var jiCmGet = Add("db.get", 60, 460); jiCmGet.SetParam("table", "cm"); jiCmGet.SetParam("key", "{2}");
+        var jiIf = Add("logic.if", 60, 400); jiIf.SetParam("op", "contains"); jiIf.SetParam("b", "i");
+        g.Connect(jiCmGet.Id, 0, jiIf.Id, 1);
+        g.Connect(sw.Id, 4, jiIf.Id, 0);           // JOIN -> +i check
+        g.Connect(jiIf.Id, 1, jNickVar.Id, 0);     // not +i -> proceed with join
+        var jiNkGet = Add("db.get", 60, 340); jiNkGet.SetParam("table", "cn"); jiNkGet.SetParam("key", "{conn}");
+        var jiNk = Add("data.setvar", 260, 340); jiNk.SetParam("name", "jinick");
+        g.Connect(jiNkGet.Id, 0, jiNk.Id, 1);
+        g.Connect(jiIf.Id, 0, jiNk.Id, 0);         // +i set -> resolve nick for the numeric
+        var ji473 = Add("socket.send", 260, 280); ji473.SetParam("conn", "{conn}"); ji473.SetParam("data", ":ircuitry 473 {jinick} {2} :Cannot join channel (+i)"); ji473.SetParam("append", "crlf");
+        g.Connect(jiNk.Id, 0, ji473.Id, 0);
         var jGetMem = Add("db.get", 460, 540); jGetMem.SetParam("table", "mem"); jGetMem.SetParam("key", "{2}");
         var jMemFmt = Add("data.format", 660, 540); jMemFmt.SetParam("template", "{a} {conn}");
         g.Connect(jGetMem.Id, 0, jMemFmt.Id, 0);
@@ -3713,7 +3729,34 @@ public static class SelfTest
         g.Connect(pmSnick.Id, 0, pmIf.Id, 0);
         var pmGetMem = Add("db.get", 1060, 840); pmGetMem.SetParam("table", "mem"); pmGetMem.SetParam("key", "{2}");
         var pmLoop = Add("logic.forEach", 1060, 900); pmLoop.SetParam("sep", "space"); pmLoop.SetParam("var", "m");
-        g.Connect(pmIf.Id, 0, pmLoop.Id, 0);   // true = channel
+        // channel send gate: enforce +n (no external messages) and +m (moderated) before fan-out -> 404
+        var geCmGet = Add("db.get", 1700, 880); geCmGet.SetParam("table", "cm"); geCmGet.SetParam("key", "{2}");
+        var geIfN = Add("logic.if", 1700, 820); geIfN.SetParam("op", "contains"); geIfN.SetParam("b", "n");
+        g.Connect(geCmGet.Id, 0, geIfN.Id, 1);
+        g.Connect(pmIf.Id, 0, geIfN.Id, 0);          // channel target -> +n check
+        var geMemGet = Add("db.get", 1900, 880); geMemGet.SetParam("table", "mem"); geMemGet.SetParam("key", "{2}");
+        var geMemFmt = Add("data.format", 1900, 940); geMemFmt.SetParam("template", " {a} ");
+        g.Connect(geMemGet.Id, 0, geMemFmt.Id, 0);
+        var geMemIf = Add("logic.if", 1900, 820); geMemIf.SetParam("op", "contains"); geMemIf.SetParam("b", " {conn} ");
+        g.Connect(geMemFmt.Id, 0, geMemIf.Id, 1);
+        g.Connect(geIfN.Id, 0, geMemIf.Id, 0);       // +n set -> sender must be a member
+        var geIfM = Add("logic.if", 2100, 820); geIfM.SetParam("op", "contains"); geIfM.SetParam("b", "m");
+        g.Connect(geCmGet.Id, 0, geIfM.Id, 1);
+        g.Connect(geIfN.Id, 1, geIfM.Id, 0);         // no +n -> +m check
+        g.Connect(geMemIf.Id, 0, geIfM.Id, 0);       // +n & member -> +m check
+        var geStGet = Add("db.get", 2300, 880); geStGet.SetParam("table", "st"); geStGet.SetParam("key", "{2} {conn}");
+        var geStO = Add("logic.if", 2300, 820); geStO.SetParam("op", "contains"); geStO.SetParam("b", "o");
+        g.Connect(geStGet.Id, 0, geStO.Id, 1);
+        g.Connect(geIfM.Id, 0, geStO.Id, 0);         // +m set -> sender must be op or voiced
+        var geStV = Add("logic.if", 2500, 820); geStV.SetParam("op", "contains"); geStV.SetParam("b", "v");
+        g.Connect(geStGet.Id, 0, geStV.Id, 1);
+        g.Connect(geStO.Id, 1, geStV.Id, 0);
+        var ge404 = Add("socket.send", 2300, 980); ge404.SetParam("conn", "{conn}"); ge404.SetParam("data", ":ircuitry 404 {snick} {2} :Cannot send to channel"); ge404.SetParam("append", "crlf");
+        g.Connect(geMemIf.Id, 1, ge404.Id, 0);       // +n set, not a member -> 404
+        g.Connect(geStV.Id, 1, ge404.Id, 0);         // +m set, not op/voiced -> 404
+        g.Connect(geIfM.Id, 1, pmLoop.Id, 0);        // no +m -> deliver
+        g.Connect(geStO.Id, 0, pmLoop.Id, 0);        // op -> deliver
+        g.Connect(geStV.Id, 0, pmLoop.Id, 0);        // voiced -> deliver
         g.Connect(pmGetMem.Id, 0, pmLoop.Id, 1);
         var pmMFmt = Add("data.format", 1060, 980); pmMFmt.SetParam("template", "{m}");
         var pmSkip = Add("logic.if", 1260, 900); pmSkip.SetParam("op", "≠"); pmSkip.SetParam("b", "{conn}");
@@ -3817,7 +3860,19 @@ public static class SelfTest
         g.Connect(tHasTopic.Id, 1, t332.Id, 0);
         // set (non-empty arg): store + broadcast TOPIC to members
         var tSet = Add("db.set", 760, 2300); tSet.SetParam("table", "tp"); tSet.SetParam("key", "{2}"); tSet.SetParam("value", "{3}");
-        g.Connect(tIsSet.Id, 1, tSet.Id, 0);
+        // +t topic-lock gate: when +t is set, only a channel operator may change the topic (482)
+        var ttCmGet = Add("db.get", 360, 2480); ttCmGet.SetParam("table", "cm"); ttCmGet.SetParam("key", "{2}");
+        var ttIf = Add("logic.if", 360, 2540); ttIf.SetParam("op", "contains"); ttIf.SetParam("b", "t");
+        g.Connect(ttCmGet.Id, 0, ttIf.Id, 1);
+        g.Connect(tIsSet.Id, 1, ttIf.Id, 0);       // set-topic -> +t check
+        g.Connect(ttIf.Id, 1, tSet.Id, 0);         // no +t -> set freely
+        var ttOpGet = Add("db.get", 560, 2540); ttOpGet.SetParam("table", "st"); ttOpGet.SetParam("key", "{2} {conn}");
+        var ttOpIf = Add("logic.if", 560, 2480); ttOpIf.SetParam("op", "contains"); ttOpIf.SetParam("b", "o");
+        g.Connect(ttOpGet.Id, 0, ttOpIf.Id, 1);
+        g.Connect(ttIf.Id, 0, ttOpIf.Id, 0);       // +t set -> op?
+        g.Connect(ttOpIf.Id, 0, tSet.Id, 0);       // op -> set
+        var tt482 = Add("socket.send", 760, 2480); tt482.SetParam("conn", "{conn}"); tt482.SetParam("data", ":ircuitry 482 {topNick} {2} :You're not channel operator"); tt482.SetParam("append", "crlf");
+        g.Connect(ttOpIf.Id, 1, tt482.Id, 0);      // not op -> 482
         var tBcGet = Add("db.get", 760, 2420); tBcGet.SetParam("table", "mem"); tBcGet.SetParam("key", "{2}");
         var tBcLoop = Add("logic.forEach", 1160, 2360); tBcLoop.SetParam("sep", "space"); tBcLoop.SetParam("var", "tm");
         g.Connect(tSet.Id, 0, tBcLoop.Id, 0);
@@ -3912,6 +3967,10 @@ public static class SelfTest
         int fails = 0;
         try
         {
+            // simulate stale session state left over from a previous run: a held nick + its conn row.
+            // The On Start boot-wipe must clear these so a fresh client can claim the nick (no phantom 433).
+            Ircuitry.Net.KvStore.Set("nc", "zombie", "deadconn");
+            Ircuitry.Net.KvStore.Set("cn", "deadconn", "zombie");
             rt.Start(BuildIrcdNodeGraph(port), new IrcSettings { Host = "", Nick = "ircd" });
             IrcPeer? Dial() { for (int i = 0; i < 100; i++) { try { var p = new IrcPeer(port); peers.Add(p); return p; } catch { Thread.Sleep(50); } } return null; }
             var a = Dial();
@@ -3919,6 +3978,9 @@ public static class SelfTest
             if (a == null) return fails;
             a.Send("NICK alice"); a.Send("USER alice 0 * :Alice");
             fails += Expect("ircdn-register", a.WaitFor(s => s.Contains(" 001 alice ") && s.Contains(" 376 "), 8000), "register alice (001..376)");
+            // boot-wipe: the leftover "zombie" nick is gone, so a fresh client can register as it (no stale 433)
+            var znaked = Dial();
+            if (znaked != null) { znaked.Send("NICK zombie"); znaked.Send("USER zombie 0 * :Z"); fails += Expect("ircdn-boot-wipe", znaked.WaitFor(s => s.Contains(" 001 zombie"), 8000), "stale nick cleared on boot - fresh client claims it"); }
             var b = Dial();
             fails += Expect("ircdn-dial-b", b != null, "second client should connect");
             if (b == null) return fails;
@@ -3968,6 +4030,36 @@ public static class SelfTest
             fails += Expect("ircdn-mode-flag", b.WaitFor(s => s.Contains("MODE #test +m"), 8000), "alice (op) sets +m, bob sees it");
             b.Send("MODE #test +n");   // bob is voiced, not op
             fails += Expect("ircdn-mode-opgate", b.WaitFor(s => s.Contains(" 482 "), 8000), "non-op MODE change is rejected with 482");
+
+            // ---- flag enforcement on a fresh channel #mod (alice = creator/op) ----
+            a.Send("JOIN #mod");
+            fails += Expect("ircdn-mod-join", a.WaitFor(s => s.Contains("JOIN #mod") && s.Contains(" 366 "), 8000), "alice creates #mod");
+            b.Send("JOIN #mod");
+            fails += Expect("ircdn-mod-bjoin", a.WaitFor(s => s.Contains("bob!") && s.Contains("JOIN #mod"), 8000), "bob joins #mod");
+            // +m: bob (plain member, no voice) cannot speak -> 404
+            a.Send("MODE #mod +m"); b.WaitFor(s => s.Contains("MODE #mod +m"), 8000);
+            b.Send("PRIVMSG #mod :muted?");
+            fails += Expect("ircdn-enf-m", b.WaitFor(s => s.Contains(" 404 "), 8000), "+m blocks non-voiced bob (404)");
+            // voicing bob lets him speak under +m
+            a.Send("MODE #mod +v bob"); b.WaitFor(s => s.Contains("MODE #mod +v bob"), 8000);
+            b.Send("PRIVMSG #mod :now?");
+            fails += Expect("ircdn-enf-m-voice", a.WaitFor(s => s.Contains("bob!") && s.Contains("now?"), 8000), "+v bob can speak under +m");
+            // +n: a non-member cannot send to the channel -> 404; +i: a non-member cannot JOIN -> 473
+            var d = Dial();
+            if (d != null)
+            {
+                d.Send("NICK dave"); d.Send("USER dave 0 * :Dave"); d.WaitFor(s => s.Contains(" 376 "), 8000);
+                a.Send("MODE #mod +n"); b.WaitFor(s => s.Contains("MODE #mod +n"), 8000);
+                d.Send("PRIVMSG #mod :outsider");
+                fails += Expect("ircdn-enf-n", d.WaitFor(s => s.Contains(" 404 "), 8000), "+n blocks non-member dave (404)");
+                a.Send("MODE #mod +i"); b.WaitFor(s => s.Contains("MODE #mod +i"), 8000);
+                d.Send("JOIN #mod");
+                fails += Expect("ircdn-enf-i", d.WaitFor(s => s.Contains(" 473 "), 8000), "+i blocks dave JOIN (473)");
+            }
+            // +t: a non-op cannot change the topic -> 482 (bob is voiced, not op)
+            a.Send("MODE #mod +t"); b.WaitFor(s => s.Contains("MODE #mod +t"), 8000);
+            b.Send("TOPIC #mod :hijack");
+            fails += Expect("ircdn-enf-t", b.WaitFor(s => s.Contains(" 482 "), 8000), "+t blocks non-op bob TOPIC (482)");
 
             // PART: bob leaves; alice sees it and bob is removed (a later channel message must not reach him)
             b.Send("PART #test :bye");

@@ -63,6 +63,13 @@ public static class KvStore
         lock (Gate) { var d = Load(table); if (d.Remove(key)) Save(table, d); }
     }
 
+    /// <summary>Wipe a whole table (deletes its backing file). Used e.g. to clear ephemeral
+    /// session state on boot so a fresh run starts with a clean slate.</summary>
+    public static void Clear(string table)
+    {
+        lock (Gate) { try { var p = PathFor(table); if (File.Exists(p)) File.Delete(p); } catch { } }
+    }
+
     public static string Get(string table, string key, string fallback = "")
     {
         lock (Gate) { var d = Load(table); return d.TryGetValue(key, out var v) ? v : fallback; }

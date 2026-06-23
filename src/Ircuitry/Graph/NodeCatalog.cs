@@ -3666,19 +3666,26 @@ public static class NodeCatalog
             {
                 TypeId = "db.set", Icon = "archive", Title = "DB Set", Subtitle = "database",
                 Category = NodeCategory.Action,
-                Description = "Stores a value in a named table on disk (~/ircuitry/data). Empty value deletes the key. Survives restarts and is shared across bots.",
+                Description = "Stores a value in a named table on disk (~/ircuitry/data). Empty value deletes the key. Survives restarts and is shared across bots. Switch Mode to 'clear' to wipe a whole table (or several - comma/space separated), e.g. to reset ephemeral session state on boot.",
                 Inputs = new[] { Ex(), Tx("value") },
                 Outputs = new[] { Ex("then") },
                 Params = new[]
                 {
                     P("table", "Table", ParamType.Text, "main", "scores · seen · notes"),
-                    P("key", "Key", ParamType.Text, "", "{nick}"),
-                    P("value", "Value", ParamType.Text, "", "supports {tokens} · blank = delete"),
+                    P("mode", "Mode", ParamType.Choice, "set", "", new[] { "set", "clear" }),
+                    P("key", "Key", ParamType.Text, "", "{nick}", visibleWhen: n => n.GetParam("mode") != "clear"),
+                    P("value", "Value", ParamType.Text, "", "supports {tokens} · blank = delete", visibleWhen: n => n.GetParam("mode") != "clear"),
                 },
                 SummaryParam = "table",
                 Exec = c =>
                 {
                     var table = c.Resolve(c.Param("table"));
+                    if (c.Param("mode") == "clear")
+                    {
+                        foreach (var t in table.Split(new[] { ',', ' ', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                            KvStore.Clear(t);
+                        c.Pulse(0); return;
+                    }
                     var key = c.Resolve(c.Param("key"));
                     if (key.Length == 0) { c.Pulse(0); return; }
                     var val = c.InOr(1, c.Resolve(c.Param("value")));
