@@ -266,7 +266,7 @@ public static class SelfTest
         fails += SocketLoopTest();
         fails += StartTriggerTest();
         fails += IrcdE2ETest();
-        fails += IrcdNodesRegisterTest();
+        fails += IrcdNodesE2ETest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3406,6 +3406,7 @@ public static class SelfTest
             }
             return pred(_buf.ToString());
         }
+        public string Buffer => _buf.ToString();
         public void Close() { try { Client.Close(); } catch { } }
     }
 
@@ -3441,6 +3442,8 @@ public static class SelfTest
             fails += Expect("ircd-register", a.WaitFor(s => s.Contains(" 001 alice ") && s.Contains(" 376 "), 12000), "alice should get a 001..376 welcome");
 
             var b = Dial();
+            fails += Expect("ircd-dial-b", b != null, "second client should connect");
+            if (b == null) return fails;
             b.Send("NICK bob"); b.Send("USER bob 0 * :Bob");
             b.WaitFor(s => s.Contains(" 376 "), 12000);
 
@@ -3492,7 +3495,7 @@ public static class SelfTest
         // parse every line once: {1}=command {2}=first arg {3}=trailing
         var sdata = Add("event.socket.data", 0, 0);
         var rx = Add("logic.regex", 220, 0);
-        rx.SetParam("pattern", @"^(\S+)\s*(\S*)\s*:?(.*)$"); rx.SetParam("ci", "false");
+        rx.SetParam("pattern", @"^(\S+)(?:\s+([^:\s]\S*))?\s*:?(.*)$"); rx.SetParam("ci", "false");   // {1}=cmd {2}=arg {3}=trailing
         g.Connect(sdata.Id, 0, rx.Id, 0);
         g.Connect(sdata.Id, 2, rx.Id, 1);   // socket data -> regex text
 
@@ -3549,13 +3552,77 @@ public static class SelfTest
         var wsend = Add("socket.send", 1640, 240); wsend.SetParam("conn", "{conn}"); wsend.SetParam("data", "{item}"); wsend.SetParam("append", "crlf");
         g.Connect(wloop.Id, 0, wsend.Id, 0);
 
+        // ---- PING (switch out 3): one Socket Send, tokens resolve in the data param ----
+        var pingSend = Add("socket.send", 660, 380);
+        pingSend.SetParam("conn", "{conn}"); pingSend.SetParam("data", ":ircuitry PONG ircuitry :{3}"); pingSend.SetParam("append", "crlf");
+        g.Connect(sw.Id, 3, pingSend.Id, 0);
+
+        // ---- JOIN (switch out 4): add to channel, broadcast the JOIN, send names ----
+        var jGetNick = Add("db.get", 460, 460); jGetNick.SetParam("table", "cn"); jGetNick.SetParam("key", "{conn}");
+        var jNickVar = Add("data.setvar", 660, 460); jNickVar.SetParam("name", "jnick");
+        g.Connect(jGetNick.Id, 0, jNickVar.Id, 1);
+        g.Connect(sw.Id, 4, jNickVar.Id, 0);
+        var jGetMem = Add("db.get", 460, 540); jGetMem.SetParam("table", "mem"); jGetMem.SetParam("key", "{2}");
+        var jMemFmt = Add("data.format", 660, 540); jMemFmt.SetParam("template", "{a} {conn}");
+        g.Connect(jGetMem.Id, 0, jMemFmt.Id, 0);
+        var jSetMem = Add("db.set", 860, 540); jSetMem.SetParam("table", "mem"); jSetMem.SetParam("key", "{2}");
+        g.Connect(jMemFmt.Id, 0, jSetMem.Id, 1);
+        g.Connect(jNickVar.Id, 0, jSetMem.Id, 0);
+        var jGetNm = Add("db.get", 460, 620); jGetNm.SetParam("table", "nm"); jGetNm.SetParam("key", "{2}");
+        var jNmFmt = Add("data.format", 660, 620); jNmFmt.SetParam("template", "{a} {jnick}");
+        g.Connect(jGetNm.Id, 0, jNmFmt.Id, 0);
+        var jSetNm = Add("db.set", 860, 620); jSetNm.SetParam("table", "nm"); jSetNm.SetParam("key", "{2}");
+        g.Connect(jNmFmt.Id, 0, jSetNm.Id, 1);
+        g.Connect(jSetMem.Id, 0, jSetNm.Id, 0);
+        var jBcGetMem = Add("db.get", 460, 700); jBcGetMem.SetParam("table", "mem"); jBcGetMem.SetParam("key", "{2}");
+        var jLoop = Add("logic.forEach", 660, 700); jLoop.SetParam("sep", "space"); jLoop.SetParam("var", "m");
+        g.Connect(jSetNm.Id, 0, jLoop.Id, 0);
+        g.Connect(jBcGetMem.Id, 0, jLoop.Id, 1);
+        var jBcSend = Add("socket.send", 860, 700); jBcSend.SetParam("conn", "{m}"); jBcSend.SetParam("data", ":{jnick}!user@ircuitry JOIN {2}"); jBcSend.SetParam("append", "crlf");
+        g.Connect(jLoop.Id, 0, jBcSend.Id, 0);
+        var jGetNm2 = Add("db.get", 460, 780); jGetNm2.SetParam("table", "nm"); jGetNm2.SetParam("key", "{2}");
+        var jNamesVar = Add("data.setvar", 660, 780); jNamesVar.SetParam("name", "jnames");
+        g.Connect(jGetNm2.Id, 0, jNamesVar.Id, 1);
+        g.Connect(jLoop.Id, 1, jNamesVar.Id, 0);   // forEach done -> names
+        var j353 = Add("socket.send", 860, 780); j353.SetParam("conn", "{conn}"); j353.SetParam("data", ":ircuitry 353 {jnick} = {2} :{jnames}"); j353.SetParam("append", "crlf");
+        g.Connect(jNamesVar.Id, 0, j353.Id, 0);
+        var j366 = Add("socket.send", 1060, 780); j366.SetParam("conn", "{conn}"); j366.SetParam("data", ":ircuitry 366 {jnick} {2} :End of /NAMES list"); j366.SetParam("append", "crlf");
+        g.Connect(j353.Id, 0, j366.Id, 0);
+
+        // ---- PRIVMSG (switch out 6): channel -> fan out to members (skip sender); nick -> deliver to their conn ----
+        var pmGetNick = Add("db.get", 460, 880); pmGetNick.SetParam("table", "cn"); pmGetNick.SetParam("key", "{conn}");
+        var pmSnick = Add("data.setvar", 660, 880); pmSnick.SetParam("name", "snick");
+        g.Connect(pmGetNick.Id, 0, pmSnick.Id, 1);
+        g.Connect(sw.Id, 6, pmSnick.Id, 0);
+        var pmTargetFmt = Add("data.format", 460, 960); pmTargetFmt.SetParam("template", "{2}");
+        var pmIf = Add("logic.if", 860, 880); pmIf.SetParam("op", "starts with"); pmIf.SetParam("b", "#");
+        g.Connect(pmTargetFmt.Id, 0, pmIf.Id, 1);   // A = target
+        g.Connect(pmSnick.Id, 0, pmIf.Id, 0);
+        var pmGetMem = Add("db.get", 1060, 840); pmGetMem.SetParam("table", "mem"); pmGetMem.SetParam("key", "{2}");
+        var pmLoop = Add("logic.forEach", 1060, 900); pmLoop.SetParam("sep", "space"); pmLoop.SetParam("var", "m");
+        g.Connect(pmIf.Id, 0, pmLoop.Id, 0);   // true = channel
+        g.Connect(pmGetMem.Id, 0, pmLoop.Id, 1);
+        var pmMFmt = Add("data.format", 1060, 980); pmMFmt.SetParam("template", "{m}");
+        var pmSkip = Add("logic.if", 1260, 900); pmSkip.SetParam("op", "≠"); pmSkip.SetParam("b", "{conn}");
+        g.Connect(pmMFmt.Id, 0, pmSkip.Id, 1);   // A = m
+        g.Connect(pmLoop.Id, 0, pmSkip.Id, 0);
+        var pmChanSend = Add("socket.send", 1460, 900); pmChanSend.SetParam("conn", "{m}"); pmChanSend.SetParam("data", ":{snick}!user@ircuitry PRIVMSG {2} :{3}"); pmChanSend.SetParam("append", "crlf");
+        g.Connect(pmSkip.Id, 0, pmChanSend.Id, 0);   // true = m != sender
+        var pmGetTc = Add("db.get", 1060, 1060); pmGetTc.SetParam("table", "nc"); pmGetTc.SetParam("key", "{2}");
+        var pmTcVar = Add("data.setvar", 1260, 1060); pmTcVar.SetParam("name", "tconn");
+        g.Connect(pmGetTc.Id, 0, pmTcVar.Id, 1);
+        g.Connect(pmIf.Id, 1, pmTcVar.Id, 0);   // false = nick
+        var pmNickSend = Add("socket.send", 1460, 1060); pmNickSend.SetParam("conn", "{tconn}"); pmNickSend.SetParam("data", ":{snick}!user@ircuitry PRIVMSG {2} :{3}"); pmNickSend.SetParam("append", "crlf");
+        g.Connect(pmTcVar.Id, 0, pmNickSend.Id, 0);
+
         return g;
     }
 
-    /// <summary>The all-built-in-nodes IRCd (NO code node): boot it hostless and check a client registers via the
-    /// node graph alone - logic.regex parse, logic.switch dispatch, DB-table state, logic.if gating, welcome
-    /// fan-out. Needs no sandbox (no code node), so it runs anywhere.</summary>
-    private static int IrcdNodesRegisterTest()
+    /// <summary>The all-built-in-nodes IRCd (NO code node): boot it hostless and drive two real TCP clients through
+    /// registration, JOIN, a channel relay, a private message and PING - the same chat loop as the code-node
+    /// version, but built entirely from logic.regex / logic.switch / logic.if / db / forEach / Socket Send. Needs
+    /// no sandbox (no code node), so it runs anywhere.</summary>
+    private static int IrcdNodesE2ETest()
     {
         var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
         var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-ircdn-" + Guid.NewGuid().ToString("N")[..8]);
@@ -3573,7 +3640,22 @@ public static class SelfTest
             fails += Expect("ircdn-listen", a != null, $"node IRCd should listen on {port}");
             if (a == null) return fails;
             a.Send("NICK alice"); a.Send("USER alice 0 * :Alice");
-            fails += Expect("ircdn-register", a.WaitFor(s => s.Contains(" 001 alice ") && s.Contains(" 376 "), 8000), "all-node IRCd should register alice (001..376)");
+            fails += Expect("ircdn-register", a.WaitFor(s => s.Contains(" 001 alice ") && s.Contains(" 376 "), 8000), "register alice (001..376)");
+            var b = Dial();
+            fails += Expect("ircdn-dial-b", b != null, "second client should connect");
+            if (b == null) return fails;
+            b.Send("NICK bob"); b.Send("USER bob 0 * :Bob");
+            b.WaitFor(s => s.Contains(" 376 "), 8000);
+            a.Send("JOIN #test");
+            fails += Expect("ircdn-join", a.WaitFor(s => s.Contains("JOIN #test") && s.Contains(" 366 "), 8000), "alice joins #test with names");
+            b.Send("JOIN #test");
+            fails += Expect("ircdn-peer-join", a.WaitFor(s => s.Contains("bob!") && s.Contains("JOIN #test"), 8000), "alice sees bob join");
+            a.Send("PRIVMSG #test :hi bob");
+            fails += Expect("ircdn-relay", b.WaitFor(s => s.Contains("alice!") && s.Contains("PRIVMSG #test :hi bob"), 8000), "bob gets the channel message");
+            b.Send("PRIVMSG alice :pm back");
+            fails += Expect("ircdn-pm", a.WaitFor(s => s.Contains("bob!") && s.Contains("PRIVMSG alice :pm back"), 8000), "alice gets bob's PM");
+            a.Send("PING :xyz");
+            fails += Expect("ircdn-ping", a.WaitFor(s => s.Contains("PONG") && s.Contains(":xyz"), 8000), "alice gets a PONG");
         }
         finally
         {

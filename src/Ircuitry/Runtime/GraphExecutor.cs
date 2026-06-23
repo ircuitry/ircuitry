@@ -160,6 +160,18 @@ public static class GraphExecutor
         // The visiting set is threaded through nested input reads so the cycle
         // guard survives pure-node-calls-pure-node chains (a fresh set per level
         // would let A<->B data cycles recurse forever -> StackOverflow).
+        /// <summary>Drop cached PURE-node outputs so they recompute on the next pull. Loops (For Each / Repeat)
+        /// call this between iterations: a pure node that reads the loop var ({item}, {index}, ...) is volatile,
+        /// and the per-run output cache would otherwise pin it to its first-iteration value.</summary>
+        public void InvalidatePure()
+        {
+            if (Outputs.Count == 0) return;
+            List<(string, int)> rm = new();
+            foreach (var k in Outputs.Keys)
+                if (Graph.Find(k.Item1)?.Def.IsPure == true) rm.Add(k);
+            foreach (var k in rm) Outputs.Remove(k);
+        }
+
         public string ResolveInput(Node node, int inputIndex, HashSet<string>? visiting = null)
         {
             var conn = Graph.IntoPin(node.Id, inputIndex);
@@ -299,6 +311,7 @@ public static class GraphExecutor
         public void Run(int execOutputIndex) => _run.RunOutput(_node, execOutputIndex);
         public System.Collections.Generic.IReadOnlyList<Node> SourcesInto(int inputIndex) => _run.SourcesInto(_node, inputIndex);
         public void RunNode(Node node) => _run.RunExec(node);
+        public void InvalidatePure() => _run.InvalidatePure();
         public Dictionary<string, string> RunSubflow(NodeGraph sub, Dictionary<string, string> inputs) => _run.RunSubflow(sub, inputs);
         public void EmitSignal(string name, string data) => _run.EmitSignal(name, data);
 

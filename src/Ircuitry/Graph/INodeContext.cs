@@ -31,6 +31,10 @@ public interface INodeContext
     /// <summary>Synchronously run another node's behaviour within the same execution (used to invoke AI tools).</summary>
     void RunNode(Node node);
 
+    /// <summary>Invalidate cached pure-node outputs so they recompute on the next pull (loops call this between
+    /// iterations so a pure node reading the loop var isn't pinned to its first-iteration value).</summary>
+    void InvalidatePure();
+
     /// <summary>Run a saved subgraph as a reusable unit: seed it with named inputs and read back the named
     /// outputs its flow.return nodes wrote (reusable subflows / community subflow nodes).</summary>
     System.Collections.Generic.Dictionary<string, string> RunSubflow(NodeGraph sub, System.Collections.Generic.Dictionary<string, string> inputs);

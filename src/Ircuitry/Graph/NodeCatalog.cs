@@ -3432,6 +3432,7 @@ public static class NodeCatalog
                     {
                         c.SetOut(2, items[i]); c.SetOut(3, i.ToString());
                         c.SetVar(varName, items[i]); c.SetVar("index", i.ToString());
+                        c.InvalidatePure();   // loop var changed: pure nodes that read {item} must recompute
                         c.Run(0);
                     }
                     c.Pulse(1);
@@ -3449,7 +3450,7 @@ public static class NodeCatalog
                 Exec = c =>
                 {
                     int times = Math.Clamp(int.TryParse(c.InOr(1, c.Param("times")), out var t) ? t : 0, 0, 10000);
-                    for (int i = 0; i < times; i++) { c.SetOut(2, i.ToString()); c.SetVar("i", i.ToString()); c.Run(0); }
+                    for (int i = 0; i < times; i++) { c.SetOut(2, i.ToString()); c.SetVar("i", i.ToString()); c.InvalidatePure(); c.Run(0); }
                     c.Pulse(1);
                 },
             },
