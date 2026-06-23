@@ -14,7 +14,14 @@ namespace Ircuitry.UiKit;
 /// </summary>
 public sealed class UiHost
 {
-    private sealed class Win { public Process Proc = null!; public TextWriter In = null!; public volatile bool Dead; }
+    private sealed class Win
+    {
+        public Process Proc = null!;
+        public TextWriter In = null!;
+        public volatile bool Dead;
+        public string? Pending;                           // latest scene to write (coalesced); guarded by Interlocked + Signal
+        public readonly AutoResetEvent Signal = new(false);
+    }
 
     private readonly Dictionary<string, Win> _wins = new();
     private readonly object _gate = new();
@@ -23,14 +30,16 @@ public sealed class UiHost
 
     public UiHost(Action<string, UiEvent> onEvent, Action<string, bool> log) { _onEvent = onEvent; _log = log; }
 
-    /// <summary>Push the full scene to a window (spawning it if needed). The child swaps it in atomically.</summary>
+    /// <summary>Queue the full scene for a window (spawning it if needed). Coalesced + written on a background
+    /// thread, so a burst of scene mutations never blocks the caller (the bot worker) on the child's pipe - the
+    /// child just gets the latest scene and swaps it in atomically.</summary>
     public void Send(string windowId, string sceneJson)
     {
         Win w;
         lock (_gate) { w = Ensure(windowId); }
         if (w == null! || w.Dead) return;
-        try { lock (w) { w.In.WriteLine(sceneJson); w.In.Flush(); } }
-        catch { w.Dead = true; }
+        w.Pending = sceneJson;
+        w.Signal.Set();
     }
 
     public void Close(string windowId)
@@ -59,6 +68,7 @@ public sealed class UiHost
             var w = new Win { Proc = p, In = p.StandardInput };
             _wins[windowId] = w;
             new Thread(() => ReadLoop(windowId, w)) { IsBackground = true, Name = "ui-events" }.Start();
+            new Thread(() => WriteLoop(w)) { IsBackground = true, Name = "ui-write" }.Start();
             return w;
         }
         catch (Exception e) { _log($"UI window '{windowId}' failed to start: {e.Message}", true); return null!; }
@@ -79,7 +89,21 @@ public sealed class UiHost
         try { _onEvent(windowId, new UiEvent { Type = "close" }); } catch { }   // the window vanished -> a close event
     }
 
-    private static void Kill(Win w) { try { w.Dead = true; if (!w.Proc.HasExited) w.Proc.Kill(true); } catch { } }
+    // drains the latest pending scene to the child (latest-wins). Owning the only writer means a slow/full pipe
+    // blocks this thread, never the bot's run worker.
+    private static void WriteLoop(Win w)
+    {
+        while (!w.Dead)
+        {
+            w.Signal.WaitOne(250);
+            var s = System.Threading.Interlocked.Exchange(ref w.Pending, null);
+            if (s == null) continue;
+            try { w.In.WriteLine(s); w.In.Flush(); }
+            catch { w.Dead = true; }
+        }
+    }
+
+    private static void Kill(Win w) { try { w.Dead = true; w.Signal.Set(); if (!w.Proc.HasExited) w.Proc.Kill(true); } catch { } }
 
     /// <summary>Relaunch THIS executable in a sub-mode (dotnet &lt;dll&gt; &lt;args&gt;, or &lt;apphost&gt; &lt;args&gt;), wiring stdin+stdout.
     /// Shared by the 2D/3D window host and the web-surface host.</summary>

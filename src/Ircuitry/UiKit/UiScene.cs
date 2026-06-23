@@ -16,6 +16,7 @@ public sealed class UiScene
     public int Width = 800;
     public int Height = 600;
     public uint Bg = 0x141018FF;                 // RGBA
+    public string Controls = "";                 // "" = none; "fps" = WASD move + arrow-keys look on the 3D camera
     public Scene3D? World;                       // optional 3D world, drawn behind the 2D overlay (game + HUD)
     public List<UiElement> Elements = new();
 

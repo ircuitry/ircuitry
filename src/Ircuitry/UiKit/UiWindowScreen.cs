@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using Ircuitry.App;
 using Ircuitry.Core;
 using Ircuitry.Input;
@@ -27,10 +28,26 @@ public sealed class UiWindowScreen : IScreen
     private readonly List<UiEvent> _events = new();
     private Scene3DRenderer? _r3d;
 
+    // first-person controller state (Controls == "fps")
+    private bool _fpsInit, _gunBaseSet;
+    private float _yaw, _pitch, _ex, _ey, _ez, _bob, _gunBaseY;
+
     public UiWindowScreen(GraphicsDevice gd) { _gd = gd; }
 
     public bool SuppressAutosave => _focusId != null;   // a focused text field is mid-edit
-    public UiScene Scene { get => _scene; set { _scene = value ?? new(); _focusId = _pressId = _hoverId = null; } }
+    public UiScene Scene
+    {
+        get => _scene;
+        set
+        {
+            var v = value ?? new();
+            // in FPS mode the WINDOW owns the camera - carry it across a re-stream so it doesn't snap back
+            if (_fpsInit && v.Controls == "fps" && v.World != null) { v.World.Cam.Px = _ex; v.World.Cam.Py = _ey; v.World.Cam.Pz = _ez; }
+            if (v.Controls != "fps") _fpsInit = false;
+            _gunBaseSet = false;
+            _scene = v; _focusId = _pressId = _hoverId = null;
+        }
+    }
 
     /// <summary>Take and clear the events queued since the last drain (called by the host each frame).</summary>
     public List<UiEvent> DrainEvents()
@@ -44,10 +61,60 @@ public sealed class UiWindowScreen : IScreen
 
     private void Emit(UiEvent e) { lock (_evLock) _events.Add(e); }
 
+    // WASD walk + arrow-key look on the 3D camera, with optional gun-bob + muzzle-flash conventions (elements
+    // named "gun" / "flash"). Camera height is held fixed (no flying), the classic shooter feel.
+    private void UpdateFps(InputState input, float dt)
+    {
+        var cam = _scene.World!.Cam;
+        if (!_fpsInit)
+        {
+            _ex = cam.Px; _ey = cam.Py; _ez = cam.Pz;
+            float dx = cam.Tx - cam.Px, dy = cam.Ty - cam.Py, dz = cam.Tz - cam.Pz;
+            float flat = MathF.Max(0.001f, MathF.Sqrt(dx * dx + dz * dz));
+            _yaw = MathF.Atan2(dx, -dz) * 180f / MathF.PI;
+            _pitch = MathF.Atan2(dy, flat) * 180f / MathF.PI;
+            _fpsInit = true;
+        }
+        float look = 95f * dt;
+        if (input.KeyDown(Keys.Left)) _yaw -= look;
+        if (input.KeyDown(Keys.Right)) _yaw += look;
+        if (input.KeyDown(Keys.Up)) _pitch += look * 0.7f;
+        if (input.KeyDown(Keys.Down)) _pitch -= look * 0.7f;
+        _pitch = Math.Clamp(_pitch, -85f, 85f);
+
+        float yr = _yaw * MathF.PI / 180f;
+        float fx = MathF.Sin(yr), fz = -MathF.Cos(yr);   // horizontal forward
+        float rx = MathF.Cos(yr), rz = MathF.Sin(yr);    // strafe right
+        float sp = 5f * dt; bool moving = false;
+        if (input.KeyDown(Keys.W)) { _ex += fx * sp; _ez += fz * sp; moving = true; }
+        if (input.KeyDown(Keys.S)) { _ex -= fx * sp; _ez -= fz * sp; moving = true; }
+        if (input.KeyDown(Keys.A)) { _ex -= rx * sp; _ez -= rz * sp; moving = true; }
+        if (input.KeyDown(Keys.D)) { _ex += rx * sp; _ez += rz * sp; moving = true; }
+
+        float pr = _pitch * MathF.PI / 180f, cp = MathF.Cos(pr);
+        cam.Px = _ex; cam.Py = _ey; cam.Pz = _ez;
+        cam.Tx = _ex + fx * cp; cam.Ty = _ey + MathF.Sin(pr); cam.Tz = _ez + fz * cp;
+
+        var gun = _scene.Find("gun");
+        if (gun != null)
+        {
+            if (!_gunBaseSet) { _gunBaseY = gun.Y; _gunBaseSet = true; }
+            _bob += (moving ? 9f : 3f) * dt;
+            gun.Y = _gunBaseY + MathF.Sin(_bob) * (moving ? 7f : 2f);
+        }
+        var flash = _scene.Find("flash");
+        if (flash != null)
+        {
+            if (input.LeftPressed) flash.Alpha = 0.95f;
+            else { flash.Alpha *= 0.78f; if (flash.Alpha < 0.02f) flash.Alpha = 0f; }
+        }
+    }
+
     public void Update(InputState input, Clock clock)
     {
         var s = _scene;
         s.Advance(clock.Dt);
+        if (s.Controls == "fps" && s.World != null) UpdateFps(input, clock.Dt);
 
         // topmost interactive element under the cursor
         var m = input.Mouse;

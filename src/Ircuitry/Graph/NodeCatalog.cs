@@ -4155,6 +4155,18 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "ui.controls", Icon = "game-controller", Title = "UI Controls", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "Set a window's control mode. 'fps' hands the 3D camera to the player: WASD to move, arrow keys to look (camera height stays fixed). Name an element 'gun' to bob it while walking and 'flash' to muzzle-flash on click. 'none' returns to a scripted/static camera.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""),
+                    P("mode", "Mode", ParamType.Choice, "fps", "", new[] { "none", "fps" }),
+                },
+                Exec = c => { c.UiControls(c.Resolve(c.Param("window")), c.Param("mode")); c.Pulse(0); },
+            },
+            new()
+            {
                 TypeId = "ui.web", Icon = "browser", Title = "UI Web", Subtitle = "ui", Category = NodeCategory.Ui,
                 Description = "Open a web-surface window - a native webview (Photino) loading a URL or your own HTML. The page is the content (build a browser, a web app, a rich dashboard). Any window.external.sendMessage(text) from the page's JS fires On UI Event (event = message, value = text), so a web UI can drive the graph. Needs a system webview (WebView2 / WebKitGTK / WKWebView).",
                 Inputs = new[] { Ex(), Tx("url") }, Outputs = new[] { Ex("then") },

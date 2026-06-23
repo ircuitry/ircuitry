@@ -122,6 +122,8 @@ public interface IRuntimeSink
     void UiScene3D(string windowId, Ircuitry.UiKit.Camera cam) { }
     /// <summary>Add or replace a 3D mesh (by id) in the window's 3D world.</summary>
     void UiMesh(string windowId, Ircuitry.UiKit.Obj3D mesh) { }
+    /// <summary>Set the window's control mode ("" = none, "fps" = WASD move + arrow-keys look on the 3D camera).</summary>
+    void UiControls(string windowId, string mode) { }
     /// <summary>Open a web-surface window (native webview) on a URL or inline HTML. JS messages from the page
     /// arrive as "message" UI events. Re-opening the same id replaces it.</summary>
     void UiWeb(string windowId, string url, string html, int width, int height, string title) { }

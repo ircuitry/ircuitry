@@ -178,6 +178,12 @@ public sealed class ServerConn : IRuntimeSink
         lock (_uiGate) { var s = UiSceneFor(id); s.World ??= new Ircuitry.UiKit.Scene3D(); s.World.Cam = cam; UiStream(id, s); }
     }
 
+    public void UiControls(string id, string mode)
+    {
+        if (id.Length == 0) id = "main";
+        lock (_uiGate) { var s = UiSceneFor(id); s.Controls = mode; UiStream(id, s); }
+    }
+
     public void UiMesh(string id, Ircuitry.UiKit.Obj3D mesh)
     {
         if (id.Length == 0) id = "main";

@@ -64,6 +64,7 @@ public static class SelfTest
         public void UiMesh(string id, Ircuitry.UiKit.Obj3D m) { var s = US(id); s.World ??= new(); int i = s.World.Objects.FindIndex(o => o.Id == m.Id); if (i >= 0) s.World.Objects[i] = m; else s.World.Objects.Add(m); }
         public readonly List<(string id, string url, string html)> WebOpens = new();
         public void UiWeb(string id, string url, string html, int w, int h, string title) { WebOpens.Add((id, url, html)); }
+        public void UiControls(string id, string mode) { US(id).Controls = mode; }
     }
 
     private static Node N(NodeGraph g, string type, float x, float y)
@@ -3577,6 +3578,15 @@ public static class SelfTest
         var s4 = new FakeSink();
         GraphExecutor.Fire(g4, s4, st4, Vars("", "alice", "#test"));
         fails += Expect("ui-web-open", s4.WebOpens.Count == 1 && s4.WebOpens[0].id == "site" && s4.WebOpens[0].url == "https://ircuitry.github.io", "ui.web opens a webview on the URL");
+
+        // ui.controls flips a window into fps (first-person) mode
+        var g5 = new NodeGraph();
+        var st5 = N(g5, "event.start", 0, 0);
+        var ctl = N(g5, "ui.controls", 200, 0); ctl.SetParam("window", "intro"); ctl.SetParam("mode", "fps");
+        g5.Connect(st5.Id, 0, ctl.Id, 0);
+        var s5 = new FakeSink();
+        GraphExecutor.Fire(g5, s5, st5, Vars("", "a", "#t"));
+        fails += Expect("ui-controls", s5.UiScenes.TryGetValue("intro", out var sc5) && sc5!.Controls == "fps", "ui.controls sets fps mode");
         return fails;
     }
 
