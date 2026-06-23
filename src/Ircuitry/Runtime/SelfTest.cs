@@ -3629,7 +3629,14 @@ public static class SelfTest
         g.Connect(jGetNm.Id, 0, jNmFmt.Id, 0);
         var jSetNm = Add("db.set", 860, 620); jSetNm.SetParam("table", "nm"); jSetNm.SetParam("key", "{2}");
         g.Connect(jNmFmt.Id, 0, jSetNm.Id, 1);
-        g.Connect(jSetMem.Id, 0, jSetNm.Id, 0);
+        // first joiner (channel was empty before this join) becomes operator: st["{chan} {conn}"] = "o"
+        var jFirstIf = Add("logic.if", 1060, 480); jFirstIf.SetParam("op", "is empty");
+        g.Connect(jGetMem.Id, 0, jFirstIf.Id, 1);   // A = members BEFORE this join
+        g.Connect(jSetMem.Id, 0, jFirstIf.Id, 0);
+        var jSetOp = Add("db.set", 1060, 540); jSetOp.SetParam("table", "st"); jSetOp.SetParam("key", "{2} {conn}"); jSetOp.SetParam("value", "o");
+        g.Connect(jFirstIf.Id, 0, jSetOp.Id, 0);    // empty -> first joiner -> +o
+        g.Connect(jSetOp.Id, 0, jSetNm.Id, 0);
+        g.Connect(jFirstIf.Id, 1, jSetNm.Id, 0);    // not first -> continue
         var jGetCc = Add("db.get", 1060, 660); jGetCc.SetParam("table", "cc"); jGetCc.SetParam("key", "{conn}");
         var jCcFmt = Add("data.format", 1060, 700); jCcFmt.SetParam("template", "{a} {2}");
         g.Connect(jGetCc.Id, 0, jCcFmt.Id, 0);
@@ -3642,12 +3649,40 @@ public static class SelfTest
         g.Connect(jBcGetMem.Id, 0, jLoop.Id, 1);
         var jBcSend = Add("socket.send", 860, 700); jBcSend.SetParam("conn", "{m}"); jBcSend.SetParam("data", ":{jnick}!user@ircuitry JOIN {2}"); jBcSend.SetParam("append", "crlf");
         g.Connect(jLoop.Id, 0, jBcSend.Id, 0);
-        var jGetNm2 = Add("db.get", 460, 780); jGetNm2.SetParam("table", "nm"); jGetNm2.SetParam("key", "{2}");
-        var jNamesVar = Add("data.setvar", 660, 780); jNamesVar.SetParam("name", "jnames");
-        g.Connect(jGetNm2.Id, 0, jNamesVar.Id, 1);
-        g.Connect(jLoop.Id, 1, jNamesVar.Id, 0);   // forEach done -> names
-        var j353 = Add("socket.send", 860, 780); j353.SetParam("conn", "{conn}"); j353.SetParam("data", ":ircuitry 353 {jnick} = {2} :{jnames}"); j353.SetParam("append", "crlf");
-        g.Connect(jNamesVar.Id, 0, j353.Id, 0);
+        // NAMES with @/+ prefixes: iterate member conns, look up each nick + status (st), accumulate prefixed names
+        var pnInit = Add("data.setvar", 460, 780); pnInit.SetParam("name", "jnames"); pnInit.SetParam("value", "");
+        g.Connect(jLoop.Id, 1, pnInit.Id, 0);   // broadcast done -> build names
+        var pnGetMem = Add("db.get", 460, 840); pnGetMem.SetParam("table", "mem"); pnGetMem.SetParam("key", "{2}");
+        var pnLoop = Add("logic.forEach", 660, 780); pnLoop.SetParam("sep", "space"); pnLoop.SetParam("var", "nm2");
+        g.Connect(pnInit.Id, 0, pnLoop.Id, 0);
+        g.Connect(pnGetMem.Id, 0, pnLoop.Id, 1);
+        var pnGetNick = Add("db.get", 460, 900); pnGetNick.SetParam("table", "cn"); pnGetNick.SetParam("key", "{nm2}");
+        var pnNickVar = Add("data.setvar", 660, 840); pnNickVar.SetParam("name", "nmnick");
+        g.Connect(pnGetNick.Id, 0, pnNickVar.Id, 1);
+        g.Connect(pnLoop.Id, 0, pnNickVar.Id, 0);
+        var pnGetSt = Add("db.get", 460, 960); pnGetSt.SetParam("table", "st"); pnGetSt.SetParam("key", "{2} {nm2}");
+        var pnStVar = Add("data.setvar", 660, 900); pnStVar.SetParam("name", "nmst");
+        g.Connect(pnGetSt.Id, 0, pnStVar.Id, 1);
+        g.Connect(pnNickVar.Id, 0, pnStVar.Id, 0);
+        var pnStFmt = Add("data.format", 660, 1020); pnStFmt.SetParam("template", "{nmst}");
+        var pnIfOp = Add("logic.if", 860, 900); pnIfOp.SetParam("op", "contains"); pnIfOp.SetParam("b", "o");
+        g.Connect(pnStFmt.Id, 0, pnIfOp.Id, 1);
+        g.Connect(pnStVar.Id, 0, pnIfOp.Id, 0);
+        var pnIfV = Add("logic.if", 860, 980); pnIfV.SetParam("op", "contains"); pnIfV.SetParam("b", "v");
+        g.Connect(pnStFmt.Id, 0, pnIfV.Id, 1);
+        g.Connect(pnIfOp.Id, 1, pnIfV.Id, 0);   // not op -> check voice
+        var pnAt = Add("data.setvar", 1060, 860); pnAt.SetParam("name", "nmpfx"); pnAt.SetParam("value", "@");
+        var pnPlus = Add("data.setvar", 1060, 960); pnPlus.SetParam("name", "nmpfx"); pnPlus.SetParam("value", "+");
+        var pnNone = Add("data.setvar", 1060, 1040); pnNone.SetParam("name", "nmpfx"); pnNone.SetParam("value", "");
+        g.Connect(pnIfOp.Id, 0, pnAt.Id, 0);
+        g.Connect(pnIfV.Id, 0, pnPlus.Id, 0);
+        g.Connect(pnIfV.Id, 1, pnNone.Id, 0);
+        var pnApp = Add("data.setvar", 1260, 940); pnApp.SetParam("name", "jnames"); pnApp.SetParam("value", "{jnames} {nmpfx}{nmnick}");
+        g.Connect(pnAt.Id, 0, pnApp.Id, 0);
+        g.Connect(pnPlus.Id, 0, pnApp.Id, 0);
+        g.Connect(pnNone.Id, 0, pnApp.Id, 0);
+        var j353 = Add("socket.send", 1260, 780); j353.SetParam("conn", "{conn}"); j353.SetParam("data", ":ircuitry 353 {jnick} = {2} :{jnames}"); j353.SetParam("append", "crlf");
+        g.Connect(pnLoop.Id, 1, j353.Id, 0);   // names done -> 353
         var j366 = Add("socket.send", 1060, 780); j366.SetParam("conn", "{conn}"); j366.SetParam("data", ":ircuitry 366 {jnick} {2} :End of /NAMES list"); j366.SetParam("append", "crlf");
         g.Connect(j353.Id, 0, j366.Id, 0);
 
@@ -3776,6 +3811,58 @@ public static class SelfTest
         var tBcSend = Add("socket.send", 1360, 2360); tBcSend.SetParam("conn", "{tm}"); tBcSend.SetParam("data", ":{topNick}!user@ircuitry TOPIC {2} :{3}"); tBcSend.SetParam("append", "crlf");
         g.Connect(tBcLoop.Id, 0, tBcSend.Id, 0);
 
+        // ---- MODE (switch out 10): query -> 324, or +o/-o/+v/-v <nick> -> change status (st) + broadcast ----
+        var mGetNick = Add("db.get", 1600, 1900); mGetNick.SetParam("table", "cn"); mGetNick.SetParam("key", "{conn}");
+        var mNick = Add("data.setvar", 1700, 1900); mNick.SetParam("name", "mnick");
+        g.Connect(mGetNick.Id, 0, mNick.Id, 1);
+        g.Connect(sw.Id, 10, mNick.Id, 0);
+        var mChan = Add("data.setvar", 1700, 1960); mChan.SetParam("name", "mchan"); mChan.SetParam("value", "{2}");
+        g.Connect(mNick.Id, 0, mChan.Id, 0);
+        var mRest = Add("data.setvar", 1700, 2020); mRest.SetParam("name", "mrest"); mRest.SetParam("value", "{3}");
+        g.Connect(mChan.Id, 0, mRest.Id, 0);
+        var mRestFmt = Add("data.format", 1700, 2080); mRestFmt.SetParam("template", "{mrest}");
+        var mIsQuery = Add("logic.if", 1900, 1960); mIsQuery.SetParam("op", "is empty");
+        g.Connect(mRestFmt.Id, 0, mIsQuery.Id, 1);
+        g.Connect(mRest.Id, 0, mIsQuery.Id, 0);
+        // query -> 324 (channel modes from cm)
+        var mGetCm = Add("db.get", 2100, 1900); mGetCm.SetParam("table", "cm"); mGetCm.SetParam("key", "{mchan}");
+        var mCmVar = Add("data.setvar", 2300, 1900); mCmVar.SetParam("name", "cmodes");
+        g.Connect(mGetCm.Id, 0, mCmVar.Id, 1);
+        g.Connect(mIsQuery.Id, 0, mCmVar.Id, 0);
+        var m324 = Add("socket.send", 2500, 1900); m324.SetParam("conn", "{conn}"); m324.SetParam("data", ":ircuitry 324 {mnick} {mchan} +{cmodes}"); m324.SetParam("append", "crlf");
+        g.Connect(mCmVar.Id, 0, m324.Id, 0);
+        // set -> parse "<modestring> <arg>" from {mrest} (saves the outer {2}/{3} via {mchan}/{mrest} first)
+        var mParseTxt = Add("data.format", 1900, 2080); mParseTxt.SetParam("template", "{mrest}");
+        var mParse = Add("logic.regex", 2100, 2020); mParse.SetParam("pattern", "^(\\S+)\\s*(\\S*)"); mParse.SetParam("ci", "false");
+        g.Connect(mIsQuery.Id, 1, mParse.Id, 0);   // not query -> parse
+        g.Connect(mParseTxt.Id, 0, mParse.Id, 1);
+        var mSw = Add("logic.switch", 2300, 2020); mSw.SetParam("value", "{1}"); mSw.SetParam("cases", CasesJson("+o", "-o", "+v", "-v")); mSw.SetParam("ci", "false");
+        g.Connect(mParse.Id, 0, mSw.Id, 0);
+        // each case sets the new status value {mval}, then all converge to apply + broadcast
+        var mvO = Add("data.setvar", 2500, 1980); mvO.SetParam("name", "mval"); mvO.SetParam("value", "o");
+        var mvOo = Add("data.setvar", 2500, 2040); mvOo.SetParam("name", "mval"); mvOo.SetParam("value", "");
+        var mvV = Add("data.setvar", 2500, 2100); mvV.SetParam("name", "mval"); mvV.SetParam("value", "v");
+        var mvVo = Add("data.setvar", 2500, 2160); mvVo.SetParam("name", "mval"); mvVo.SetParam("value", "");
+        g.Connect(mSw.Id, 1, mvO.Id, 0);
+        g.Connect(mSw.Id, 2, mvOo.Id, 0);
+        g.Connect(mSw.Id, 3, mvV.Id, 0);
+        g.Connect(mSw.Id, 4, mvVo.Id, 0);
+        var mGetTc = Add("db.get", 2700, 2060); mGetTc.SetParam("table", "nc"); mGetTc.SetParam("key", "{2}");
+        var mTargetVar = Add("data.setvar", 2900, 2060); mTargetVar.SetParam("name", "mtarget");
+        g.Connect(mGetTc.Id, 0, mTargetVar.Id, 1);
+        g.Connect(mvO.Id, 0, mTargetVar.Id, 0);
+        g.Connect(mvOo.Id, 0, mTargetVar.Id, 0);
+        g.Connect(mvV.Id, 0, mTargetVar.Id, 0);
+        g.Connect(mvVo.Id, 0, mTargetVar.Id, 0);
+        var mSetSt = Add("db.set", 3100, 2060); mSetSt.SetParam("table", "st"); mSetSt.SetParam("key", "{mchan} {mtarget}"); mSetSt.SetParam("value", "{mval}");
+        g.Connect(mTargetVar.Id, 0, mSetSt.Id, 0);
+        var mBcGet = Add("db.get", 3100, 2120); mBcGet.SetParam("table", "mem"); mBcGet.SetParam("key", "{mchan}");
+        var mBcLoop = Add("logic.forEach", 3300, 2060); mBcLoop.SetParam("sep", "space"); mBcLoop.SetParam("var", "mbm");
+        g.Connect(mSetSt.Id, 0, mBcLoop.Id, 0);
+        g.Connect(mBcGet.Id, 0, mBcLoop.Id, 1);
+        var mBcSend = Add("socket.send", 3500, 2060); mBcSend.SetParam("conn", "{mbm}"); mBcSend.SetParam("data", ":{mnick}!user@ircuitry MODE {mchan} {1} {2}"); mBcSend.SetParam("append", "crlf");
+        g.Connect(mBcLoop.Id, 0, mBcSend.Id, 0);
+
         return g;
     }
 
@@ -3840,6 +3927,13 @@ public static class SelfTest
                 z.Send("CAP END");
                 fails += Expect("ircdn-cap-end", z.WaitFor(s => s.Contains(" 001 zed"), 8000), "CAP END releases registration");
             }
+
+            // MODE: alice is the channel creator -> op; NAMES shows @alice; she can +v bob; query returns 324
+            fails += Expect("ircdn-names-op", a.WaitFor(s => s.Contains(" 353 ") && s.Contains("@alice"), 8000), "first joiner alice is @op in NAMES");
+            a.Send("MODE #test +v bob");
+            fails += Expect("ircdn-mode-voice", b.WaitFor(s => s.Contains("alice!") && s.Contains("MODE #test +v bob"), 8000), "bob sees +v from alice");
+            b.Send("MODE #test");
+            fails += Expect("ircdn-mode-query", b.WaitFor(s => s.Contains(" 324 ") && s.Contains("#test"), 8000), "MODE query returns 324");
 
             // PART: bob leaves; alice sees it and bob is removed (a later channel message must not reach him)
             b.Send("PART #test :bye");
