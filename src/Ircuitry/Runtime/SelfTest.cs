@@ -3573,8 +3573,13 @@ public static class SelfTest
         var ifNick = Add("logic.if", 880, 40); ifNick.SetParam("op", "is empty");
         var ifUser = Add("logic.if", 1060, 40); ifUser.SetParam("op", "is empty");
         var ifReg = Add("logic.if", 1240, 40); ifReg.SetParam("op", "="); ifReg.SetParam("b", "1");
-        g.Connect(nickB.Id, 0, ifNick.Id, 0);   // NICK -> register entry
-        g.Connect(userA.Id, 0, ifNick.Id, 0);   // USER -> register entry (multi-source exec)
+        // CAP guard: while a client is mid CAP negotiation (capneg set), suspend registration until CAP END
+        var capnegGet = Add("db.get", 660, -40); capnegGet.SetParam("table", "capneg"); capnegGet.SetParam("key", "{conn}");
+        var ifCapNeg = Add("logic.if", 880, -40); ifCapNeg.SetParam("op", "is empty");
+        g.Connect(capnegGet.Id, 0, ifCapNeg.Id, 1);
+        g.Connect(ifCapNeg.Id, 0, ifNick.Id, 0);   // not negotiating -> proceed
+        g.Connect(nickB.Id, 0, ifCapNeg.Id, 0);    // NICK -> register entry (via CAP guard)
+        g.Connect(userA.Id, 0, ifCapNeg.Id, 0);    // USER -> register entry
         g.Connect(getNick.Id, 0, ifNick.Id, 1); // A = nick
         g.Connect(ifNick.Id, 1, ifUser.Id, 0);  // false branch = nick present
         g.Connect(getUser.Id, 0, ifUser.Id, 1);
@@ -3650,7 +3655,9 @@ public static class SelfTest
         var pmGetNick = Add("db.get", 460, 880); pmGetNick.SetParam("table", "cn"); pmGetNick.SetParam("key", "{conn}");
         var pmSnick = Add("data.setvar", 660, 880); pmSnick.SetParam("name", "snick");
         g.Connect(pmGetNick.Id, 0, pmSnick.Id, 1);
-        g.Connect(sw.Id, 6, pmSnick.Id, 0);
+        g.Connect(sw.Id, 6, pmSnick.Id, 0);   // PRIVMSG
+
+        g.Connect(sw.Id, 7, pmSnick.Id, 0);   // NOTICE - same routing, verb is {1}
         var pmTargetFmt = Add("data.format", 460, 960); pmTargetFmt.SetParam("template", "{2}");
         var pmIf = Add("logic.if", 860, 880); pmIf.SetParam("op", "starts with"); pmIf.SetParam("b", "#");
         g.Connect(pmTargetFmt.Id, 0, pmIf.Id, 1);   // A = target
@@ -3663,13 +3670,13 @@ public static class SelfTest
         var pmSkip = Add("logic.if", 1260, 900); pmSkip.SetParam("op", "≠"); pmSkip.SetParam("b", "{conn}");
         g.Connect(pmMFmt.Id, 0, pmSkip.Id, 1);   // A = m
         g.Connect(pmLoop.Id, 0, pmSkip.Id, 0);
-        var pmChanSend = Add("socket.send", 1460, 900); pmChanSend.SetParam("conn", "{m}"); pmChanSend.SetParam("data", ":{snick}!user@ircuitry PRIVMSG {2} :{3}"); pmChanSend.SetParam("append", "crlf");
+        var pmChanSend = Add("socket.send", 1460, 900); pmChanSend.SetParam("conn", "{m}"); pmChanSend.SetParam("data", ":{snick}!user@ircuitry {1} {2} :{3}"); pmChanSend.SetParam("append", "crlf");
         g.Connect(pmSkip.Id, 0, pmChanSend.Id, 0);   // true = m != sender
         var pmGetTc = Add("db.get", 1060, 1060); pmGetTc.SetParam("table", "nc"); pmGetTc.SetParam("key", "{2}");
         var pmTcVar = Add("data.setvar", 1260, 1060); pmTcVar.SetParam("name", "tconn");
         g.Connect(pmGetTc.Id, 0, pmTcVar.Id, 1);
         g.Connect(pmIf.Id, 1, pmTcVar.Id, 0);   // false = nick
-        var pmNickSend = Add("socket.send", 1460, 1060); pmNickSend.SetParam("conn", "{tconn}"); pmNickSend.SetParam("data", ":{snick}!user@ircuitry PRIVMSG {2} :{3}"); pmNickSend.SetParam("append", "crlf");
+        var pmNickSend = Add("socket.send", 1460, 1060); pmNickSend.SetParam("conn", "{tconn}"); pmNickSend.SetParam("data", ":{snick}!user@ircuitry {1} {2} :{3}"); pmNickSend.SetParam("append", "crlf");
         g.Connect(pmTcVar.Id, 0, pmNickSend.Id, 0);
 
         // ---- PART (switch out 5): broadcast the PART to members, then remove from mem / nm / cc ----
@@ -3724,6 +3731,51 @@ public static class SelfTest
         g.Connect(qClrCr.Id, 0, qClrCc.Id, 0);
         g.Connect(qClrCc.Id, 0, qClrNc.Id, 0);
 
+        // ---- CAP (switch out 11): LS / REQ / END / LIST, suspending registration until END ----
+        var capSw = Add("logic.switch", 360, 1900); capSw.SetParam("value", "{2}"); capSw.SetParam("cases", CasesJson("LS", "REQ", "END", "LIST")); capSw.SetParam("ci", "true");
+        g.Connect(sw.Id, 11, capSw.Id, 0);
+        var capLsSet = Add("db.set", 560, 1840); capLsSet.SetParam("table", "capneg"); capLsSet.SetParam("key", "{conn}"); capLsSet.SetParam("value", "1");
+        var capLsSend = Add("socket.send", 760, 1840); capLsSend.SetParam("conn", "{conn}"); capLsSend.SetParam("data", ":ircuitry CAP * LS :"); capLsSend.SetParam("append", "crlf");
+        g.Connect(capSw.Id, 1, capLsSet.Id, 0); g.Connect(capLsSet.Id, 0, capLsSend.Id, 0);
+        var capReqSend = Add("socket.send", 560, 1920); capReqSend.SetParam("conn", "{conn}"); capReqSend.SetParam("data", ":ircuitry CAP * NAK :{3}"); capReqSend.SetParam("append", "crlf");
+        g.Connect(capSw.Id, 2, capReqSend.Id, 0);
+        var capEndClear = Add("db.set", 560, 2000); capEndClear.SetParam("table", "capneg"); capEndClear.SetParam("key", "{conn}"); capEndClear.SetParam("value", "");
+        g.Connect(capSw.Id, 3, capEndClear.Id, 0); g.Connect(capEndClear.Id, 0, ifCapNeg.Id, 0);   // END -> clear + re-check registration
+        var capListSend = Add("socket.send", 560, 2080); capListSend.SetParam("conn", "{conn}"); capListSend.SetParam("data", ":ircuitry CAP * LIST :"); capListSend.SetParam("append", "crlf");
+        g.Connect(capSw.Id, 4, capListSend.Id, 0);
+
+        // ---- TOPIC (switch out 9): query (331/332) or set (store in tp + broadcast) ----
+        var tEntryGetNick = Add("db.get", 260, 2200); tEntryGetNick.SetParam("table", "cn"); tEntryGetNick.SetParam("key", "{conn}");
+        var tNickVar = Add("data.setvar", 360, 2200); tNickVar.SetParam("name", "topNick");
+        g.Connect(tEntryGetNick.Id, 0, tNickVar.Id, 1);
+        g.Connect(sw.Id, 9, tNickVar.Id, 0);
+        var tArgFmt = Add("data.format", 360, 2260); tArgFmt.SetParam("template", "{3}");
+        var tIsSet = Add("logic.if", 560, 2200); tIsSet.SetParam("op", "is empty");   // is the topic-text arg empty (= query)?
+        g.Connect(tNickVar.Id, 0, tIsSet.Id, 0);
+        g.Connect(tArgFmt.Id, 0, tIsSet.Id, 1);
+        // query (empty arg): 332 if a topic is stored, else 331
+        var tGetTopic = Add("db.get", 760, 2120); tGetTopic.SetParam("table", "tp"); tGetTopic.SetParam("key", "{2}");
+        var tTopicVar = Add("data.setvar", 760, 2160); tTopicVar.SetParam("name", "ctopic");
+        g.Connect(tGetTopic.Id, 0, tTopicVar.Id, 1);
+        g.Connect(tIsSet.Id, 0, tTopicVar.Id, 0);
+        var tHasFmt = Add("data.format", 960, 2220); tHasFmt.SetParam("template", "{ctopic}");
+        var tHasTopic = Add("logic.if", 960, 2160); tHasTopic.SetParam("op", "is empty");
+        g.Connect(tHasFmt.Id, 0, tHasTopic.Id, 1);
+        g.Connect(tTopicVar.Id, 0, tHasTopic.Id, 0);
+        var t331 = Add("socket.send", 1160, 2120); t331.SetParam("conn", "{conn}"); t331.SetParam("data", ":ircuitry 331 {topNick} {2} :No topic is set"); t331.SetParam("append", "crlf");
+        var t332 = Add("socket.send", 1160, 2200); t332.SetParam("conn", "{conn}"); t332.SetParam("data", ":ircuitry 332 {topNick} {2} :{ctopic}"); t332.SetParam("append", "crlf");
+        g.Connect(tHasTopic.Id, 0, t331.Id, 0);
+        g.Connect(tHasTopic.Id, 1, t332.Id, 0);
+        // set (non-empty arg): store + broadcast TOPIC to members
+        var tSet = Add("db.set", 760, 2300); tSet.SetParam("table", "tp"); tSet.SetParam("key", "{2}"); tSet.SetParam("value", "{3}");
+        g.Connect(tIsSet.Id, 1, tSet.Id, 0);
+        var tBcGet = Add("db.get", 760, 2420); tBcGet.SetParam("table", "mem"); tBcGet.SetParam("key", "{2}");
+        var tBcLoop = Add("logic.forEach", 1160, 2360); tBcLoop.SetParam("sep", "space"); tBcLoop.SetParam("var", "tm");
+        g.Connect(tSet.Id, 0, tBcLoop.Id, 0);
+        g.Connect(tBcGet.Id, 0, tBcLoop.Id, 1);
+        var tBcSend = Add("socket.send", 1360, 2360); tBcSend.SetParam("conn", "{tm}"); tBcSend.SetParam("data", ":{topNick}!user@ircuitry TOPIC {2} :{3}"); tBcSend.SetParam("append", "crlf");
+        g.Connect(tBcLoop.Id, 0, tBcSend.Id, 0);
+
         return g;
     }
 
@@ -3767,6 +3819,27 @@ public static class SelfTest
             fails += Expect("ircdn-pm", a.WaitFor(s => s.Contains("bob!") && s.Contains("PRIVMSG alice :pm back"), 8000), "alice gets bob's PM");
             a.Send("PING :xyz");
             fails += Expect("ircdn-ping", a.WaitFor(s => s.Contains("PONG") && s.Contains(":xyz"), 8000), "alice gets a PONG");
+
+            // NOTICE: same routing as PRIVMSG but the verb is NOTICE
+            a.Send("NOTICE #test :heads up");
+            fails += Expect("ircdn-notice", b.WaitFor(s => s.Contains("alice!") && s.Contains("NOTICE #test :heads up"), 8000), "bob gets a channel NOTICE");
+            // TOPIC: set broadcasts; query returns 332
+            a.Send("TOPIC #test :the topic");
+            fails += Expect("ircdn-topic-set", b.WaitFor(s => s.Contains("alice!") && s.Contains("TOPIC #test :the topic"), 8000), "bob sees the topic change");
+            b.Send("TOPIC #test");
+            fails += Expect("ircdn-topic-query", b.WaitFor(s => s.Contains(" 332 ") && s.Contains("#test :the topic"), 8000), "TOPIC query returns 332");
+            // CAP: registration is suspended until CAP END
+            var z = Dial();
+            if (z != null)
+            {
+                z.Send("CAP LS 302");
+                fails += Expect("ircdn-cap-ls", z.WaitFor(s => s.Contains("CAP") && s.Contains(" LS "), 6000), "CAP LS gets a CAP * LS reply");
+                z.Send("NICK zed"); z.Send("USER zed 0 * :Zed");
+                bool early = z.WaitFor(s => s.Contains(" 001 "), 1200);
+                fails += Expect("ircdn-cap-suspends", !early, "no welcome before CAP END");
+                z.Send("CAP END");
+                fails += Expect("ircdn-cap-end", z.WaitFor(s => s.Contains(" 001 zed"), 8000), "CAP END releases registration");
+            }
 
             // PART: bob leaves; alice sees it and bob is removed (a later channel message must not reach him)
             b.Send("PART #test :bye");
