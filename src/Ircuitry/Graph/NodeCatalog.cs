@@ -259,6 +259,29 @@ public static class NodeCatalog
         c.Log(human + " skipped: this server hasn't enabled the IRCv3 \"" + caps[0] + "\" capability it needs.", Ircuitry.Core.LogLevel.System);
     }
 
+    // Encode a Socket Send/Broadcast payload: text (UTF-8), base64 or hex, with an optional line terminator.
+    private static byte[] SocketBytes(string text, string enc, string append)
+    {
+        byte[] body;
+        try
+        {
+            body = enc switch
+            {
+                "base64" => Convert.FromBase64String(text.Trim()),
+                "hex" => Convert.FromHexString(text.Trim().Replace(" ", "").Replace(":", "")),
+                _ => System.Text.Encoding.UTF8.GetBytes(text),
+            };
+        }
+        catch { body = System.Text.Encoding.UTF8.GetBytes(text); }   // malformed base64/hex -> send the literal text
+        string suffix = append switch { "lf" => "\n", "crlf" => "\r\n", _ => "" };
+        if (suffix.Length == 0) return body;
+        var sfx = System.Text.Encoding.ASCII.GetBytes(suffix);
+        var outb = new byte[body.Length + sfx.Length];
+        Array.Copy(body, outb, body.Length);
+        Array.Copy(sfx, 0, outb, body.Length, sfx.Length);
+        return outb;
+    }
+
     private static string CodeRoot(INodeContext c) => c.Resolve(c.Param("root"));
 
     /// <summary>Run a code-tool body: put the result (or a tidy error) in <paramref name="resultPin"/> and
@@ -1171,6 +1194,139 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+
+            // ===================== SOCKETS - general-purpose TCP / UDP / WebSocket =====================
+            new()
+            {
+                TypeId = "socket.listen", Icon = "broadcast", Title = "Socket Listen", Subtitle = "socket", Category = NodeCategory.Action,
+                Description = "Starts a server on a port - TCP, UDP or WebSocket, with optional TLS and a framing mode (line / raw / a custom delimiter / length-prefixed). Each client that connects fires On Socket Connect; incoming data fires On Socket Data carrying the connection id. Outputs the listener id - use it with Socket Broadcast or Socket Close. This is the engine you'd build an in-graph server (even an IRC server) on.",
+                Inputs = new[] { Ex() },
+                Outputs = new[] { Ex("then"), Tx("listener") },
+                Params = new[]
+                {
+                    P("proto", "Protocol", ParamType.Choice, "tcp", "", new[] { "tcp", "udp", "ws" }),
+                    P("port", "Port", ParamType.Int, "0", "6667"),
+                    P("tls", "TLS", ParamType.Bool, "false"),
+                    P("framing", "Framing", ParamType.Choice, "line", "", new[] { "line", "raw", "delimiter", "length" }),
+                    P("delimiter", "Delimiter", ParamType.Text, "", "for delimiter framing", visibleWhen: n => n.GetParam("framing") == "delimiter"),
+                    P("cert", "TLS cert (blank = auto)", ParamType.Text, "", "PEM/PFX path", file: true, visibleWhen: n => n.GetParam("tls") == "true"),
+                    P("certpass", "TLS cert passphrase", ParamType.Text, "", "", secret: true, visibleWhen: n => n.GetParam("tls") == "true"),
+                },
+                SummaryParam = "port",
+                Exec = c =>
+                {
+                    string id = c.SocketListen(c.Param("proto"), c.ParamInt("port", 0), c.Param("framing"), c.Resolve(c.Param("delimiter")), c.ParamBool("tls"), c.Resolve(c.Param("cert")), Ircuitry.Core.Secrets.Expand(c.Param("certpass")));
+                    c.SetOut(1, id);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "socket.connect", Icon = "plugs", Title = "Socket Connect", Subtitle = "socket", Category = NodeCategory.Action,
+                Description = "Dials out: opens a persistent TCP / UDP / WebSocket connection (optionally TLS / wss, with custom WebSocket headers) and keeps it open. Incoming data fires On Socket Data with the connection id; reply with Socket Send. Outputs the connection id.",
+                Inputs = new[] { Ex(), Tx("host") },
+                Outputs = new[] { Ex("then"), Tx("conn") },
+                Params = new[]
+                {
+                    P("proto", "Protocol", ParamType.Choice, "tcp", "", new[] { "tcp", "udp", "ws" }),
+                    P("host", "Host", ParamType.Text, "", "host or ws(s)://url"),
+                    P("port", "Port", ParamType.Int, "0", "6667"),
+                    P("tls", "TLS / wss", ParamType.Bool, "false"),
+                    P("framing", "Framing", ParamType.Choice, "line", "", new[] { "line", "raw", "delimiter", "length" }),
+                    P("delimiter", "Delimiter", ParamType.Text, "", "for delimiter framing", visibleWhen: n => n.GetParam("framing") == "delimiter"),
+                    PL("headers", "WS headers", true, "Add header"),
+                },
+                SummaryParam = "host",
+                Exec = c =>
+                {
+                    string host = c.InOr(1, c.Resolve(c.Param("host")));
+                    var hdrs = new List<(string, string)>();
+                    foreach (var (k, v) in Ircuitry.Core.ParamList.Pairs(c.Param("headers"))) hdrs.Add((c.Resolve(k), c.Resolve(v)));
+                    string id = c.SocketConnect(c.Param("proto"), host, c.ParamInt("port", 0), c.Param("framing"), c.Resolve(c.Param("delimiter")), c.ParamBool("tls"), hdrs);
+                    c.SetOut(1, id);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "socket.send", Icon = "paper-plane-tilt", Title = "Socket Send", Subtitle = "socket", Category = NodeCategory.Action,
+                Description = "Sends data to a connection by its id (defaults to {conn}, the one that fired this run). Choose an encoding (text / base64 / hex) and an optional terminator to append (none / LF / CRLF - CRLF is what line protocols like IRC want). For UDP you can target a remote 'host:port' directly.",
+                Inputs = new[] { Ex(), Tx("conn"), Tx("data") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("conn", "Connection", ParamType.Text, "{conn}", "{conn}"),
+                    P("data", "Data", ParamType.Multiline, "", "what to send"),
+                    P("encoding", "Encoding", ParamType.Choice, "text", "", new[] { "text", "base64", "hex" }),
+                    P("append", "Append", ParamType.Choice, "none", "", new[] { "none", "lf", "crlf" }),
+                    P("to", "UDP remote (optional)", ParamType.Text, "", "host:port"),
+                },
+                SummaryParam = "conn",
+                Exec = c =>
+                {
+                    string conn = c.InOr(1, c.Resolve(c.Param("conn")));
+                    string data = c.InOr(2, c.Resolve(c.Param("data")));
+                    if (conn.Length > 0) c.SocketSend(conn, SocketBytes(data, c.Param("encoding"), c.Param("append")), c.Resolve(c.Param("to")));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "socket.broadcast", Icon = "broadcast", Title = "Socket Broadcast", Subtitle = "socket", Category = NodeCategory.Action,
+                Description = "Sends data to every client connected to a listener (by its id, default {listener}) - fan-out, e.g. relaying a line to all connected clients. Outputs how many got it.",
+                Inputs = new[] { Ex(), Tx("data") },
+                Outputs = new[] { Ex("then"), Tx("count") },
+                Params = new[]
+                {
+                    P("listener", "Listener", ParamType.Text, "{listener}", "{listener}"),
+                    P("data", "Data", ParamType.Multiline, "", "what to send"),
+                    P("encoding", "Encoding", ParamType.Choice, "text", "", new[] { "text", "base64", "hex" }),
+                    P("append", "Append", ParamType.Choice, "none", "", new[] { "none", "lf", "crlf" }),
+                },
+                SummaryParam = "listener",
+                Exec = c =>
+                {
+                    string lid = c.Resolve(c.Param("listener"));
+                    string data = c.InOr(1, c.Resolve(c.Param("data")));
+                    c.SetOut(1, (lid.Length > 0 ? c.SocketBroadcast(lid, SocketBytes(data, c.Param("encoding"), c.Param("append"))) : 0).ToString());
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "socket.close", Icon = "x-circle", Title = "Socket Close", Subtitle = "socket", Category = NodeCategory.Action,
+                Description = "Closes a connection or a listener by its id (defaults to {conn}).",
+                Inputs = new[] { Ex(), Tx("id") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("id", "Id", ParamType.Text, "{conn}", "{conn} or {listener}") },
+                SummaryParam = "id",
+                Exec = c => { string id = c.InOr(1, c.Resolve(c.Param("id"))); if (id.Length > 0) c.SocketClose(id); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.socket.connect", Icon = "plugs-connected", Title = "On Socket Connect", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "socket.connect",
+                Description = "Fires when a socket opens - a client connecting to one of your listeners, or an outbound Socket Connect completing. Outputs the connection {conn}, the {remote} address, the {proto}, and the {listener} it arrived on (blank for an outbound connection).",
+                Outputs = new[] { Ex("then"), Tx("conn"), Tx("remote"), Tx("proto"), Tx("listener") },
+                Exec = c => { c.SetOut(1, c.Var("conn")); c.SetOut(2, c.Var("remote")); c.SetOut(3, c.Var("proto")); c.SetOut(4, c.Var("listener")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.socket.data", Icon = "wave-sine", Title = "On Socket Data", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "socket.data",
+                Description = "Fires for each piece of data on a socket - a framed line/message, or a raw chunk, depending on the connection's framing. Outputs the {conn} it arrived on, the {data} (also exposed as {line}), and the {remote} address. Reply with Socket Send to {conn}.",
+                Outputs = new[] { Ex("then"), Tx("conn"), Tx("data"), Tx("remote") },
+                Exec = c => { c.SetOut(1, c.Var("conn")); c.SetOut(2, c.Var("data")); c.SetOut(3, c.Var("remote")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.socket.disconnect", Icon = "plugs", Title = "On Socket Disconnect", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "socket.disconnect",
+                Description = "Fires when a socket closes (from either side). Outputs the {conn} that closed and its {remote} address.",
+                Outputs = new[] { Ex("then"), Tx("conn"), Tx("remote") },
+                Exec = c => { c.SetOut(1, c.Var("conn")); c.SetOut(2, c.Var("remote")); c.Pulse(0); },
+            },
+
             new()
             {
                 TypeId = "action.multiline", Icon = "file-text", Title = "Send Multiline", Subtitle = "draft",

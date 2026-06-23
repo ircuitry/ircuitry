@@ -94,6 +94,18 @@ public interface IRuntimeSink
     /// "" on sinks without a live server.</summary>
     string MetadataGet(string target, string key, int timeoutMs) => "";
 
+    // ---- general-purpose sockets (TCP/UDP/WebSocket) - no-ops on sinks without a live runtime ----
+    /// <summary>Start a listener; returns its id ("" if it couldn't bind).</summary>
+    string SocketListen(string proto, int port, string framing, string delimiter, bool tls, string certPath, string certPass) => "";
+    /// <summary>Dial out; returns the connection id ("" on failure).</summary>
+    string SocketConnect(string proto, string host, int port, string framing, string delimiter, bool tls, System.Collections.Generic.IReadOnlyList<(string, string)> headers) => "";
+    /// <summary>Send bytes to a connection id (or a UDP remote "host:port" when set).</summary>
+    bool SocketSend(string connId, byte[] data, string udpRemote) => false;
+    /// <summary>Send bytes to every connection accepted by a listener; returns how many got it.</summary>
+    int SocketBroadcast(string listenerId, byte[] data) => 0;
+    /// <summary>Close a connection or a listener by id.</summary>
+    void SocketClose(string id) { }
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);

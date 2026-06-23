@@ -263,6 +263,7 @@ public static class SelfTest
         fails += McpErrorTest();
         fails += BotCmdsFitTest();
         fails += ClientCertTest();
+        fails += SocketLoopTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3234,6 +3235,47 @@ public static class SelfTest
             Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
             try { Directory.Delete(tmp, true); } catch { }
         }
+        return fails;
+    }
+
+    /// <summary>The socket engine end to end over loopback: a TCP listener accepts a dialled-out client,
+    /// line-framed data flows client-&gt;server (CRLF tolerated) and broadcast server-&gt;client, a UDP datagram
+    /// round-trips, and closing fires a disconnect.</summary>
+    private static int SocketLoopTest()
+    {
+        int fails = 0;
+        var events = new System.Collections.Concurrent.ConcurrentQueue<(string sub, Dictionary<string, string> vars)>();
+        var sm = new SocketManager((sub, vars) => events.Enqueue((sub, vars)), (m, e) => { });
+        bool Saw(Func<string, Dictionary<string, string>, bool> pred, int tries = 120)
+        {
+            for (int i = 0; i < tries; i++) { foreach (var (s, v) in events) if (pred(s, v)) return true; Thread.Sleep(20); }
+            return false;
+        }
+        try
+        {
+            int port = FreePort();
+            string lid = sm.Listen("tcp", port, SocketManager.MakeOpts(false, "line", "\n", "", ""));
+            fails += Expect("socket-listen", lid.Length > 0, "listener should start");
+            string conn = sm.Connect("tcp", "127.0.0.1", port, SocketManager.MakeOpts(false, "line", "\n", "", ""));
+            fails += Expect("socket-connect", conn.Length > 0, "client should connect");
+            fails += Expect("socket-server-accept", Saw((s, v) => s == "connect" && v.GetValueOrDefault("listener", "") == lid), "server should accept");
+
+            sm.Send(conn, Encoding.UTF8.GetBytes("hello world\r\n"));
+            fails += Expect("socket-data-framed", Saw((s, v) => s == "data" && v.GetValueOrDefault("data", "") == "hello world"), "server should receive the framed line");
+
+            sm.Broadcast(lid, Encoding.UTF8.GetBytes("ping\n"));
+            fails += Expect("socket-broadcast", Saw((s, v) => s == "data" && v.GetValueOrDefault("conn", "") == conn && v.GetValueOrDefault("data", "") == "ping"), "client should receive the broadcast");
+
+            sm.Close(conn);
+            fails += Expect("socket-disconnect", Saw((s, v) => s == "disconnect"), "a disconnect should fire");
+
+            int uport = FreePort();
+            string ulid = sm.Listen("udp", uport, SocketManager.MakeOpts(false, "raw", "", "", ""));
+            string uconn = sm.Connect("udp", "127.0.0.1", uport, SocketManager.MakeOpts(false, "raw", "", "", ""));
+            sm.Send(uconn, Encoding.UTF8.GetBytes("datagram"));
+            fails += Expect("socket-udp", Saw((s, v) => s == "data" && v.GetValueOrDefault("proto", "") == "udp" && v.GetValueOrDefault("data", "") == "datagram"), $"udp datagram should arrive (lid={ulid} conn={uconn})");
+        }
+        finally { sm.Dispose(); }
         return fails;
     }
 

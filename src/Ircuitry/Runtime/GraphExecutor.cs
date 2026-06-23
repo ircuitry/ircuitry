@@ -407,6 +407,11 @@ public static class GraphExecutor
         public string IrcInfo(string what, string channel) => Out().IrcInfo(what, channel);
         public bool HasCap(string cap) => Out().HasCap(cap);
         public string MetadataGet(string target, string key, int timeoutMs) => Out().MetadataGet(target, key, timeoutMs);
+        public string SocketListen(string proto, int port, string framing, string delimiter, bool tls, string certPath, string certPass) => Out().SocketListen(proto, port, framing, delimiter, tls, certPath, certPass);
+        public string SocketConnect(string proto, string host, int port, string framing, string delimiter, bool tls, System.Collections.Generic.IReadOnlyList<(string, string)> headers) => Out().SocketConnect(proto, host, port, framing, delimiter, tls, headers);
+        public bool SocketSend(string connId, byte[] data, string udpRemote) => Out().SocketSend(connId, data, udpRemote);
+        public int SocketBroadcast(string listenerId, byte[] data) => Out().SocketBroadcast(listenerId, data);
+        public void SocketClose(string id) => Out().SocketClose(id);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

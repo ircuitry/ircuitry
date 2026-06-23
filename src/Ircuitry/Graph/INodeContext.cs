@@ -79,6 +79,13 @@ public interface INodeContext
     /// <summary>Read a metadata key off a target (IRCv3 METADATA GET): blocks the worker until the reply or
     /// timeout, then returns the value ("" if unset / unsupported). Correlated by labeled-response when available.</summary>
     string MetadataGet(string target, string key, int timeoutMs);
+
+    // ---- general-purpose sockets (TCP/UDP/WebSocket) ----
+    string SocketListen(string proto, int port, string framing, string delimiter, bool tls, string certPath, string certPass);
+    string SocketConnect(string proto, string host, int port, string framing, string delimiter, bool tls, System.Collections.Generic.IReadOnlyList<(string, string)> headers);
+    bool SocketSend(string connId, byte[] data, string udpRemote);
+    int SocketBroadcast(string listenerId, byte[] data);
+    void SocketClose(string id);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

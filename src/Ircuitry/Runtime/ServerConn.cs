@@ -59,7 +59,32 @@ public sealed class ServerConn : IRuntimeSink
         _client.Registered = OnRegistered;
         _client.Closed = reason => { _running = false; _owner.LogFrom(Label, LogLevel.System, Ircuitry.Core.Icons.Glyph("circle") + " " + reason); };
         _client.Message = OnIrc;
+        _sockets = new SocketManager(FireSocketEvent, (msg, err) => _owner.LogFrom(Label, err ? LogLevel.Error : LogLevel.System, msg));
     }
+
+    // ---- general-purpose sockets (TCP/UDP/WebSocket), fired through this conn's worker pool ----
+    private readonly SocketManager _sockets;
+
+    private void FireSocketEvent(string sub, Dictionary<string, string> vars)
+    {
+        if (!_running || _owner.RunGraph == null) return;
+        var v = BaseVars();
+        foreach (var kv in vars) v[kv.Key] = kv.Value;
+        FireFamily("socket." + sub, v);
+    }
+
+    public string SocketListen(string proto, int port, string framing, string delimiter, bool tls, string certPath, string certPass)
+        => _sockets.Listen(proto, port, SocketManager.MakeOpts(tls, framing, delimiter, certPath, certPass));
+    public string SocketConnect(string proto, string host, int port, string framing, string delimiter, bool tls, System.Collections.Generic.IReadOnlyList<(string, string)> headers)
+    {
+        var h = new Dictionary<string, string>();
+        foreach (var (k, val) in headers) if (k.Length > 0) h[k] = val;
+        return _sockets.Connect(proto, host, port, SocketManager.MakeOpts(tls, framing, delimiter, "", "", h));
+    }
+    public bool SocketSend(string connId, byte[] data, string udpRemote)
+        => udpRemote.Length > 0 ? _sockets.SendTo(connId, data, udpRemote) : _sockets.Send(connId, data);
+    public int SocketBroadcast(string listenerId, byte[] data) => _sockets.Broadcast(listenerId, data);
+    public void SocketClose(string id) => _sockets.Close(id);
 
     // matches a routing name (a node's "server" override) to this connection
     public bool Matches(string name)
@@ -105,6 +130,7 @@ public sealed class ServerConn : IRuntimeSink
         lock (_pendLock) _pending.Clear();   // drop any waiting human-in-the-loop gates
         try { _runQueue?.CompleteAdding(); } catch { /* already completed */ }   // workers drain + exit
         StopAllTyping();   // send +typing=done for anything still active before we drop the link
+        _sockets.StopAll();   // close every listener + open socket
         _client.Disconnect();
     }
 
