@@ -3491,6 +3491,26 @@ public static class SelfTest
         var g = new NodeGraph();
         Node Add(string type, float x, float y) => g.Add(NodeCatalog.Get(type), new Vector2(x, y));
 
+        // Rebuild a space-list table[keyTok] keeping only items != excludeTok (accumulate-in-loop). Returns the
+        // entry exec node (wire prev -> entry) and exit exec node (the db.set; wire exit -> next).
+        (Node entry, Node exit) RemoveFromList(string table, string keyTok, string excludeTok, string acc, float x, float y)
+        {
+            var init = Add("data.setvar", x, y); init.SetParam("name", acc); init.SetParam("value", "");
+            var get = Add("db.get", x, y + 70); get.SetParam("table", table); get.SetParam("key", keyTok);
+            var loop = Add("logic.forEach", x + 200, y); loop.SetParam("sep", "space"); loop.SetParam("var", acc + "i");
+            g.Connect(init.Id, 0, loop.Id, 0);
+            g.Connect(get.Id, 0, loop.Id, 1);
+            var itf = Add("data.format", x + 200, y + 70); itf.SetParam("template", "{" + acc + "i}");
+            var keep = Add("logic.if", x + 400, y); keep.SetParam("op", "≠"); keep.SetParam("b", excludeTok);
+            g.Connect(itf.Id, 0, keep.Id, 1);     // A = item
+            g.Connect(loop.Id, 0, keep.Id, 0);    // each -> keep?
+            var app = Add("data.setvar", x + 600, y); app.SetParam("name", acc); app.SetParam("value", "{" + acc + "} {" + acc + "i}");
+            g.Connect(keep.Id, 0, app.Id, 0);     // true (item != exclude) -> append
+            var set = Add("db.set", x + 400, y + 70); set.SetParam("table", table); set.SetParam("key", keyTok); set.SetParam("value", "{" + acc + "}");
+            g.Connect(loop.Id, 1, set.Id, 0);     // loop done -> write back
+            return (init, set);
+        }
+
         var start = Add("event.start", 0, -260);
         var listen = Add("socket.listen", 0, -180);
         listen.SetParam("proto", "tcp"); listen.SetParam("port", port.ToString()); listen.SetParam("framing", "line");
@@ -3578,9 +3598,15 @@ public static class SelfTest
         var jSetNm = Add("db.set", 860, 620); jSetNm.SetParam("table", "nm"); jSetNm.SetParam("key", "{2}");
         g.Connect(jNmFmt.Id, 0, jSetNm.Id, 1);
         g.Connect(jSetMem.Id, 0, jSetNm.Id, 0);
+        var jGetCc = Add("db.get", 1060, 660); jGetCc.SetParam("table", "cc"); jGetCc.SetParam("key", "{conn}");
+        var jCcFmt = Add("data.format", 1060, 700); jCcFmt.SetParam("template", "{a} {2}");
+        g.Connect(jGetCc.Id, 0, jCcFmt.Id, 0);
+        var jSetCc = Add("db.set", 1240, 620); jSetCc.SetParam("table", "cc"); jSetCc.SetParam("key", "{conn}");
+        g.Connect(jCcFmt.Id, 0, jSetCc.Id, 1);
+        g.Connect(jSetNm.Id, 0, jSetCc.Id, 0);   // track the conn's channels for cleanup
         var jBcGetMem = Add("db.get", 460, 700); jBcGetMem.SetParam("table", "mem"); jBcGetMem.SetParam("key", "{2}");
         var jLoop = Add("logic.forEach", 660, 700); jLoop.SetParam("sep", "space"); jLoop.SetParam("var", "m");
-        g.Connect(jSetNm.Id, 0, jLoop.Id, 0);
+        g.Connect(jSetCc.Id, 0, jLoop.Id, 0);
         g.Connect(jBcGetMem.Id, 0, jLoop.Id, 1);
         var jBcSend = Add("socket.send", 860, 700); jBcSend.SetParam("conn", "{m}"); jBcSend.SetParam("data", ":{jnick}!user@ircuitry JOIN {2}"); jBcSend.SetParam("append", "crlf");
         g.Connect(jLoop.Id, 0, jBcSend.Id, 0);
@@ -3618,6 +3644,58 @@ public static class SelfTest
         g.Connect(pmIf.Id, 1, pmTcVar.Id, 0);   // false = nick
         var pmNickSend = Add("socket.send", 1460, 1060); pmNickSend.SetParam("conn", "{tconn}"); pmNickSend.SetParam("data", ":{snick}!user@ircuitry PRIVMSG {2} :{3}"); pmNickSend.SetParam("append", "crlf");
         g.Connect(pmTcVar.Id, 0, pmNickSend.Id, 0);
+
+        // ---- PART (switch out 5): broadcast the PART to members, then remove from mem / nm / cc ----
+        var pGetNick = Add("db.get", 260, 1200); pGetNick.SetParam("table", "cn"); pGetNick.SetParam("key", "{conn}");
+        var pNick = Add("data.setvar", 460, 1200); pNick.SetParam("name", "pnick");
+        g.Connect(pGetNick.Id, 0, pNick.Id, 1);
+        g.Connect(sw.Id, 5, pNick.Id, 0);
+        var pBcGet = Add("db.get", 260, 1280); pBcGet.SetParam("table", "mem"); pBcGet.SetParam("key", "{2}");
+        var pBcLoop = Add("logic.forEach", 460, 1280); pBcLoop.SetParam("sep", "space"); pBcLoop.SetParam("var", "pm");
+        g.Connect(pNick.Id, 0, pBcLoop.Id, 0);
+        g.Connect(pBcGet.Id, 0, pBcLoop.Id, 1);
+        var pBcSend = Add("socket.send", 660, 1280); pBcSend.SetParam("conn", "{pm}"); pBcSend.SetParam("data", ":{pnick}!user@ircuitry PART {2} :{3}"); pBcSend.SetParam("append", "crlf");
+        g.Connect(pBcLoop.Id, 0, pBcSend.Id, 0);
+        var pRmMem = RemoveFromList("mem", "{2}", "{conn}", "pmem", 260, 1380);
+        var pRmNm = RemoveFromList("nm", "{2}", "{pnick}", "pnm", 260, 1540);
+        var pRmCc = RemoveFromList("cc", "{conn}", "{2}", "pcc", 260, 1700);
+        g.Connect(pBcLoop.Id, 1, pRmMem.entry.Id, 0);   // broadcast done -> remove from mem
+        g.Connect(pRmMem.exit.Id, 0, pRmNm.entry.Id, 0);
+        g.Connect(pRmNm.exit.Id, 0, pRmCc.entry.Id, 0);
+
+        // ---- QUIT (switch out 8) + On Socket Disconnect: leave every channel + clear identity ----
+        var disc = Add("event.socket.disconnect", 1500, -320);
+        var qGetNick = Add("db.get", 1500, -220); qGetNick.SetParam("table", "cn"); qGetNick.SetParam("key", "{conn}");
+        var qNick = Add("data.setvar", 1700, -220); qNick.SetParam("name", "qnick");
+        g.Connect(qGetNick.Id, 0, qNick.Id, 1);
+        g.Connect(sw.Id, 8, qNick.Id, 0);     // QUIT command
+        g.Connect(disc.Id, 0, qNick.Id, 0);   // socket dropped (multi-source exec)
+        var qGetCc = Add("db.get", 1500, -140); qGetCc.SetParam("table", "cc"); qGetCc.SetParam("key", "{conn}");
+        var qChLoop = Add("logic.forEach", 1700, -140); qChLoop.SetParam("sep", "space"); qChLoop.SetParam("var", "ch");
+        g.Connect(qNick.Id, 0, qChLoop.Id, 0);
+        g.Connect(qGetCc.Id, 0, qChLoop.Id, 1);
+        // per channel: broadcast QUIT to its members, then remove conn from mem[ch] and qnick from nm[ch]
+        var qBcGet = Add("db.get", 1900, -200); qBcGet.SetParam("table", "mem"); qBcGet.SetParam("key", "{ch}");
+        var qBcLoop = Add("logic.forEach", 1900, -140); qBcLoop.SetParam("sep", "space"); qBcLoop.SetParam("var", "qm");
+        g.Connect(qChLoop.Id, 0, qBcLoop.Id, 0);
+        g.Connect(qBcGet.Id, 0, qBcLoop.Id, 1);
+        var qBcSend = Add("socket.send", 2100, -140); qBcSend.SetParam("conn", "{qm}"); qBcSend.SetParam("data", ":{qnick}!user@ircuitry QUIT :Connection closed"); qBcSend.SetParam("append", "crlf");
+        g.Connect(qBcLoop.Id, 0, qBcSend.Id, 0);
+        var qRmMem = RemoveFromList("mem", "{ch}", "{conn}", "qmem", 1900, 0);
+        var qRmNm = RemoveFromList("nm", "{ch}", "{qnick}", "qnm", 1900, 160);
+        g.Connect(qBcLoop.Id, 1, qRmMem.entry.Id, 0);   // members notified -> remove from mem
+        g.Connect(qRmMem.exit.Id, 0, qRmNm.entry.Id, 0);
+        // after all channels: clear identity tables (empty value deletes the key)
+        var qClrCn = Add("db.set", 1700, 360); qClrCn.SetParam("table", "cn"); qClrCn.SetParam("key", "{conn}"); qClrCn.SetParam("value", "");
+        var qClrCu = Add("db.set", 1900, 360); qClrCu.SetParam("table", "cu"); qClrCu.SetParam("key", "{conn}"); qClrCu.SetParam("value", "");
+        var qClrCr = Add("db.set", 2100, 360); qClrCr.SetParam("table", "cr"); qClrCr.SetParam("key", "{conn}"); qClrCr.SetParam("value", "");
+        var qClrCc = Add("db.set", 2300, 360); qClrCc.SetParam("table", "cc"); qClrCc.SetParam("key", "{conn}"); qClrCc.SetParam("value", "");
+        var qClrNc = Add("db.set", 2500, 360); qClrNc.SetParam("table", "nc"); qClrNc.SetParam("key", "{qnick}"); qClrNc.SetParam("value", "");
+        g.Connect(qChLoop.Id, 1, qClrCn.Id, 0);   // all channels done -> clear identity
+        g.Connect(qClrCn.Id, 0, qClrCu.Id, 0);
+        g.Connect(qClrCu.Id, 0, qClrCr.Id, 0);
+        g.Connect(qClrCr.Id, 0, qClrCc.Id, 0);
+        g.Connect(qClrCc.Id, 0, qClrNc.Id, 0);
 
         return g;
     }
@@ -3660,6 +3738,21 @@ public static class SelfTest
             fails += Expect("ircdn-pm", a.WaitFor(s => s.Contains("bob!") && s.Contains("PRIVMSG alice :pm back"), 8000), "alice gets bob's PM");
             a.Send("PING :xyz");
             fails += Expect("ircdn-ping", a.WaitFor(s => s.Contains("PONG") && s.Contains(":xyz"), 8000), "alice gets a PONG");
+
+            // PART: bob leaves; alice sees it and bob is removed (a later channel message must not reach him)
+            b.Send("PART #test :bye");
+            fails += Expect("ircdn-part", a.WaitFor(s => s.Contains("bob!") && s.Contains("PART #test"), 8000), "alice sees bob PART");
+            a.Send("PRIVMSG #test :after-part");
+            fails += Expect("ircdn-part-removed", !b.WaitFor(s => s.Contains("after-part"), 1500), "parted bob should not receive channel messages");
+
+            // On Socket Disconnect: a third client joins then drops; alice (still in #test) sees the QUIT broadcast
+            var c = Dial();
+            fails += Expect("ircdn-dial-c", c != null, "third client should connect");
+            if (c == null) return fails;
+            c.Send("NICK carol"); c.Send("USER carol 0 * :Carol"); c.WaitFor(s => s.Contains(" 376 "), 8000);
+            c.Send("JOIN #test"); a.WaitFor(s => s.Contains("carol!") && s.Contains("JOIN #test"), 8000);
+            c.Close();   // drop the socket -> On Socket Disconnect -> cleanup + QUIT broadcast
+            fails += Expect("ircdn-disconnect-quit", a.WaitFor(s => s.Contains("carol!") && s.Contains("QUIT"), 8000), "alice sees carol QUIT when her socket drops");
         }
         finally
         {
