@@ -267,6 +267,7 @@ public static class SelfTest
         fails += StartTriggerTest();
         fails += IrcdE2ETest();
         fails += IrcdNodesE2ETest();
+        fails += IrcdNodesTlsTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3390,10 +3391,23 @@ public static class SelfTest
     private sealed class IrcPeer
     {
         public readonly System.Net.Sockets.TcpClient Client;
-        private readonly System.Net.Sockets.NetworkStream _ns;
+        private readonly System.IO.Stream _io;
         private readonly System.Text.StringBuilder _buf = new();
-        public IrcPeer(int port) { Client = new System.Net.Sockets.TcpClient(); Client.Connect("127.0.0.1", port); _ns = Client.GetStream(); _ns.ReadTimeout = 150; }
-        public void Send(string line) { var b = System.Text.Encoding.UTF8.GetBytes(line + "\r\n"); _ns.Write(b, 0, b.Length); _ns.Flush(); }
+        public IrcPeer(int port, bool tls = false)
+        {
+            Client = new System.Net.Sockets.TcpClient();
+            Client.Connect("127.0.0.1", port);
+            System.IO.Stream s = Client.GetStream();
+            if (tls)
+            {
+                var ssl = new System.Net.Security.SslStream(s, false, (a, b, c, d) => true);   // accept the self-signed auto-cert
+                ssl.AuthenticateAsClient("localhost");
+                s = ssl;
+            }
+            s.ReadTimeout = 150;
+            _io = s;
+        }
+        public void Send(string line) { var b = System.Text.Encoding.UTF8.GetBytes(line + "\r\n"); _io.Write(b, 0, b.Length); _io.Flush(); }
         public bool WaitFor(Func<string, bool> pred, int timeoutMs)
         {
             var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -3401,7 +3415,7 @@ public static class SelfTest
             while (DateTime.UtcNow < deadline)
             {
                 if (pred(_buf.ToString())) return true;
-                try { int n = _ns.Read(buf, 0, buf.Length); if (n > 0) _buf.Append(System.Text.Encoding.UTF8.GetString(buf, 0, n)); else Thread.Sleep(20); }
+                try { int n = _io.Read(buf, 0, buf.Length); if (n > 0) _buf.Append(System.Text.Encoding.UTF8.GetString(buf, 0, n)); else Thread.Sleep(20); }
                 catch (System.IO.IOException) { /* per-read timeout - keep polling until the deadline */ }
             }
             return pred(_buf.ToString());
@@ -3486,7 +3500,9 @@ public static class SelfTest
     /// so it can be dropped straight into a workspace.</summary>
     public static string EmitIrcdNodeGraph() => Ircuitry.Graph.GraphSerializer.Save(BuildIrcdNodeGraph(6667), "IRCd (nodes)");
 
-    private static NodeGraph BuildIrcdNodeGraph(int port)
+    private static NodeGraph BuildIrcdNodeGraph(int port) => BuildIrcdNodeGraph(port, false);
+
+    private static NodeGraph BuildIrcdNodeGraph(int port, bool tls)
     {
         var g = new NodeGraph();
         Node Add(string type, float x, float y) => g.Add(NodeCatalog.Get(type), new Vector2(x, y));
@@ -3514,6 +3530,7 @@ public static class SelfTest
         var start = Add("event.start", 0, -260);
         var listen = Add("socket.listen", 0, -180);
         listen.SetParam("proto", "tcp"); listen.SetParam("port", port.ToString()); listen.SetParam("framing", "line");
+        if (tls) listen.SetParam("tls", "true");   // auto-generates a self-signed server cert
         g.Connect(start.Id, 0, listen.Id, 0);
 
         // parse every line once: {1}=command {2}=first arg {3}=trailing
@@ -3753,6 +3770,38 @@ public static class SelfTest
             c.Send("JOIN #test"); a.WaitFor(s => s.Contains("carol!") && s.Contains("JOIN #test"), 8000);
             c.Close();   // drop the socket -> On Socket Disconnect -> cleanup + QUIT broadcast
             fails += Expect("ircdn-disconnect-quit", a.WaitFor(s => s.Contains("carol!") && s.Contains("QUIT"), 8000), "alice sees carol QUIT when her socket drops");
+        }
+        finally
+        {
+            foreach (var p in peers) p.Close();
+            rt.Stop(); Thread.Sleep(150);
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
+    }
+
+    /// <summary>The all-node IRCd over TLS: flip the Socket Listen to tls=true (it auto-generates a self-signed
+    /// server cert) and register a real TLS client through it - the original goal, an in-graph TLS IRC server.</summary>
+    private static int IrcdNodesTlsTest()
+    {
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-ircdtls-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(tmp);
+        Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+        int port = FreePort();
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+        var peers = new List<IrcPeer>();
+        int fails = 0;
+        try
+        {
+            rt.Start(BuildIrcdNodeGraph(port, tls: true), new IrcSettings { Host = "", Nick = "ircd" });
+            IrcPeer? Dial() { for (int i = 0; i < 100; i++) { try { var p = new IrcPeer(port, tls: true); peers.Add(p); return p; } catch { Thread.Sleep(80); } } return null; }
+            var a = Dial();
+            fails += Expect("ircdn-tls-handshake", a != null, $"TLS IRCd should complete a TLS handshake on {port}");
+            if (a == null) return fails;
+            a.Send("NICK alice"); a.Send("USER alice 0 * :Alice");
+            fails += Expect("ircdn-tls-register", a.WaitFor(s => s.Contains(" 001 alice ") && s.Contains(" 376 "), 12000), "TLS client should register (001..376)");
         }
         finally
         {
