@@ -265,6 +265,7 @@ public static class SelfTest
         fails += ClientCertTest();
         fails += SocketLoopTest();
         fails += StartTriggerTest();
+        fails += IrcdE2ETest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3295,6 +3296,175 @@ public static class SelfTest
         for (int i = 0; i < 80 && !ok; i++) { Thread.Sleep(25); if (state.TryGetValue("booted", out var v) && v == "yes") ok = true; }
         rt.Stop(); Thread.Sleep(50);
         return Expect("event-start-hostless", ok, "On Start should fire on a hostless bot");
+    }
+
+    // The exact protocol brain that lives in the IRCd POC bot's one code node (see BuildIrcdGraph): given a
+    // socket line + current state it returns the new state and the lines to send. Pure - no I/O.
+    private const string IrcdBrain = """
+        const raw = process.env.INPUT || '';
+        const n1 = raw.indexOf('\n');
+        const conn = n1 < 0 ? raw : raw.slice(0, n1);
+        const r2 = n1 < 0 ? '' : raw.slice(n1 + 1);
+        const n2 = r2.indexOf('\n');
+        const line = n2 < 0 ? r2 : r2.slice(0, n2);
+        let st; try { st = JSON.parse((n2 < 0 ? '' : r2.slice(n2 + 1)) || '{}'); } catch (e) { st = {}; }
+        st.clients = st.clients || {}; st.channels = st.channels || {}; st.nicks = st.nicks || {};
+        const SERVER = 'ircuitry', sends = [];
+        const send = (c, l) => sends.push({ conn: c, line: l });
+        const me = st.clients[conn] = st.clients[conn] || { nick: '', user: '', reg: false };
+        const numeric = (c, code, args) => send(c, ':' + SERVER + ' ' + code + ' ' + ((st.clients[c]||{}).nick || '*') + ' ' + args);
+        const prefixOf = c => { const cl = st.clients[c]||{}; return (cl.nick||'*') + '!' + (cl.user||'user') + '@ircuitry'; };
+        const toChan = (chan, l, except) => { const ch = st.channels[chan]; if (ch) for (const m of ch.members) if (m !== except) send(m, l); };
+        function parse(s) { s = s.replace(/\r$/, ''); const out = []; let i = 0; while (i < s.length) { if (s[i] === ':') { out.push(s.slice(i+1)); break; } let sp = s.indexOf(' ', i); if (sp < 0) { out.push(s.slice(i)); break; } if (sp > i) out.push(s.slice(i, sp)); i = sp + 1; while (s[i] === ' ') i++; } return out; }
+        function tryRegister(c) { const cl = st.clients[c]; if (cl.reg || !cl.nick || !cl.user) return; cl.reg = true;
+          numeric(c,'001',':Welcome to the ircuitry IRC network '+cl.nick); numeric(c,'002',':Your host is '+SERVER); numeric(c,'003',':This server is new');
+          numeric(c,'004',SERVER+' ircuitry o o'); numeric(c,'005','CHANTYPES=# PREFIX=(o)@ NETWORK=ircuitry :are supported');
+          numeric(c,'375',':- MOTD -'); numeric(c,'372',':- An IRC server built in ircuitry.'); numeric(c,'376',':End of /MOTD command.'); }
+        const p = parse(line), cmd = (p[0]||'').toUpperCase();
+        switch (cmd) {
+          case 'CAP': { const sub=(p[1]||'').toUpperCase(); if (sub==='LS') send(conn,':'+SERVER+' CAP * LS :'); else if (sub==='REQ') send(conn,':'+SERVER+' CAP * NAK :'+(p[2]||'')); break; }
+          case 'NICK': { const nn=p[1]||''; if(!nn){numeric(conn,'431',':No nickname given');break;} const lo=nn.toLowerCase();
+            if(st.nicks[lo]&&st.nicks[lo]!==conn){numeric(conn,'433',nn+' :Nickname is already in use');break;} const old=me.nick;
+            if(old)delete st.nicks[old.toLowerCase()]; me.nick=nn; st.nicks[lo]=conn;
+            if(me.reg&&old&&old!==nn){const seen=new Set([conn]);send(conn,':'+old+'!'+(me.user||'user')+'@ircuitry NICK '+nn);for(const cn in st.channels)if(st.channels[cn].members.includes(conn))for(const m of st.channels[cn].members)if(!seen.has(m)){seen.add(m);send(m,':'+old+'!'+(me.user||'user')+'@ircuitry NICK '+nn);}}
+            tryRegister(conn); break; }
+          case 'USER': me.user=p[1]||'user'; tryRegister(conn); break;
+          case 'PING': send(conn,':'+SERVER+' PONG '+SERVER+' :'+(p[1]||'')); break;
+          case 'QUIT': { const r=p[1]||'Client quit'; const seen=new Set(); for(const cn in st.channels){const ch=st.channels[cn];const ix=ch.members.indexOf(conn);if(ix>=0){ch.members.splice(ix,1);for(const m of ch.members)if(!seen.has(m)){seen.add(m);send(m,':'+prefixOf(conn)+' QUIT :'+r);}if(!ch.members.length)delete st.channels[cn];}} if(me.nick)delete st.nicks[me.nick.toLowerCase()]; delete st.clients[conn]; break; }
+          default:
+            if(!me.reg){numeric(conn,'451',':You have not registered');break;}
+            switch (cmd) {
+              case 'JOIN': for(let chan of (p[1]||'').split(',')){ if(!chan||chan[0]!=='#')continue; const ch=st.channels[chan]=st.channels[chan]||{members:[],topic:''}; if(!ch.members.includes(conn))ch.members.push(conn); for(const m of ch.members)send(m,':'+prefixOf(conn)+' JOIN '+chan); if(ch.topic)numeric(conn,'332',chan+' :'+ch.topic);else numeric(conn,'331',chan+' :No topic is set'); numeric(conn,'353','= '+chan+' :'+ch.members.map(m=>(st.clients[m]||{}).nick).filter(Boolean).join(' ')); numeric(conn,'366',chan+' :End of /NAMES list'); } break;
+              case 'PART': { const chan=p[1]||'',r=p[2]||'',ch=st.channels[chan]; if(ch&&ch.members.includes(conn)){for(const m of ch.members)send(m,':'+prefixOf(conn)+' PART '+chan+(r?' :'+r:''));ch.members.splice(ch.members.indexOf(conn),1);if(!ch.members.length)delete st.channels[chan];}else numeric(conn,'442',chan+" :You're not on that channel"); break; }
+              case 'PRIVMSG': case 'NOTICE': { const t=p[1]||'',tx=p[2]||'',lo=':'+prefixOf(conn)+' '+cmd+' '+t+' :'+tx; if(t[0]==='#'){if(st.channels[t]&&st.channels[t].members.includes(conn))toChan(t,lo,conn);else if(cmd==='PRIVMSG')numeric(conn,'404',t+' :Cannot send to channel');}else{const tc=st.nicks[t.toLowerCase()];if(tc)send(tc,lo);else if(cmd==='PRIVMSG')numeric(conn,'401',t+' :No such nick/channel');} break; }
+              case 'TOPIC': { const chan=p[1]||'',ch=st.channels[chan]; if(!ch){numeric(conn,'442',chan+" :You're not on that channel");break;} if(p.length>=3){ch.topic=p[2]||'';for(const m of ch.members)send(m,':'+prefixOf(conn)+' TOPIC '+chan+' :'+ch.topic);}else if(ch.topic)numeric(conn,'332',chan+' :'+ch.topic);else numeric(conn,'331',chan+' :No topic is set'); break; }
+              case 'MODE': { if((p[1]||'')[0]==='#')numeric(conn,'324',p[1]+' +'); break; }
+              case 'WHO': case 'WHOIS': case 'LIST': case 'PONG': case 'USERHOST': break;
+              default: numeric(conn,'421',cmd+' :Unknown command');
+            }
+        }
+        process.stdout.write(JSON.stringify({ state: st, sends }));
+        """;
+
+    // Build the exact IRCd POC graph (On Start -> Socket Listen; On Socket Data -> DB Get -> Format -> brain ->
+    // DB Set + ForEach(sends) -> Socket Send; On Socket Disconnect -> SetVar(QUIT) -> brain), on a chosen port.
+    private static NodeGraph BuildIrcdGraph(int port)
+    {
+        var g = new NodeGraph();
+        var start = g.Add(NodeCatalog.Get("event.start"), new Vector2(40, -80));
+        var listen = g.Add(NodeCatalog.Get("socket.listen"), new Vector2(40, 40));
+        listen.SetParam("proto", "tcp"); listen.SetParam("port", port.ToString()); listen.SetParam("tls", "false"); listen.SetParam("framing", "line");
+        var sdata = g.Add(NodeCatalog.Get("event.socket.data"), new Vector2(40, 220));
+        var dbget = g.Add(NodeCatalog.Get("db.get"), new Vector2(40, 380));
+        dbget.SetParam("table", "ircd"); dbget.SetParam("mode", "value"); dbget.SetParam("key", "state"); dbget.SetParam("default", "{}");
+        var fmt = g.Add(NodeCatalog.Get("data.format"), new Vector2(320, 300));
+        fmt.SetParam("template", "{conn}\n{line}\n{a}");
+        var brain = g.Add(NodeCatalog.Get("code.run"), new Vector2(580, 240));
+        brain.SetParam("language", "javascript"); brain.SetParam("timeout", "5"); brain.SetParam("code", IrcdBrain);
+        var jstate = g.Add(NodeCatalog.Get("data.json"), new Vector2(860, 140)); jstate.SetParam("path", "state");
+        var dbset = g.Add(NodeCatalog.Get("db.set"), new Vector2(1120, 140)); dbset.SetParam("table", "ircd"); dbset.SetParam("key", "state");
+        var jsends = g.Add(NodeCatalog.Get("data.json"), new Vector2(860, 360)); jsends.SetParam("path", "sends");
+        var fe = g.Add(NodeCatalog.Get("logic.forEach"), new Vector2(1120, 360)); fe.SetParam("sep", "json"); fe.SetParam("var", "item");
+        var send = g.Add(NodeCatalog.Get("socket.send"), new Vector2(1380, 360));
+        send.SetParam("conn", "{item.conn}"); send.SetParam("data", "{item.line}"); send.SetParam("encoding", "text"); send.SetParam("append", "crlf");
+        var sdisc = g.Add(NodeCatalog.Get("event.socket.disconnect"), new Vector2(40, 560));
+        var setvar = g.Add(NodeCatalog.Get("data.setvar"), new Vector2(320, 560)); setvar.SetParam("name", "line"); setvar.SetParam("value", "QUIT :connection closed");
+        g.Connect(start.Id, 0, listen.Id, 0);
+        g.Connect(sdata.Id, 0, brain.Id, 0);
+        g.Connect(dbget.Id, 0, fmt.Id, 0);
+        g.Connect(fmt.Id, 0, brain.Id, 1);
+        g.Connect(brain.Id, 1, jstate.Id, 0);
+        g.Connect(brain.Id, 1, jsends.Id, 0);
+        g.Connect(brain.Id, 0, dbset.Id, 0);
+        g.Connect(jstate.Id, 0, dbset.Id, 1);
+        g.Connect(dbset.Id, 0, fe.Id, 0);
+        g.Connect(jsends.Id, 0, fe.Id, 1);
+        g.Connect(fe.Id, 0, send.Id, 0);
+        g.Connect(sdisc.Id, 0, setvar.Id, 0);
+        g.Connect(setvar.Id, 0, brain.Id, 0);
+        return g;
+    }
+
+    // A scripted IRC client over a real TCP socket - accumulates everything the server sends so WaitFor can match.
+    private sealed class IrcPeer
+    {
+        public readonly System.Net.Sockets.TcpClient Client;
+        private readonly System.Net.Sockets.NetworkStream _ns;
+        private readonly System.Text.StringBuilder _buf = new();
+        public IrcPeer(int port) { Client = new System.Net.Sockets.TcpClient(); Client.Connect("127.0.0.1", port); _ns = Client.GetStream(); _ns.ReadTimeout = 150; }
+        public void Send(string line) { var b = System.Text.Encoding.UTF8.GetBytes(line + "\r\n"); _ns.Write(b, 0, b.Length); _ns.Flush(); }
+        public bool WaitFor(Func<string, bool> pred, int timeoutMs)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            var buf = new byte[8192];
+            while (DateTime.UtcNow < deadline)
+            {
+                if (pred(_buf.ToString())) return true;
+                try { int n = _ns.Read(buf, 0, buf.Length); if (n > 0) _buf.Append(System.Text.Encoding.UTF8.GetString(buf, 0, n)); else Thread.Sleep(20); }
+                catch (System.IO.IOException) { /* per-read timeout - keep polling until the deadline */ }
+            }
+            return pred(_buf.ToString());
+        }
+        public void Close() { try { Client.Close(); } catch { } }
+    }
+
+    /// <summary>End-to-end IRCd: boot the actual server graph hostless and drive two real TCP clients through
+    /// registration, JOIN, a channel relay, a private message and PING - proving the whole wiring (real
+    /// SocketManager + the brain via CodeRunner + DB + fan-out) and the socket-event serialization. Skips
+    /// cleanly where the code sandbox/node can't run (e.g. minimal CI).</summary>
+    private static int IrcdE2ETest()
+    {
+        var probe = Ircuitry.Net.CodeRunner.Run("javascript", "process.stdout.write('ok')", new Dictionary<string, string>(), 5);
+        if (probe.output != "ok")
+        {
+            Console.WriteLine("  [SKIP] ircd-e2e   code sandbox/node unavailable here" + (string.IsNullOrEmpty(probe.error) ? "" : " (" + probe.error + ")"));
+            return 0;
+        }
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-ircd-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(tmp);
+        Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+        int port = FreePort();
+        var rt = new BotRuntime(new ConsoleLog(), new System.Collections.Concurrent.ConcurrentDictionary<string, string>());
+        var peers = new List<IrcPeer>();
+        int fails = 0;
+        try
+        {
+            rt.Start(BuildIrcdGraph(port), new IrcSettings { Host = "", Nick = "ircd" });   // hostless server bot
+            IrcPeer? Dial() { for (int i = 0; i < 100; i++) { try { var p = new IrcPeer(port); peers.Add(p); return p; } catch { Thread.Sleep(50); } } return null; }
+
+            var a = Dial();
+            fails += Expect("ircd-listen", a != null, $"server should be listening on {port}");
+            if (a == null) return fails;
+            a.Send("NICK alice"); a.Send("USER alice 0 * :Alice Liddell");   // burst: this is exactly what raced before serialization
+            fails += Expect("ircd-register", a.WaitFor(s => s.Contains(" 001 alice ") && s.Contains(" 376 "), 12000), "alice should get a 001..376 welcome");
+
+            var b = Dial();
+            b.Send("NICK bob"); b.Send("USER bob 0 * :Bob");
+            b.WaitFor(s => s.Contains(" 376 "), 12000);
+
+            a.Send("JOIN #test");
+            fails += Expect("ircd-join", a.WaitFor(s => s.Contains("JOIN #test") && s.Contains(" 366 "), 12000), "alice should join #test with a names list");
+            b.Send("JOIN #test");
+            fails += Expect("ircd-peer-join", a.WaitFor(s => s.Contains("bob!") && s.Contains("JOIN #test"), 12000), "alice should see bob join");
+
+            a.Send("PRIVMSG #test :hi bob");
+            fails += Expect("ircd-relay", b.WaitFor(s => s.Contains("alice!") && s.Contains("PRIVMSG #test :hi bob"), 12000), "bob should receive alice's channel message");
+
+            b.Send("PRIVMSG alice :pm back");
+            fails += Expect("ircd-pm", a.WaitFor(s => s.Contains("bob!") && s.Contains("PRIVMSG alice :pm back"), 12000), "alice should receive bob's private message");
+
+            a.Send("PING :xyz");
+            fails += Expect("ircd-ping", a.WaitFor(s => s.Contains("PONG") && s.Contains(":xyz"), 12000), "alice should get a PONG");
+        }
+        finally
+        {
+            foreach (var p in peers) p.Close();
+            rt.Stop(); Thread.Sleep(150);
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
     }
 
     private static int Expect(string name, bool ok, string detail)

@@ -64,13 +64,33 @@ public sealed class ServerConn : IRuntimeSink
 
     // ---- general-purpose sockets (TCP/UDP/WebSocket), fired through this conn's worker pool ----
     private readonly SocketManager _sockets;
+    // In-graph servers keep their state in DB; socket events (connect/data/disconnect) MUST be serialized so a
+    // line's read-modify-write (DB Get -> logic -> DB Set) is never raced by the next line arriving. One worker,
+    // strict arrival order - the actor model every stateful protocol server (IRCd, game server, ...) needs.
+    private BlockingCollection<Action>? _sockQueue;
 
     private void FireSocketEvent(string sub, Dictionary<string, string> vars)
     {
         if (!_running || _owner.RunGraph == null) return;
         var v = BaseVars();
         foreach (var kv in vars) v[kv.Key] = kv.Value;
-        FireFamily("socket." + sub, v);
+        var q = _sockQueue;
+        if (q == null) { FireFamilyInline("socket." + sub, v); return; }
+        try { q.Add(() => FireFamilyInline("socket." + sub, v)); }
+        catch (InvalidOperationException) { /* queue completed during shutdown */ }
+    }
+
+    // Like FireFamily but runs each matching trigger INLINE on the caller (the serial socket worker) rather than
+    // dispatching to the concurrent pool - this is the serialization guarantee for socket/server state.
+    private void FireFamilyInline(string family, Dictionary<string, string> vars)
+    {
+        var graph = _owner.RunGraph;
+        if (graph == null) return;
+        foreach (var node in graph.Nodes)
+        {
+            if (node.Def.TriggerEvent != family || node.Muted) continue;
+            RunNode(node, new Dictionary<string, string>(vars));
+        }
     }
 
     public string SocketListen(string proto, int port, string framing, string delimiter, bool tls, string certPath, string certPass)
@@ -117,6 +137,7 @@ public sealed class ServerConn : IRuntimeSink
         _session.Reset();
         _running = true;
         StartRunWorkers();
+        StartSocketWorker();
         // a bot with no IRC server configured still runs as a pure local/socket host: the worker pool, timers,
         // webhooks, On Start and the socket nodes all work, but we don't dial (or spin reconnects on) an empty host.
         bool hostless = _cfg.Host.Trim().Length == 0;
@@ -137,7 +158,26 @@ public sealed class ServerConn : IRuntimeSink
         try { _runQueue?.CompleteAdding(); } catch { /* already completed */ }   // workers drain + exit
         StopAllTyping();   // send +typing=done for anything still active before we drop the link
         _sockets.StopAll();   // close every listener + open socket
+        try { _sockQueue?.CompleteAdding(); } catch { /* already completed */ }   // serial socket worker drains + exits
         _client.Disconnect();
+    }
+
+    // Single serialized worker for socket events: every connect/data/disconnect runs to completion, in arrival
+    // order, before the next - so an in-graph protocol server (IRCd, etc.) sees consistent state per line. The
+    // per-connection read loops (SocketManager) stay concurrent; only the graph-side handling is serialized.
+    private void StartSocketWorker()
+    {
+        var q = new BlockingCollection<Action>();
+        _sockQueue = q;
+        var w = new System.Threading.Thread(() =>
+        {
+            foreach (var job in q.GetConsumingEnumerable())
+            {
+                try { job(); }
+                catch (Exception ex) { _owner.LogFrom(Label, LogLevel.Error, "socket handler: " + ex.Message); }
+            }
+        }) { IsBackground = true, Name = "sock-events" };
+        w.Start();
     }
 
     // Background pool that executes workflow runs off the IRC read thread (see _runQueue).
