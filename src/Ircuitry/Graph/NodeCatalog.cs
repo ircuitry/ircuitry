@@ -457,6 +457,14 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "event.start", Icon = "play", Title = "On Start", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "start",
+                Description = "Fires once the moment the bot starts running, before and independent of any IRC connection - the place to stand up listeners (Socket Listen), load state, or do one-time setup. Works even on a bot with NO IRC server configured (a pure socket/server bot, e.g. an in-graph IRC server).",
+                Outputs = new[] { Ex("then") },
+                Exec = c => c.Pulse(0),
+            },
+            new()
+            {
                 TypeId = "event.signal", Icon = "envelope", Title = "On Signal", Subtitle = "trigger",
                 Category = NodeCategory.Event, TriggerEvent = "signal",
                 Description = "Fires when another part of your bot emits a matching signal (via Emit Signal). Lets one workflow trigger another, or run a shared flow from several places. Carries optional {data}.",

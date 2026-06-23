@@ -117,8 +117,14 @@ public sealed class ServerConn : IRuntimeSink
         _session.Reset();
         _running = true;
         StartRunWorkers();
-        _owner.LogFrom(Label, LogLevel.System, $"{Ircuitry.Core.Icons.Glyph("play")} connecting - {_owner.CountTriggers()} trigger(s) armed");
-        _client.Connect(_cfg);
+        // a bot with no IRC server configured still runs as a pure local/socket host: the worker pool, timers,
+        // webhooks, On Start and the socket nodes all work, but we don't dial (or spin reconnects on) an empty host.
+        bool hostless = _cfg.Host.Trim().Length == 0;
+        _owner.LogFrom(Label, LogLevel.System, hostless
+            ? $"{Ircuitry.Core.Icons.Glyph("play")} running (no IRC server - timers/sockets only) - {_owner.CountTriggers()} trigger(s) armed"
+            : $"{Ircuitry.Core.Icons.Glyph("play")} connecting - {_owner.CountTriggers()} trigger(s) armed");
+        FireFamily("start", BaseVars());   // On Start: stand up listeners / one-time setup, regardless of IRC
+        if (!hostless) _client.Connect(_cfg);
         StartTimers();
     }
 

@@ -264,6 +264,7 @@ public static class SelfTest
         fails += BotCmdsFitTest();
         fails += ClientCertTest();
         fails += SocketLoopTest();
+        fails += StartTriggerTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3277,6 +3278,23 @@ public static class SelfTest
         }
         finally { sm.Dispose(); }
         return fails;
+    }
+
+    /// <summary>On Start fires when a bot begins running even with NO IRC server configured (hostless) - the boot
+    /// hook a pure socket/server bot (e.g. an in-graph IRCd) needs to stand up its listeners.</summary>
+    private static int StartTriggerTest()
+    {
+        var state = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+        var rt = new BotRuntime(new ConsoleLog(), state);
+        var g = new NodeGraph();
+        var start = g.Add(NodeCatalog.Get("event.start"), Vector2.Zero);
+        var sv = g.Add(NodeCatalog.Get("data.setvar"), new Vector2(200, 0)); sv.SetParam("name", "booted"); sv.SetParam("value", "yes");
+        g.Connect(start.Id, 0, sv.Id, 0);
+        rt.Start(g, new IrcSettings { Host = "", Nick = "srv" });   // hostless: no IRC server at all
+        bool ok = false;
+        for (int i = 0; i < 80 && !ok; i++) { Thread.Sleep(25); if (state.TryGetValue("booted", out var v) && v == "yes") ok = true; }
+        rt.Stop(); Thread.Sleep(50);
+        return Expect("event-start-hostless", ok, "On Start should fire on a hostless bot");
     }
 
     private static int Expect(string name, bool ok, string detail)
