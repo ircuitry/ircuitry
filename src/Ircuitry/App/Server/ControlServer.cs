@@ -322,6 +322,32 @@ public static partial class ControlServer
                     });
                     break;
                 }
+                case "ircstate":   // a bot's live IRC session (channels/members/topics/narration/messages) for the remote bot's-eye viewer
+                {
+                    var bn = ExplicitBotName(root) ?? "";
+                    var b = BotsSnapshot().FirstOrDefault(x => x.Name.Equals(bn, StringComparison.OrdinalIgnoreCase));
+                    if (b == null || !CanSee(c, b.Name)) { await ReplyErr(c, id, "no such bot: " + bn); break; }
+                    var conn = b.Runtime.PrimaryConn;
+                    var sess = conn?.Session;
+                    await Reply(c, id, new
+                    {
+                        bot = b.Name,
+                        connected = conn != null && conn.State == Ircuitry.Irc.IrcState.Connected,
+                        nick = conn?.CurrentNick ?? "",
+                        network = sess?.Network ?? "",
+                        chantypes = sess?.Isupport.ChanTypes ?? "#&",
+                        caps = conn != null ? conn.EnabledCaps.ToArray() : System.Array.Empty<string>(),
+                        channels = (sess?.Channels() ?? new()).Select(ch => new
+                        {
+                            name = ch,
+                            topic = sess!.Topic(ch),
+                            members = sess.Members(ch).Select(m => new { nick = m.nick, prefix = m.prefix }).ToArray(),
+                        }).ToArray(),
+                        notes = (sess?.RecentNotes(60) ?? new()).Select(n => new { at = n.At.ToString("o"), text = n.Text }).ToArray(),
+                        messages = b.Runtime.RecentMessages(200).Select(m => new { nick = m.Nick, channel = m.Channel, text = m.Text, id = m.Msgid, at = m.At.ToString("o") }).ToArray(),
+                    });
+                    break;
+                }
                 case "tokens":   // admin: list access tokens (masked)
                     if (!IsAdmin(c)) { await ReplyErr(c, id, "admin only"); break; }
                     await Reply(c, id, new { tokens = _tokens.Select(kv => new { id = Mask(kv.Key), user = kv.Value.User, role = kv.Value.Role }).ToArray() });

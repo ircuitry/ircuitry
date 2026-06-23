@@ -30,6 +30,62 @@ public sealed partial class MainScreen
     private float _ircMsgTotalH;
     private string _ircCacheSig = "";
 
+    // For a server-hosted bot the IRC connection runs on the server, not in this desktop's runtime, so the viewer
+    // polls a snapshot of its session over the control link. A unified IrcView lets the panes render identically
+    // whether the bot is local or remote.
+    private Ircuitry.App.Server.ControlClient.RemoteIrc? _remoteIrc;
+    private DateTime _remoteIrcNext;
+
+    private sealed class IrcView
+    {
+        public bool Live;
+        public string Nick = "", Network = "", ChanTypes = "#&";
+        public List<string> Caps = new();
+        public sealed class VChan { public string Name = "", Topic = ""; public List<(string nick, string prefix)> Members = new(); }
+        public List<VChan> Channels = new();
+        public List<(DateTime at, string text)> Notes = new();
+        public List<RecentMsg> Messages = new();
+        public bool IsChannel(string t) => t.Length > 0 && ChanTypes.IndexOf(t[0]) >= 0;
+        public VChan? Find(string ch) => Channels.FirstOrDefault(c => c.Name.Equals(ch, StringComparison.OrdinalIgnoreCase));
+        public List<string> ChannelNames() => Channels.Select(c => c.Name).ToList();
+        public string Topic(string ch) => Find(ch)?.Topic ?? "";
+        public int MemberCount(string ch) => Find(ch)?.Members.Count ?? 0;
+        public List<(string nick, string prefix)> Members(string ch) => Find(ch)?.Members ?? new();
+    }
+
+    private void PollRemoteIrc()
+    {
+        if (!Bot.IsRemote || Bot.Remote is not { } rc) return;
+        if (DateTime.UtcNow < _remoteIrcNext) return;
+        _remoteIrcNext = DateTime.UtcNow.AddSeconds(1.5);
+        rc.GetIrcState(Bot.Name, s => _remoteIrc = s);    // callback runs on the UI thread via the remote Pump
+    }
+
+    private IrcView BuildIrcView()
+    {
+        var v = new IrcView();
+        if (Bot.IsRemote)
+        {
+            if (_remoteIrc is { } s)
+            {
+                v.Live = s.Connected; v.Nick = s.Nick; v.Network = s.Network; v.ChanTypes = s.ChanTypes; v.Caps = s.Caps;
+                foreach (var ch in s.Channels) v.Channels.Add(new IrcView.VChan { Name = ch.Name, Topic = ch.Topic, Members = ch.Members });
+                v.Notes = s.Notes; v.Messages = s.Messages;
+            }
+        }
+        else if (Bot.Runtime.PrimaryConn is { } conn)
+        {
+            var sess = conn.Session;
+            v.Live = conn.Running && conn.State == Ircuitry.Irc.IrcState.Connected;
+            v.Nick = conn.CurrentNick; v.Network = sess.Network; v.ChanTypes = sess.Isupport.ChanTypes;
+            v.Caps = conn.EnabledCaps.ToList();
+            foreach (var ch in sess.Channels()) v.Channels.Add(new IrcView.VChan { Name = ch, Topic = sess.Topic(ch), Members = sess.Members(ch) });
+            v.Notes = sess.RecentNotes(60).Select(n => (n.At, n.Text)).ToList();
+            v.Messages = Bot.Runtime.RecentMessages(200).ToList();
+        }
+        return v;
+    }
+
     private static readonly Color[] NickPalette =
         { Theme.Cyan, Theme.Amber, Theme.Magenta, Theme.Violet, Theme.Lime, Theme.Berry, Theme.Sky, Theme.Teal };
 
@@ -44,6 +100,7 @@ public sealed partial class MainScreen
         float w = MathF.Min(760, _vw - 60), h = MathF.Min(560, _vh - 100);
         _ircWin = new RectF((_vw - w) / 2f, (_vh - h) / 2f, w, h);
         _ircSel = StatusTab; _ircMsgScroll = _ircMemScroll = _ircNarrScroll = 0; _ircCacheSig = "";
+        _remoteIrc = null; _remoteIrcNext = DateTime.MinValue;   // refetch the remote session immediately
         _ircWinOpen = true; _ircWinJustOpened = true;
     }
 
@@ -57,14 +114,13 @@ public sealed partial class MainScreen
         if (_ui.Button("console.ircview", btn, Ircuitry.Core.Icons.Glyph("television") + "  Bot's-eye view", Theme.Teal)) OpenIrcWindow();
     }
 
-    private ServerConn? IrcConn => Bot.Runtime.PrimaryConn;
-
     private void DrawIrcWindow(Renderer r, Clock clock)
     {
         HandleIrcWindowInput();
         var win = _ircWin;
-        var conn = IrcConn;
-        if (DebugAutoIrcChannel && _ircSel == StatusTab && conn?.Session.Channels().FirstOrDefault() is { } dc) _ircSel = dc;
+        PollRemoteIrc();
+        var v = BuildIrcView();
+        if (DebugAutoIrcChannel && _ircSel == StatusTab && v.ChannelNames().FirstOrDefault() is { } dc) _ircSel = dc;
 
         // ---- shell ----
         r.Begin();
@@ -74,7 +130,7 @@ public sealed partial class MainScreen
         r.RoundOutline(win, Theme.Edge, 20f);
         r.End();
 
-        DrawIrcHeader(r, win, conn);
+        DrawIrcHeader(r, win, v);
 
         // ---- three panes ----
         float bodyTop = win.Y + 70, bodyBot = win.Bottom - 30;
@@ -83,26 +139,26 @@ public sealed partial class MainScreen
         var right = new RectF(win.Right - 12 - rightW, bodyTop, rightW, bodyBot - bodyTop);
         var center = new RectF(left.Right + 8, bodyTop, right.Left - 8 - (left.Right + 8), bodyBot - bodyTop);
 
-        DrawIrcChannelList(r, left, conn);
+        DrawIrcChannelList(r, left, v);
         bool status = _ircSel == StatusTab;
-        if (status) DrawIrcStatusView(r, center, conn);
-        else DrawIrcChannelView(r, center, conn);
-        DrawIrcMembers(r, right, conn, status);
+        if (status) DrawIrcStatusView(r, center, v);
+        else DrawIrcChannelView(r, center, v);
+        DrawIrcMembers(r, right, v, status);
 
-        DrawIrcFooter(r, win, conn);
+        DrawIrcFooter(r, win, v);
         DrawIrcResizeGrip(r, win);
 
         _ircWinJustOpened = false;
     }
 
-    private void DrawIrcHeader(Renderer r, RectF win, ServerConn? conn)
+    private void DrawIrcHeader(Renderer r, RectF win, IrcView v)
     {
         r.Begin();
         r.Text(r.Fonts.Get(FontKind.Display, 18), Ircuitry.Core.Icons.Glyph("television") + "  What ircuitry has seen", new Vector2(win.X + 18, win.Y + 11), Theme.Text);
 
-        bool live = conn?.Running == true && conn.State == Ircuitry.Irc.IrcState.Connected;
-        string nick = conn?.CurrentNick ?? "";
-        string net = conn?.Session.Network ?? "";
+        bool live = v.Live;
+        string nick = v.Nick;
+        string net = v.Network;
         string status = nick.Length == 0 ? "not connected yet"
             : "I'm " + nick + (net.Length > 0 ? "  ·  on " + net : (live ? "  ·  connected" : "  ·  offline"));
         var sf = r.Fonts.Get(FontKind.Mono, 12);
@@ -118,7 +174,7 @@ public sealed partial class MainScreen
         if (In.LeftPressed && hot && !_ircWinJustOpened) _ircWinOpen = false;
     }
 
-    private void DrawIrcChannelList(Renderer r, RectF box, ServerConn? conn)
+    private void DrawIrcChannelList(Renderer r, RectF box, IrcView v)
     {
         r.Begin();
         r.RoundFill(box, Theme.PanelLo, 12f);
@@ -129,7 +185,7 @@ public sealed partial class MainScreen
         var f = r.Fonts.Get(FontKind.Sans, 13);
         float y = box.Y + 28;
         var items = new List<(string id, string label, string sub, bool pm)> { (StatusTab, Ircuitry.Core.Icons.Glyph("clipboard") + "  Status", "", false) };
-        items.AddRange(IrcWindows(conn));
+        items.AddRange(IrcWindows(v));
 
         r.Begin(BlendMode.Alpha, new RectF(box.X, box.Y + 24, box.W, box.H - 28).ToRectangle());
         foreach (var (id, label, sub, _) in items)
@@ -150,28 +206,27 @@ public sealed partial class MainScreen
     // Every window worth showing: the channels we're in, plus any other target we've actually seen a message
     // from. That second part is what surfaces private-message queries (a PM's "channel" is the sender's nick)
     // and any one-off window - so the viewer shows everywhere something happened, not just joined channels.
-    private List<(string id, string label, string sub, bool pm)> IrcWindows(ServerConn? conn)
+    private List<(string id, string label, string sub, bool pm)> IrcWindows(IrcView v)
     {
         var list = new List<(string id, string label, string sub, bool pm)>();
-        if (conn == null) return list;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ch in conn.Session.Channels())
-            if (seen.Add(ch)) list.Add((ch, Ircuitry.Core.Icons.Glyph("hash") + "  " + ch, conn.Session.MemberCount(ch).ToString(), false));
-        foreach (var m in Bot.Runtime.RecentMessages(200))
+        foreach (var ch in v.ChannelNames())
+            if (seen.Add(ch)) list.Add((ch, Ircuitry.Core.Icons.Glyph("hash") + "  " + ch, v.MemberCount(ch).ToString(), false));
+        foreach (var m in v.Messages)
         {
             string w = m.Channel;
             if (w.Length == 0 || !seen.Add(w)) continue;
-            bool pm = !conn.Session.IsChannel(w);
+            bool pm = !v.IsChannel(w);
             list.Add((w, (pm ? Ircuitry.Core.Icons.Glyph("chat-circle") : Ircuitry.Core.Icons.Glyph("hash")) + "  " + w, pm ? "dm" : "", pm));
         }
         return list;
     }
 
-    private void DrawIrcChannelView(Renderer r, RectF box, ServerConn? conn)
+    private void DrawIrcChannelView(Renderer r, RectF box, IrcView v)
     {
         string ch = _ircSel;
-        bool pm = conn != null && !conn.Session.IsChannel(ch);
-        string topic = conn?.Session.Topic(ch) ?? "";
+        bool pm = !v.IsChannel(ch);
+        string topic = v.Topic(ch);
         // topic bar
         var topicBar = new RectF(box.X, box.Y, box.W, 34);
         r.Begin();
@@ -181,7 +236,7 @@ public sealed partial class MainScreen
         r.End();
 
         var content = new RectF(box.X, box.Y + 40, box.W, box.H - 40);
-        RebuildIrcBubbles(r, content.W - 22, ch);
+        RebuildIrcBubbles(r, content.W - 22, ch, v);
 
         float maxScroll = MathF.Max(0, _ircMsgTotalH - content.H);
         if (content.Contains(In.Mouse) && In.ScrollDelta != 0) _ircMsgScroll += In.ScrollDelta * 0.5f;
@@ -204,7 +259,7 @@ public sealed partial class MainScreen
                 if (jb.Contains(In.Mouse)) { _ircWinOpen = false; OpenHistoryForMsg(msgid); break; }
     }
 
-    private void DrawIrcStatusView(Renderer r, RectF box, ServerConn? conn)
+    private void DrawIrcStatusView(Renderer r, RectF box, IrcView v)
     {
         var headBar = new RectF(box.X, box.Y, box.W, 34);
         r.Begin();
@@ -214,18 +269,17 @@ public sealed partial class MainScreen
 
         // assemble human-language lines: summary first, then the narration feed (newest last)
         var lines = new List<(string text, bool strong)>();
-        string nick = conn?.CurrentNick ?? "";
+        string nick = v.Nick;
         lines.Add(("My name is " + (nick.Length > 0 ? nick : "(not set yet)"), true));
-        string net = conn?.Session.Network ?? "";
+        string net = v.Network;
         if (net.Length > 0) lines.Add(("I'm connected to " + net, true));
-        else if (conn?.Running == true) lines.Add(("I'm connecting…", true));
+        else if (v.Live) lines.Add(("I'm connected", true));
         else lines.Add(("I'm not connected right now", true));
-        var chans = conn?.Session.Channels() ?? new();
+        var chans = v.ChannelNames();
         if (chans.Count > 0) lines.Add(("I'm in " + string.Join(", ", chans), true));
-        var caps = conn?.EnabledCaps ?? Array.Empty<string>();
-        if (caps.Count > 0) lines.Add(("I can do: " + string.Join(", ", caps), false));
+        if (v.Caps.Count > 0) lines.Add(("I can do: " + string.Join(", ", v.Caps), false));
         lines.Add(("", false));
-        foreach (var n in (conn?.Session.RecentNotes(60) ?? new())) lines.Add((n.At.ToString("HH:mm") + "   " + n.Text, false));
+        foreach (var n in v.Notes) lines.Add((n.at.ToString("HH:mm") + "   " + n.text, false));
 
         var content = new RectF(box.X, box.Y + 40, box.W, box.H - 40);
         var bodyF = r.Fonts.Get(FontKind.Sans, 13);
@@ -251,12 +305,12 @@ public sealed partial class MainScreen
         r.End();
     }
 
-    private void DrawIrcMembers(Renderer r, RectF box, ServerConn? conn, bool status)
+    private void DrawIrcMembers(Renderer r, RectF box, IrcView v, bool status)
     {
         r.Begin();
         r.RoundFill(box, Theme.PanelLo, 12f);
         r.RoundOutline(box, Theme.Hairline, 12f);
-        var members = (!status && conn != null) ? conn.Session.Members(_ircSel) : new();
+        var members = !status ? v.Members(_ircSel) : new();
         r.Text(r.Fonts.Get(FontKind.SansBold, 11), status ? "MEMBERS" : $"MEMBERS · {members.Count}", new Vector2(box.X + 12, box.Y + 8), Theme.TextFaint);
         r.End();
 
@@ -321,12 +375,13 @@ public sealed partial class MainScreen
         }
     }
 
-    private void DrawIrcFooter(Renderer r, RectF win, ServerConn? conn)
+    private void DrawIrcFooter(Renderer r, RectF win, IrcView v)
     {
         r.Begin();
         var f = r.Fonts.Get(FontKind.Mono, 11);
-        string foot = conn == null ? "read-only · start the bot to watch it live"
-            : $"read-only · {IrcWindows(conn).Count} window(s) · scroll to replay";
+        int wins = IrcWindows(v).Count;
+        string foot = !v.Live && wins == 0 ? "read-only · start the bot to watch it live"
+            : $"read-only · {wins} window(s) · scroll to replay";
         r.Text(f, foot, new Vector2(win.X + 18, win.Bottom - 24), Theme.TextFaint);
         r.End();
     }
@@ -370,9 +425,9 @@ public sealed partial class MainScreen
     }
 
     // Lays out the message bubbles for the selected channel; cached by ring/history/width/channel signature.
-    private void RebuildIrcBubbles(Renderer r, float bubbleW, string channel)
+    private void RebuildIrcBubbles(Renderer r, float bubbleW, string channel, IrcView v)
     {
-        var ring = Bot.Runtime.RecentMessages(200);
+        var ring = v.Messages;
         long histRev = Bot.Runtime.HistoryRevision;
         string sig = $"{ring.Count}|{(ring.Count > 0 ? ring[^1].Msgid + ring[^1].Text.Length : "")}|{(int)bubbleW}|{histRev}|{channel}";
         if (sig == _ircCacheSig) return;

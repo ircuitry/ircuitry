@@ -43,6 +43,18 @@ public sealed class ControlClient : IDisposable
         public Dictionary<string, string> Vars = new();   // the bot's persistent variables on the server
     }
 
+    /// <summary>A snapshot of a remote bot's live IRC session, for the bot's-eye viewer of a server-hosted bot.</summary>
+    public sealed class RemoteIrc
+    {
+        public bool Connected;
+        public string Nick = "", Network = "", ChanTypes = "#&";
+        public List<string> Caps = new();
+        public sealed class Chan { public string Name = "", Topic = ""; public List<(string nick, string prefix)> Members = new(); }
+        public List<Chan> Channels = new();
+        public List<(DateTime at, string text)> Notes = new();
+        public List<Ircuitry.Core.RecentMsg> Messages = new();
+    }
+
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
@@ -96,6 +108,39 @@ public sealed class ControlClient : IDisposable
     /// <summary>Fetch a remote bot's graph (.ircbot JSON string) and hand it back on the UI thread.</summary>
     public void GetGraph(string bot, Action<string> onJson) =>
         Call("call", new { tool = "get_graph", args = new { bot } }, res => { if (res.TryGetProperty("result", out var g)) onJson(g.GetRawText()); });
+
+    /// <summary>Fetch a remote bot's live IRC session (channels, members, topics, narration, recent messages) for
+    /// the bot's-eye viewer of a server-hosted bot. The callback runs on the UI thread.</summary>
+    public void GetIrcState(string bot, Action<RemoteIrc> onState) =>
+        Call("ircstate", new { bot }, res =>
+        {
+            if (!res.TryGetProperty("result", out var r) || r.ValueKind != JsonValueKind.Object) return;
+            var s = new RemoteIrc
+            {
+                Connected = r.TryGetProperty("connected", out var cn) && cn.ValueKind == JsonValueKind.True,
+                Nick = JStr(r, "nick"), Network = JStr(r, "network"),
+            };
+            var ct = JStr(r, "chantypes"); if (ct.Length > 0) s.ChanTypes = ct;
+            if (r.TryGetProperty("caps", out var caps) && caps.ValueKind == JsonValueKind.Array)
+                foreach (var x in caps.EnumerateArray()) if (x.ValueKind == JsonValueKind.String) s.Caps.Add(x.GetString()!);
+            if (r.TryGetProperty("channels", out var chs) && chs.ValueKind == JsonValueKind.Array)
+                foreach (var ch in chs.EnumerateArray())
+                {
+                    var cc = new RemoteIrc.Chan { Name = JStr(ch, "name"), Topic = JStr(ch, "topic") };
+                    if (ch.TryGetProperty("members", out var ms) && ms.ValueKind == JsonValueKind.Array)
+                        foreach (var m in ms.EnumerateArray()) cc.Members.Add((JStr(m, "nick"), JStr(m, "prefix")));
+                    s.Channels.Add(cc);
+                }
+            if (r.TryGetProperty("notes", out var ns) && ns.ValueKind == JsonValueKind.Array)
+                foreach (var n in ns.EnumerateArray()) s.Notes.Add((JTime(JStr(n, "at")), JStr(n, "text")));
+            if (r.TryGetProperty("messages", out var msgs) && msgs.ValueKind == JsonValueKind.Array)
+                foreach (var m in msgs.EnumerateArray())
+                    s.Messages.Add(new Ircuitry.Core.RecentMsg(JStr(m, "nick"), JStr(m, "channel"), JStr(m, "text"), JStr(m, "id"), JTime(JStr(m, "at"))));
+            onState(s);
+        });
+
+    private static string JStr(JsonElement e, string k) => e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+    private static DateTime JTime(string s) => DateTime.TryParse(s, null, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t : default;
 
     /// <summary>Start/stop a bot on the server. Surfaces a server-side refusal (e.g. "no server set") into the
     /// bot's console so the button never silently does nothing.</summary>
