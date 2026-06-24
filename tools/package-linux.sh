@@ -31,11 +31,21 @@ cat > "$DEB/usr/share/applications/$APPID.desktop" <<EOF
 Type=Application
 Name=ircuitry
 Comment=Visual IRCv3 bot builder
-Exec=$APPID %u
+Exec=$APPID %U
 Icon=$APPID
 Terminal=false
 Categories=Development;Network;
-MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;
+MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;application/x-ircuitry-bot;application/x-ircuitry-node;
+EOF
+
+# MIME glob: *.ircbot / *.ircnode -> our types (dpkg's shared-mime-info trigger runs update-mime-database on install)
+install -d "$DEB/usr/share/mime/packages"
+cat > "$DEB/usr/share/mime/packages/$APPID.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-ircuitry-bot"><comment>ircuitry workflow</comment><glob pattern="*.ircbot"/><icon name="$APPID"/></mime-type>
+  <mime-type type="application/x-ircuitry-node"><comment>ircuitry node</comment><glob pattern="*.ircnode"/><icon name="$APPID"/></mime-type>
+</mime-info>
 EOF
 
 SIZE=$(du -sk "$DEB/opt" "$DEB/usr" | awk '{s+=$1} END{print s}')
@@ -66,13 +76,21 @@ cat > "$APPDIR/$APPID.desktop" <<EOF
 Type=Application
 Name=ircuitry
 Comment=Visual IRCv3 bot builder
-Exec=Ircuitry %u
+Exec=Ircuitry %U
 Icon=$APPID
 Terminal=false
 Categories=Development;Network;
-MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;
+MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;application/x-ircuitry-bot;application/x-ircuitry-node;
 EOF
 cp "$APPDIR/$APPID.desktop" "$APPDIR/usr/share/applications/$APPID.desktop"
+install -d "$APPDIR/usr/share/mime/packages"
+cat > "$APPDIR/usr/share/mime/packages/$APPID.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-ircuitry-bot"><comment>ircuitry workflow</comment><glob pattern="*.ircbot"/><icon name="$APPID"/></mime-type>
+  <mime-type type="application/x-ircuitry-node"><comment>ircuitry node</comment><glob pattern="*.ircnode"/><icon name="$APPID"/></mime-type>
+</mime-info>
+EOF
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"

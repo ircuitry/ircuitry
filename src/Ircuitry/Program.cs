@@ -57,7 +57,7 @@ public static class Program
         if (Array.IndexOf(args, "--register-scheme") >= 0)
         {
             DeepLink.Register();
-            Console.WriteLine("registered ircuitry:// handler");
+            Console.WriteLine("registered ircuitry:// handler + .ircbot/.ircnode file associations");
             return;
         }
         if (Array.IndexOf(args, "--updatecheck") >= 0)
@@ -227,7 +227,7 @@ public static class Program
 
         // custom-scheme deep link (ircuitry://install-node?url=...) and single instance:
         // the first GUI holds the lock and serves an inbox; later launches forward the link and exit.
-        string? deepLink = Array.Find(args, DeepLink.Is);
+        string? deepLink = Array.Find(args, a => DeepLink.Is(a) || DeepLink.IsFile(a));   // a scheme link OR a double-clicked .ircbot/.ircnode
         string dataDir = AppModel.WorkspaceDir;
         try { Directory.CreateDirectory(dataDir); } catch { /* best effort */ }
         // an inbox DIRECTORY (one file per link): concurrent clicks each write a unique file, so nothing is

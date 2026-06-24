@@ -2653,6 +2653,13 @@ public static class SelfTest
         bool cok = Ircuitry.App.DeepLink.TryParseConnect(
             "ircuitry://connect?url=" + System.Uri.EscapeDataString("https://ircuitry.example.com") + "&token=tok123", out var cu, out var ct);
         fails += Expect("deeplink-connect-parse", cok && cu == "https://ircuitry.example.com" && ct == "tok123", $"{cu} / {ct}");
+
+        // double-clicked file association: a .ircbot/.ircnode path (or file:// URL) is recognised, a link/other is not
+        fails += Expect("deeplink-isfile", Ircuitry.App.DeepLink.IsFile("/home/x/foo.ircbot") && Ircuitry.App.DeepLink.IsFile("bar.IRCNODE")
+            && Ircuitry.App.DeepLink.IsFile("file:///tmp/my%20bot.ircbot") && !Ircuitry.App.DeepLink.IsFile("ircuitry://install-node?url=x")
+            && !Ircuitry.App.DeepLink.IsFile("/home/x/notes.txt"), "");
+        fails += Expect("deeplink-filepath", Ircuitry.App.DeepLink.FilePath("file:///tmp/my%20bot.ircbot") == "/tmp/my bot.ircbot"
+            && Ircuitry.App.DeepLink.FilePath("/plain/path.ircbot") == "/plain/path.ircbot", Ircuitry.App.DeepLink.FilePath("file:///tmp/my%20bot.ircbot"));
         return fails;
     }
 

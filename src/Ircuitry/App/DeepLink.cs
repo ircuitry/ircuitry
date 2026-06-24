@@ -24,6 +24,23 @@ public static class DeepLink
         arg.StartsWith("ircs://", StringComparison.OrdinalIgnoreCase) ||
         arg.StartsWith("irc://", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>True if the arg is a path (or <c>file://</c> URL) to a workflow (<c>.ircbot</c>) or node
+    /// (<c>.ircnode</c>) file - what the OS passes when you double-click one of ours.</summary>
+    public static bool IsFile(string arg)
+    {
+        var p = FilePath(arg);
+        return p.EndsWith(".ircbot", StringComparison.OrdinalIgnoreCase)
+            || p.EndsWith(".ircnode", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The local path for a file arg, decoding a <c>file://</c> URL if that is how the OS passed it.</summary>
+    public static string FilePath(string arg)
+    {
+        if (arg.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            try { return Uri.UnescapeDataString(new Uri(arg).LocalPath); } catch { return arg; }
+        return arg;
+    }
+
     /// <summary>
     /// Parse an <c>irc://host[:port]/[#]chan[,chan]</c> link. <c>ircs://</c> means TLS (default 6697);
     /// <c>irc://</c> means plaintext (default 6667). Parsed by hand (not System.Uri) because a channel's
@@ -177,18 +194,38 @@ public static class DeepLink
                 "[Desktop Entry]\n" +
                 "Type=Application\n" +
                 "Name=ircuitry\n" +
-                "Exec=" + exec + "\n" +   // ResolveExec includes quoting and the %u placeholder
+                "Exec=" + exec + "\n" +   // ResolveExec includes quoting and the %U placeholder (URLs + files)
                 "Icon=ircuitry\n" +
                 "Terminal=false\n" +
                 "NoDisplay=true\n" +
-                "MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;x-scheme-handler/irc;x-scheme-handler/ircs;\n";
+                "MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;x-scheme-handler/irc;x-scheme-handler/ircs;" +
+                "application/x-ircuitry-bot;application/x-ircuitry-node;\n";
             if (!File.Exists(desktop) || File.ReadAllText(desktop) != content)
                 File.WriteAllText(desktop, content);
 
-            RunQuiet("xdg-mime", "default ircuitry-url.desktop x-scheme-handler/ircuitry");
-            RunQuiet("xdg-mime", "default ircuitry-url.desktop x-scheme-handler/ircbot");
-            RunQuiet("xdg-mime", "default ircuitry-url.desktop x-scheme-handler/irc");
-            RunQuiet("xdg-mime", "default ircuitry-url.desktop x-scheme-handler/ircs");
+            // teach the OS that *.ircbot / *.ircnode are our MIME types (glob -> type -> handler)
+            string mimeDir = Path.Combine(home, ".local", "share", "mime");
+            string pkgDir = Path.Combine(mimeDir, "packages");
+            Directory.CreateDirectory(pkgDir);
+            string mimeXml = Path.Combine(pkgDir, "ircuitry.xml");
+            string xml =
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                "<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n" +
+                "  <mime-type type=\"application/x-ircuitry-bot\">\n    <comment>ircuitry workflow</comment>\n    <glob pattern=\"*.ircbot\"/>\n    <icon name=\"ircuitry\"/>\n  </mime-type>\n" +
+                "  <mime-type type=\"application/x-ircuitry-node\">\n    <comment>ircuitry node</comment>\n    <glob pattern=\"*.ircnode\"/>\n    <icon name=\"ircuitry\"/>\n  </mime-type>\n" +
+                "</mime-info>\n";
+            if (!File.Exists(mimeXml) || File.ReadAllText(mimeXml) != xml)
+            {
+                File.WriteAllText(mimeXml, xml);
+                RunQuiet("update-mime-database", Q(mimeDir));   // rebuild the user MIME db only when the XML changed
+            }
+
+            foreach (var mime in new[]
+            {
+                "x-scheme-handler/ircuitry", "x-scheme-handler/ircbot", "x-scheme-handler/irc", "x-scheme-handler/ircs",
+                "application/x-ircuitry-bot", "application/x-ircuitry-node",
+            })
+                RunQuiet("xdg-mime", "default ircuitry-url.desktop " + mime);
             RunQuiet("update-desktop-database", appsDir);
         }
         catch { /* registration is best-effort */ }
@@ -206,6 +243,13 @@ public static class DeepLink
             Reg("add", key, "/ve", "/d", "URL:" + scheme + " Protocol", "/f");
             Reg("add", key, "/v", "URL Protocol", "/d", "", "/f");
             Reg("add", key + @"\shell\open\command", "/ve", "/d", "\"" + exe + "\" \"%1\"", "/f");
+        }
+        // file types: .ircbot / .ircnode -> a ProgID -> open with this exe (per-user, no admin)
+        foreach (var (ext, progId, desc) in new[] { (".ircbot", "ircuitry.bot", "ircuitry workflow"), (".ircnode", "ircuitry.node", "ircuitry node") })
+        {
+            Reg("add", @"HKCU\Software\Classes\" + ext, "/ve", "/d", progId, "/f");
+            Reg("add", @"HKCU\Software\Classes\" + progId, "/ve", "/d", desc, "/f");
+            Reg("add", @"HKCU\Software\Classes\" + progId + @"\shell\open\command", "/ve", "/d", "\"" + exe + "\" \"%1\"", "/f");
         }
     }
 
@@ -235,7 +279,7 @@ public static class DeepLink
     private static string ResolveExec()
     {
         string appImage = Environment.GetEnvironmentVariable("APPIMAGE") ?? "";
-        if (appImage.Length > 0) return Q(appImage) + " %u";   // AppImage: self-contained, runs directly
+        if (appImage.Length > 0) return Q(appImage) + " %U";   // AppImage: self-contained, runs directly
 
         string proc = Environment.ProcessPath ?? "";
         string procName = Path.GetFileName(proc);
@@ -250,9 +294,9 @@ public static class DeepLink
         {
             string dll = System.Reflection.Assembly.GetEntryAssembly()?.Location ?? "";
             string dotnet = procName is "dotnet" or "dotnet.exe" ? proc : FindDotnet();
-            if (dll.Length > 0 && dotnet.Length > 0) return Q(dotnet) + " " + Q(dll) + " %u";
+            if (dll.Length > 0 && dotnet.Length > 0) return Q(dotnet) + " " + Q(dll) + " %U";
         }
-        return proc.Length > 0 ? Q(proc) + " %u" : "";
+        return proc.Length > 0 ? Q(proc) + " %U" : "";
     }
 
     private static string Q(string s) => "\"" + s + "\"";

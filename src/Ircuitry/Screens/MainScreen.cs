@@ -461,6 +461,7 @@ public sealed partial class MainScreen : IScreen
     {
         if (Ircuitry.App.DeepLink.IsServerLink(link)) { HandleServerLink(link); return; }
         if (Ircuitry.App.DeepLink.IsConnectLink(link)) { HandleConnectLink(link); return; }   // cockpit "open in app"
+        if (Ircuitry.App.DeepLink.IsFile(link)) { OpenFile(Ircuitry.App.DeepLink.FilePath(link)); return; }   // a double-clicked .ircbot/.ircnode
         if (!Ircuitry.App.DeepLink.TryParse(link, out var action, out var url, out var data))
         { Bot.Log.Add(LogLevel.Error, "unrecognised link: " + link); return; }
 
@@ -495,6 +496,22 @@ public sealed partial class MainScreen : IScreen
             return;
         }
         StageInstall(text, "link");   // default action: install-node
+    }
+
+    /// <summary>Open a double-clicked file (the OS file association routes here): a <c>.ircbot</c> opens as a new
+    /// bot, a <c>.ircnode</c> installs - both behind the usual confirm, since either can carry code.</summary>
+    public void OpenFile(string path)
+    {
+        try
+        {
+            if (!System.IO.File.Exists(path)) { Bot.Log.Add(LogLevel.Error, "file not found: " + path); return; }
+            string text = System.IO.File.ReadAllText(path);
+            if (System.IO.Path.GetExtension(path).Equals(".ircnode", System.StringComparison.OrdinalIgnoreCase))
+                StageInstall(text, System.IO.Path.GetFileName(path));   // a community node
+            else
+                StageWorkflowInstall(text);                              // a .ircbot -> a new bot tab
+        }
+        catch (System.Exception ex) { Bot.Log.Add(LogLevel.Error, "could not open " + System.IO.Path.GetFileName(path) + ": " + ex.Message); }
     }
 
     /// <summary>An irc:// / ircs:// link adds a reusable server to the saved list (it never auto-connects).

@@ -43,6 +43,21 @@ cat > "$APP/Contents/Info.plist" <<EOF
       <array><string>ircuitry</string><string>ircbot</string></array>
     </dict>
   </array>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>ircuitry workflow</string>
+      <key>CFBundleTypeExtensions</key><array><string>ircbot</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>ircuitry node</string>
+      <key>CFBundleTypeExtensions</key><array><string>ircnode</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+    </dict>
+  </array>
   $ICNS
 </dict></plist>
 EOF
