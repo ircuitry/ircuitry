@@ -15,6 +15,7 @@ public sealed class Scene3DRenderer : IDisposable
 {
     private readonly GraphicsDevice _gd;
     private BasicEffect? _fx;
+    private Texture2D? _checker;
     private readonly Dictionary<Mesh3D, Prim> _prims = new();
 
     private sealed class Prim { public VertexBuffer Vb = null!; public IndexBuffer Ib = null!; public int Tris; }
@@ -30,6 +31,7 @@ public sealed class Scene3DRenderer : IDisposable
         _gd.DepthStencilState = DepthStencilState.Default;
         _gd.RasterizerState = RasterizerState.CullNone;   // both faces: robust regardless of winding for v1
         _gd.BlendState = BlendState.Opaque;
+        _gd.SamplerStates[0] = SamplerState.LinearClamp;  // for textured (Boing) meshes
 
         float aspect = _gd.Viewport.Height > 0 ? _gd.Viewport.AspectRatio : 1.6f;
         var eye = new Vector3(s.Cam.Px, s.Cam.Py, s.Cam.Pz);
@@ -50,8 +52,22 @@ public sealed class Scene3DRenderer : IDisposable
                 Matrix.CreateScale(o.Sx, o.Sy, o.Sz)
                 * Matrix.CreateFromYawPitchRoll(MathHelper.ToRadians(o.Ry), MathHelper.ToRadians(o.Rx), MathHelper.ToRadians(o.Rz))
                 * Matrix.CreateTranslation(o.Px, o.Py, o.Pz);
-            byte r = (byte)(o.Color >> 24), g = (byte)(o.Color >> 16), b = (byte)(o.Color >> 8);
-            _fx.DiffuseColor = new Vector3(r / 255f, g / 255f, b / 255f);
+            bool checker = o.Tex is "checker" or "boing" || o.Id == "boing" || o.Id.StartsWith("boing", StringComparison.Ordinal);
+            if (checker)
+            {
+                _fx.TextureEnabled = true;
+                _fx.Texture = Checker();
+                _fx.DiffuseColor = Vector3.One;          // let the texture show true red/white
+                _fx.SpecularColor = new Vector3(0.4f);   // glossy Boing-Ball highlight
+                _fx.SpecularPower = 28f;
+            }
+            else
+            {
+                _fx.TextureEnabled = false;
+                byte r = (byte)(o.Color >> 24), g = (byte)(o.Color >> 16), b = (byte)(o.Color >> 8);
+                _fx.DiffuseColor = new Vector3(r / 255f, g / 255f, b / 255f);
+                _fx.SpecularColor = new Vector3(0.15f);
+            }
             _gd.SetVertexBuffer(prim.Vb);
             _gd.Indices = prim.Ib;
             foreach (var pass in _fx.CurrentTechnique.Passes)
@@ -83,6 +99,24 @@ public sealed class Scene3DRenderer : IDisposable
         p = new Prim { Vb = vb, Ib = ib, Tris = idx.Length / 3 };
         _prims[m] = p;
         return p;
+    }
+
+    // the Amiga Boing Ball texture: an 8x8 red/white checkerboard (even count -> seamless wrap on the sphere)
+    private Texture2D Checker()
+    {
+        if (_checker != null) return _checker;
+        const int px = 512, n = 8;
+        var data = new Color[px * px];
+        var red = new Color(226, 30, 30);
+        for (int y = 0; y < px; y++)
+            for (int x = 0; x < px; x++)
+            {
+                int cx = x * n / px, cy = y * n / px;
+                data[y * px + x] = ((cx + cy) & 1) == 0 ? red : Color.White;
+            }
+        _checker = new Texture2D(_gd, px, px);
+        _checker.SetData(data);
+        return _checker;
     }
 
     // ---- primitive builders (unit-sized, centered; object scale stretches them) ----
@@ -129,7 +163,7 @@ public sealed class Scene3DRenderer : IDisposable
             {
                 float theta = MathHelper.TwoPi * s / segs;
                 var p = new Vector3(rad * MathF.Cos(theta), y, rad * MathF.Sin(theta));
-                v.Add(new V(p, Vector3.Normalize(p), Vector2.Zero));
+                v.Add(new V(p, Vector3.Normalize(p), new Vector2((float)s / segs, (float)r / rings)));   // UVs for textured (Boing) spheres
             }
         }
         int stride = segs + 1;
@@ -183,6 +217,7 @@ public sealed class Scene3DRenderer : IDisposable
     public void Dispose()
     {
         _fx?.Dispose();
+        _checker?.Dispose();
         foreach (var p in _prims.Values) { p.Vb?.Dispose(); p.Ib?.Dispose(); }
         _prims.Clear();
     }

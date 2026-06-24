@@ -37,6 +37,7 @@ public sealed class Obj3D : ITweenTarget
     public float Rx, Ry, Rz;
     public float Sx = 1f, Sy = 1f, Sz = 1f;
     public uint Color = 0xC8C2D6FF;
+    public string Tex = "";                      // "" = solid Color; "checker"/"boing" = the red/white Boing Ball
     public List<Tween> Tweens = new();
 
     public float Get(string p) => p switch

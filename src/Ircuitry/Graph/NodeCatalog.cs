@@ -4138,6 +4138,7 @@ public static class NodeCatalog
                     P("rx", "Rotate X", ParamType.Text, "0", ""), P("ry", "Rotate Y", ParamType.Text, "0", ""), P("rz", "Rotate Z", ParamType.Text, "0", ""),
                     P("sx", "Scale X", ParamType.Text, "1", ""), P("sy", "Scale Y", ParamType.Text, "1", ""), P("sz", "Scale Z", ParamType.Text, "1", ""),
                     P("color", "Colour", ParamType.Text, "#C8C2D6", "#rrggbb"),
+                    P("texture", "Texture", ParamType.Choice, "none", "", new[] { "none", "checker" }),
                 },
                 SummaryParam = "shape",
                 Exec = c =>
@@ -4150,6 +4151,7 @@ public static class NodeCatalog
                         Rx = ParseF(c.Resolve(c.Param("rx"))), Ry = ParseF(c.Resolve(c.Param("ry"))), Rz = ParseF(c.Resolve(c.Param("rz"))),
                         Sx = ParseF(c.Resolve(c.Param("sx")), 1f), Sy = ParseF(c.Resolve(c.Param("sy")), 1f), Sz = ParseF(c.Resolve(c.Param("sz")), 1f),
                         Color = UiColor(c.Resolve(c.Param("color")), 0xC8C2D6FF),
+                        Tex = c.Param("texture") == "checker" ? "checker" : "",
                     }); c.Pulse(0);
                 },
             },
