@@ -23,7 +23,7 @@ public sealed class UiWindowScreen : IScreen
     private readonly GraphicsDevice _gd;
     private readonly Dictionary<string, Texture2D?> _images = new();
 
-    private string? _hoverId, _pressId, _focusId;
+    private string? _hoverId, _pressId, _focusId, _dragId;
     private readonly object _evLock = new();
     private readonly List<UiEvent> _events = new();
     private Scene3DRenderer? _r3d;
@@ -45,7 +45,7 @@ public sealed class UiWindowScreen : IScreen
             if (_fpsInit && v.Controls == "fps" && v.World != null) { v.World.Cam.Px = _ex; v.World.Cam.Py = _ey; v.World.Cam.Pz = _ez; }
             if (v.Controls != "fps") _fpsInit = false;
             _gunBaseSet = false;
-            _scene = v; _focusId = _pressId = _hoverId = null;
+            _scene = v; _focusId = _pressId = _hoverId = _dragId = null;
         }
     }
 
@@ -65,9 +65,15 @@ public sealed class UiWindowScreen : IScreen
     private static Dictionary<string, string> SnapshotFields(UiScene s)
     {
         var d = new Dictionary<string, string>();
-        foreach (var e in s.Elements) if (e.Kind == UiKind.Input) d[e.Id] = e.Text;
+        foreach (var e in s.Elements)
+        {
+            if (e.Kind == UiKind.Input) d[e.Id] = e.Text;
+            else if (e.Kind == UiKind.Slider) d[e.Id] = FormatValue(e.Value);
+        }
         return d;
     }
+
+    private static string FormatValue(float v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     // WASD walk + arrow-key look on the 3D camera, with optional gun-bob + muzzle-flash conventions (elements
     // named "gun" / "flash"). Camera height is held fixed (no flying), the classic shooter feel.
@@ -130,7 +136,7 @@ public sealed class UiWindowScreen : IScreen
         for (int i = s.Elements.Count - 1; i >= 0; i--)
         {
             var e = s.Elements[i];
-            if (e.Visible && (e.Kind == UiKind.Button || e.Kind == UiKind.Input) && Hit(Bounds(s, e), m)) { over = e.Id; break; }
+            if (e.Visible && (e.Kind == UiKind.Button || e.Kind == UiKind.Input || e.Kind == UiKind.Slider) && Hit(Bounds(s, e), m)) { over = e.Id; break; }
         }
         _hoverId = over;
 
@@ -138,6 +144,13 @@ public sealed class UiWindowScreen : IScreen
         {
             _pressId = over;
             _focusId = over != null && s.Find(over)?.Kind == UiKind.Input ? over : null;   // focus an input, blur otherwise
+            _dragId = over != null && s.Find(over)?.Kind == UiKind.Slider ? over : null;    // grab a slider handle
+            if (_dragId != null && s.Find(_dragId) is { } sl0) DragSlider(s, sl0, m.X);     // jump straight to the click point
+        }
+        if (_dragId != null)                                                                // follow the mouse while held
+        {
+            if (input.LeftDown && s.Find(_dragId) is { Kind: UiKind.Slider } sl) DragSlider(s, sl, m.X);
+            else _dragId = null;
         }
         if (input.LeftReleased)
         {
@@ -157,6 +170,21 @@ public sealed class UiWindowScreen : IScreen
                 else Emit(new UiEvent { Type = "submit", Id = _focusId, Value = box.Text, Fields = SnapshotFields(s) });
             }
         }
+    }
+
+    // map the mouse x to a slider's value (snapped to Step), within its draggable track. Geometry MUST match the
+    // Slider case in DrawElement so the handle sits under the cursor.
+    private void DragSlider(UiScene s, UiElement e, float mouseX)
+    {
+        var r = Bounds(s, e);
+        float pad = r.H * 0.5f, valW = 48f;
+        float tl = r.X + pad, tr = r.X + r.W - valW - pad;
+        if (tr <= tl) { e.Value = e.Min; return; }
+        float t = System.Math.Clamp((mouseX - tl) / (tr - tl), 0f, 1f);
+        float v = e.Min + t * (e.Max - e.Min);
+        if (e.Step > 0f) v = MathF.Round(v / e.Step) * e.Step;
+        float lo = MathF.Min(e.Min, e.Max), hi = MathF.Max(e.Min, e.Max);
+        e.Value = System.Math.Clamp(v, lo, hi);
     }
 
     public void Draw(Renderer r, Clock clock)
@@ -230,6 +258,24 @@ public sealed class UiWindowScreen : IScreen
                     r.VLine(cx, ty + 1f, ty + e.FontSize, Rgba(0xFFFFFFFF, e.Alpha));
                 }
                 break;
+
+            case UiKind.Slider:
+            {
+                float h = rect.H, pad = h * 0.5f, valW = 48f, cy = rect.Y + h * 0.5f;
+                float tl = rect.X + pad, tr = rect.X + rect.W - valW - pad;
+                if (tr < tl + 8f) tr = tl + 8f;
+                float tnorm = e.Max != e.Min ? System.Math.Clamp((e.Value - e.Min) / (e.Max - e.Min), 0f, 1f) : 0f;
+                float kx = tl + tnorm * (tr - tl);
+                r.RoundFill(new RectF(tl, cy - 3f, tr - tl, 6f), Rgba(0x000000FF, 0.35f * e.Alpha), 3f);   // track
+                r.RoundFill(new RectF(tl, cy - 3f, kx - tl, 6f), Rgba(e.Color, e.Alpha), 3f);             // filled portion
+                float kr = pad - 3f;
+                if (e.Id == _hoverId || e.Id == _dragId)                                                  // soft halo on hover/drag
+                    r.RoundFill(new RectF(kx - kr - 3f, cy - kr - 3f, (kr + 3f) * 2f, (kr + 3f) * 2f), Rgba(e.Color, 0.30f * e.Alpha), kr + 3f);
+                r.RoundFill(new RectF(kx - kr, cy - kr, kr * 2f, kr * 2f), Rgba(0xF4F0F8FF, e.Alpha), kr); // knob
+                var vf = r.Fonts.Get(FK(e.Font), e.FontSize);
+                r.TextRight(vf, FormatValue(e.Value), rect.X + rect.W, cy - e.FontSize / 2f, Rgba(e.TextColor, e.Alpha));   // live value
+                break;
+            }
 
             case UiKind.Image:
                 var tex = LoadImage(e.Src);

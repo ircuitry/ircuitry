@@ -3618,6 +3618,23 @@ public static class SelfTest
         var v = new Dictionary<string, string> { ["window"] = "mita", ["ui_event"] = "click", ["ui_id"] = "save", ["ui_value"] = "", ["ui_field_persona"] = "new vibe", ["ui_field_model"] = "glm-5.1" };
         GraphExecutor.Fire(g, sink, on, v);
         fails += Expect("ui-form-save", sink.Logs.Exists(l => l.Contains("P=new vibe") && l.Contains("M=glm-5.1")), "a Save click delivers every {ui_field_<id>} to the graph");
+
+        // a slider element survives the scene round-trip (kind + value/min/max/step)
+        var sl = new Ircuitry.UiKit.UiScene();
+        sl.Elements.Add(new Ircuitry.UiKit.UiElement { Id = "speed", Kind = Ircuitry.UiKit.UiKind.Slider, Min = 1.5f, Max = 8f, Value = 3.3f, Step = 0.1f });
+        var sb = Ircuitry.UiKit.UiScene.FromJson(sl.ToJson()).Find("speed");
+        fails += Expect("ui-slider-json", sb?.Kind == Ircuitry.UiKit.UiKind.Slider && System.Math.Abs((sb?.Value ?? 0) - 3.3f) < 0.001f && System.Math.Abs((sb?.Max ?? 0) - 8f) < 0.001f, "slider value/min/max survive JSON");
+
+        // the ui.slider node builds a Slider element prefilled with its value
+        var gs = new NodeGraph();
+        var st = N(gs, "event.start", 0, 0);
+        var win = N(gs, "ui.window", 200, 0); win.SetParam("window", "mita");
+        var sld = N(gs, "ui.slider", 400, 0); sld.SetParam("window", "mita"); sld.SetParam("id", "speed"); sld.SetParam("min", "1.5"); sld.SetParam("max", "8"); sld.SetParam("value", "3.3"); sld.SetParam("step", "0.1");
+        gs.Connect(st.Id, 0, win.Id, 0); gs.Connect(win.Id, 0, sld.Id, 0);
+        var sink2 = new FakeSink();
+        GraphExecutor.Fire(gs, sink2, st, Vars("", "a", "#t"));
+        var sv = sink2.UiScenes.TryGetValue("mita", out var msc) ? msc.Find("speed") : null;
+        fails += Expect("ui-slider-node", sv?.Kind == Ircuitry.UiKit.UiKind.Slider && System.Math.Abs((sv?.Value ?? 0) - 3.3f) < 0.001f && System.Math.Abs((sv?.Max ?? 0) - 8f) < 0.001f, "ui.slider builds a slider with min/max/value");
         return fails;
     }
 

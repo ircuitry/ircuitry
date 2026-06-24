@@ -4091,6 +4091,26 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "ui.slider", Icon = "sliders-horizontal", Title = "UI Slider", Subtitle = "ui", Category = NodeCategory.Ui,
+                Description = "A draggable slider for a numeric value: the handle picks a value between Min and Max (snapped to Step if set), with the live value shown on the right. A Save button reads it as {ui_field_<id>}, exactly like a text field.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "main", ""), P("id", "Element id", ParamType.Text, "slider", ""),
+                    P("parent", "Parent id", ParamType.Text, "", ""),
+                    P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
+                    P("w", "Width", ParamType.Int, "240", ""), P("h", "Height", ParamType.Int, "28", ""),
+                    P("min", "Min", ParamType.Text, "0", ""), P("max", "Max", ParamType.Text, "100", ""),
+                    P("value", "Value", ParamType.Text, "50", ""), P("step", "Step", ParamType.Text, "0", "0 = smooth"),
+                    P("color", "Colour", ParamType.Text, "#6C5CE7", "#rrggbb"),
+                    P("textColor", "Value colour", ParamType.Text, "#C9C2D9", "#rrggbb"),
+                    P("fontSize", "Value size", ParamType.Int, "15", ""),
+                },
+                SummaryParam = "value",
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Slider, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 240), H = c.ParamInt("h", 28), Min = ParseF(c.Resolve(c.Param("min"))), Max = ParseF(c.Resolve(c.Param("max")), 100f), Value = ParseF(c.Resolve(c.Param("value"))), Step = ParseF(c.Resolve(c.Param("step"))), Color = UiColor(c.Resolve(c.Param("color")), 0x6C5CE7FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xC9C2D9FF), FontSize = c.ParamInt("fontSize", 15) }); c.Pulse(0); },
+            },
+            new()
+            {
                 TypeId = "ui.animate", Icon = "sparkle", Title = "UI Animate", Subtitle = "ui", Category = NodeCategory.Ui,
                 Description = "Tween a property of an element from one value to another over a duration, with an easing curve - optionally looping or ping-ponging. The window advances it smoothly each frame.",
                 Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },

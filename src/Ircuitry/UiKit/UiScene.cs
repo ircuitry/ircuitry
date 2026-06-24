@@ -50,7 +50,7 @@ public sealed class UiEvent
                                                  // so one Save button can persist a whole form ({ui_field_<id>})
 }
 
-public enum UiKind { Panel, Text, Image, Rect, Button, Input }
+public enum UiKind { Panel, Text, Image, Rect, Button, Input, Slider }
 
 /// <summary>Anything a <see cref="Tween"/> can animate (2D elements and 3D objects) - exposes named float props.</summary>
 public interface ITweenTarget
@@ -73,6 +73,7 @@ public sealed class UiElement : ITweenTarget
     public bool Filled = true;
     public bool Visible = true;
     public bool Multiline;                        // an Input that wraps + accepts newlines (Enter inserts \n, not submit)
+    public float Min, Max = 100f, Value, Step;    // Slider: a draggable value in [Min,Max], optionally snapped to Step
     public string Text = "";
     public int FontSize = 16;
     public string Font = "sans";                 // sans | bold | mono | monobold | display
@@ -85,6 +86,7 @@ public sealed class UiElement : ITweenTarget
     {
         "x" => X, "y" => Y, "w" => W, "h" => H,
         "alpha" => Alpha, "scale" => Scale, "rotation" => Rotation, "radius" => Radius,
+        "value" => Value,
         _ => 0f,
     };
 
@@ -100,6 +102,7 @@ public sealed class UiElement : ITweenTarget
             case "scale": Scale = v; break;
             case "rotation": Rotation = v; break;
             case "radius": Radius = v; break;
+            case "value": Value = v; break;
         }
     }
 
