@@ -61,6 +61,14 @@ public sealed class UiWindowScreen : IScreen
 
     private void Emit(UiEvent e) { lock (_evLock) _events.Add(e); }
 
+    // a snapshot of every text field's current value, so a button-click (or submit) event can carry a whole form
+    private static Dictionary<string, string> SnapshotFields(UiScene s)
+    {
+        var d = new Dictionary<string, string>();
+        foreach (var e in s.Elements) if (e.Kind == UiKind.Input) d[e.Id] = e.Text;
+        return d;
+    }
+
     // WASD walk + arrow-key look on the 3D camera, with optional gun-bob + muzzle-flash conventions (elements
     // named "gun" / "flash"). Camera height is held fixed (no flying), the classic shooter feel.
     private void UpdateFps(InputState input, float dt)
@@ -134,7 +142,7 @@ public sealed class UiWindowScreen : IScreen
         if (input.LeftReleased)
         {
             if (_pressId != null && _pressId == over && s.Find(_pressId)?.Kind == UiKind.Button)
-                Emit(new UiEvent { Type = "click", Id = _pressId });
+                Emit(new UiEvent { Type = "click", Id = _pressId, Fields = SnapshotFields(s) });
             _pressId = null;
         }
 
@@ -143,7 +151,11 @@ public sealed class UiWindowScreen : IScreen
         {
             foreach (var c in input.Typed) if (!char.IsControl(c)) box.Text += c;
             if (input.BackspacePressed && box.Text.Length > 0) box.Text = box.Text[..^1];
-            if (input.EnterPressed) Emit(new UiEvent { Type = "submit", Id = _focusId, Value = box.Text });
+            if (input.EnterPressed)
+            {
+                if (box.Multiline) box.Text += "\n";   // newline in a multiline field; a Save button persists the text
+                else Emit(new UiEvent { Type = "submit", Id = _focusId, Value = box.Text, Fields = SnapshotFields(s) });
+            }
         }
     }
 
@@ -205,12 +217,14 @@ public sealed class UiWindowScreen : IScreen
 
             case UiKind.Input:
                 bool focused = e.Id == _focusId;
+                bool blink = focused && clock.Pulse(1f) > 0.5f;
                 r.RoundFill(rect, Rgba(0x000000FF, 0.25f * e.Alpha), 8f);
                 r.RoundOutline(rect, focused ? Rgba(0xFFFFFFFF, e.Alpha) : col, 8f);
+                if (e.Multiline) { DrawMultiline(r, e, rect, blink); break; }
                 var font = r.Fonts.Get(FK(e.Font), e.FontSize);
                 float tx = rect.X + 8f, ty = rect.Y + (rect.H - e.FontSize) / 2f;
                 r.Text(font, e.Text, new Vector2(tx, ty), Rgba(e.TextColor, e.Alpha));
-                if (focused && clock.Pulse(1f) > 0.5f)   // blinking caret
+                if (blink)   // blinking caret
                 {
                     float cx = tx + font.MeasureString(e.Text).X + 1f;
                     r.VLine(cx, ty + 1f, ty + e.FontSize, Rgba(0xFFFFFFFF, e.Alpha));
@@ -222,6 +236,40 @@ public sealed class UiWindowScreen : IScreen
                 if (tex != null) r.Image(tex, rect, Rgba(0xFFFFFFFF, e.Alpha));
                 else r.RoundFill(rect, Rgba(0x2A2730FF, e.Alpha), e.Radius);   // placeholder until the file loads
                 break;
+        }
+    }
+
+    // a wrapped, bottom-anchored multiline text field: word-wraps to the box width (honouring explicit newlines),
+    // shows the lines that fit so the end stays visible while typing, and draws the caret after the last line.
+    private void DrawMultiline(Renderer r, UiElement e, RectF rect, bool blink)
+    {
+        var font = r.Fonts.Get(FK(e.Font), e.FontSize);
+        float maxW = rect.W - 16f;
+        int lineH = e.FontSize + 4;
+        int maxLines = System.Math.Max(1, (int)((rect.H - 12f) / lineH));
+        var lines = new List<string>();
+        foreach (var para in (e.Text ?? "").Split('\n'))
+        {
+            if (para.Length == 0) { lines.Add(""); continue; }
+            string cur = "";
+            foreach (var word in para.Split(' '))
+            {
+                string trial = cur.Length == 0 ? word : cur + " " + word;
+                if (cur.Length == 0 || r.Measure(font, trial).X <= maxW) cur = trial;
+                else { lines.Add(cur); cur = word; }
+            }
+            lines.Add(cur);
+        }
+        int start = System.Math.Max(0, lines.Count - maxLines);
+        var col = Rgba(e.TextColor, e.Alpha);
+        for (int i = start; i < lines.Count; i++)
+            r.Text(font, lines[i], new Vector2(rect.X + 8f, rect.Y + 8f + (i - start) * lineH), col);
+        if (blink)
+        {
+            string last = lines.Count > 0 ? lines[^1] : "";
+            float cx = rect.X + 8f + r.Measure(font, last).X + 1f;
+            float cy = rect.Y + 8f + (System.Math.Min(lines.Count, maxLines) - 1) * lineH;
+            r.VLine(cx, cy + 1f, cy + e.FontSize, Rgba(0xFFFFFFFF, e.Alpha));
         }
     }
 

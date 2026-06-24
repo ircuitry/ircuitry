@@ -46,6 +46,8 @@ public sealed class UiEvent
     public string Type = "";    // click | submit | close
     public string Id = "";      // the element id that fired it
     public string Value = "";   // for submit: the input's text
+    public Dictionary<string, string>? Fields;   // on click/submit: a snapshot of every text field's current value,
+                                                 // so one Save button can persist a whole form ({ui_field_<id>})
 }
 
 public enum UiKind { Panel, Text, Image, Rect, Button, Input }
@@ -70,6 +72,7 @@ public sealed class UiElement : ITweenTarget
     public float Alpha = 1f, Scale = 1f, Rotation = 0f, Radius = 12f;
     public bool Filled = true;
     public bool Visible = true;
+    public bool Multiline;                        // an Input that wraps + accepts newlines (Enter inserts \n, not submit)
     public string Text = "";
     public int FontSize = 16;
     public string Font = "sans";                 // sans | bold | mono | monobold | display

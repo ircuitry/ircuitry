@@ -284,6 +284,8 @@ public static class SelfTest
         fails += IrcdNodesTlsTest();
         fails += UiTweenTest();
         fails += UiNodesTest();
+        fails += UiFormTest();
+        fails += SetVarModeTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3588,6 +3590,62 @@ public static class SelfTest
         var s5 = new FakeSink();
         GraphExecutor.Fire(g5, s5, st5, Vars("", "a", "#t"));
         fails += Expect("ui-controls", s5.UiScenes.TryGetValue("intro", out var sc5) && sc5!.Controls == "fps", "ui.controls sets fps mode");
+        return fails;
+    }
+
+    /// <summary>Forms: a click/submit snapshots every text field and carries it across the pipe; On UI Event then
+    /// exposes each as {ui_field_&lt;id&gt;} so a single Save button persists a whole form. Plus the multiline flag.</summary>
+    private static int UiFormTest()
+    {
+        int fails = 0;
+        // a click/submit event carries a snapshot of every field, and it survives the host pipe (JSON)
+        var ev = new Ircuitry.UiKit.UiEvent { Type = "click", Id = "save", Fields = new() { ["persona"] = "warm + witty", ["model"] = "glm-5.1" } };
+        var ev2 = Ircuitry.UiKit.UiScene.EventFromJson(Ircuitry.UiKit.UiScene.EventJson(ev));
+        fails += Expect("ui-fields-json", ev2.Fields != null && ev2.Fields!["persona"] == "warm + witty" && ev2.Fields["model"] == "glm-5.1", "field snapshot survives JSON transport");
+
+        // a multiline input (flag + embedded newlines) survives the scene round-trip
+        var sc = new Ircuitry.UiKit.UiScene();
+        sc.Elements.Add(new Ircuitry.UiKit.UiElement { Id = "bio", Kind = Ircuitry.UiKit.UiKind.Input, Multiline = true, Text = "line one\nline two" });
+        var sc2 = Ircuitry.UiKit.UiScene.FromJson(sc.ToJson());
+        fails += Expect("ui-multiline-json", sc2.Find("bio")?.Multiline == true && sc2.Find("bio")?.Text == "line one\nline two", "multiline flag + newlines survive JSON");
+
+        // the Save flow: On UI Event exposes {ui_field_<id>} for every field, so one click delivers the whole form
+        var g = new NodeGraph();
+        var on = N(g, "ui.on", 0, 0); on.SetParam("event", "click"); on.SetParam("id", "save");
+        var log = N(g, "action.log", 300, 0); log.SetParam("text", "P={ui_field_persona} M={ui_field_model}");
+        g.Connect(on.Id, 0, log.Id, 0);
+        var sink = new FakeSink();
+        var v = new Dictionary<string, string> { ["window"] = "mita", ["ui_event"] = "click", ["ui_id"] = "save", ["ui_value"] = "", ["ui_field_persona"] = "new vibe", ["ui_field_model"] = "glm-5.1" };
+        GraphExecutor.Fire(g, sink, on, v);
+        fails += Expect("ui-form-save", sink.Logs.Exists(l => l.Contains("P=new vibe") && l.Contains("M=glm-5.1")), "a Save click delivers every {ui_field_<id>} to the graph");
+        return fails;
+    }
+
+    /// <summary>Set Variable 'default' mode is set-if-unset: it seeds a value only when the key is empty, so a
+    /// value set elsewhere (a settings panel) survives a re-seed on the next connect. 'set' always overwrites.</summary>
+    private static int SetVarModeTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var start = N(g, "event.start", 0, 0);
+        var sv = N(g, "data.setvar", 200, 0); sv.SetParam("name", "persona"); sv.SetParam("value", "DEFAULT"); sv.SetParam("mode", "default");
+        g.Connect(start.Id, 0, sv.Id, 0);
+
+        var s1 = new FakeSink(); s1.State["persona"] = "custom vibe";           // already customised (e.g. via the panel)
+        GraphExecutor.Fire(g, s1, start, Vars("", "a", "#t"));
+        fails += Expect("setvar-default-keeps", s1.State["persona"] == "custom vibe", $"mode=default keeps an existing value, got '{s1.State["persona"]}'");
+
+        var s2 = new FakeSink();                                                // unset -> seed the default
+        GraphExecutor.Fire(g, s2, start, Vars("", "a", "#t"));
+        fails += Expect("setvar-default-seeds", s2.GetState("persona") == "DEFAULT", $"mode=default seeds when empty, got '{s2.GetState("persona")}'");
+
+        var g2 = new NodeGraph();
+        var st2 = N(g2, "event.start", 0, 0);
+        var f2 = N(g2, "data.setvar", 200, 0); f2.SetParam("name", "persona"); f2.SetParam("value", "FORCED"); f2.SetParam("mode", "set");
+        g2.Connect(st2.Id, 0, f2.Id, 0);
+        var s3 = new FakeSink(); s3.State["persona"] = "old";
+        GraphExecutor.Fire(g2, s3, st2, Vars("", "a", "#t"));
+        fails += Expect("setvar-set-overwrites", s3.State["persona"] == "FORCED", $"mode=set overwrites, got '{s3.State["persona"]}'");
         return fails;
     }
 

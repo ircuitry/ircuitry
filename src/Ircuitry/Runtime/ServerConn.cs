@@ -215,6 +215,7 @@ public sealed class ServerConn : IRuntimeSink
         v["ui_event"] = ev.Type;
         v["ui_id"] = ev.Id;
         v["ui_value"] = ev.Value;
+        if (ev.Fields != null) foreach (var kv in ev.Fields) v["ui_field_" + kv.Key] = kv.Value;   // {ui_field_<id>} per text field
         FireFamily("ui", v);
     }
 

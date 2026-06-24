@@ -3472,12 +3472,17 @@ public static class NodeCatalog
             {
                 TypeId = "data.setvar", Icon = "tray", Title = "Set Variable", Subtitle = "state",
                 Category = NodeCategory.Logic,
-                Description = "Stores a value under a name. Persists across events and saves with the bot.",
+                Description = "Stores a value under a name. Persists across events and saves with the bot. Mode 'default' only sets it when it has no value yet, so a value set elsewhere (e.g. a settings panel) is kept across restarts.",
                 Inputs = new[] { Ex(), Tx("value") },
                 Outputs = new[] { Ex("then") },
-                Params = new[] { P("name", "Name", ParamType.Text, "counter", "counter"), P("value", "Value", ParamType.Text, "", "supports {message} {nick} …") },
+                Params = new[] { P("name", "Name", ParamType.Text, "counter", "counter"), P("value", "Value", ParamType.Text, "", "supports {message} {nick} …"), P("mode", "Mode", ParamType.Choice, "set", "", new[] { "set", "default" }) },
                 SummaryParam = "name",
-                Exec = c => { c.SetState(c.Resolve(c.Param("name")), c.InOr(1, c.Resolve(c.Param("value")))); c.Pulse(0); },
+                Exec = c =>
+                {
+                    string nm = c.Resolve(c.Param("name"));
+                    if (c.Param("mode") == "default" && c.GetState(nm).Length > 0) { c.Pulse(0); return; }   // set-if-unset: keep an existing value
+                    c.SetState(nm, c.InOr(1, c.Resolve(c.Param("value")))); c.Pulse(0);
+                },
             },
 
             // ============================ DATA (more) =======================
@@ -4070,7 +4075,7 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "ui.input", Icon = "textbox", Title = "UI Text Field", Subtitle = "ui", Category = NodeCategory.Ui,
-                Description = "A text field the user can type into. Pressing Enter fires On UI Event (event = submit, id = this field's id, value = the text).",
+                Description = "A text field the user can type into. Pressing Enter fires On UI Event (event = submit, id = this field's id, value = the text). Turn on Multi-line for a wrapping editor where Enter inserts a newline (ideal for a long prompt) - persist it with a Save button that reads {ui_field_<id>}.",
                 Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
                 Params = new[]
                 {
@@ -4080,8 +4085,9 @@ public static class NodeCatalog
                     P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
                     P("w", "Width", ParamType.Int, "260", ""), P("h", "Height", ParamType.Int, "44", ""),
                     P("color", "Colour", ParamType.Text, "#554F66", "#rrggbb"),
+                    P("multiline", "Multi-line", ParamType.Bool, "false", "wraps text + Enter inserts a newline (great for a long prompt)"),
                 },
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 260), H = c.ParamInt("h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF) }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 260), H = c.ParamInt("h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF), Multiline = c.ParamBool("multiline") }); c.Pulse(0); },
             },
             new()
             {
@@ -4203,7 +4209,7 @@ public static class NodeCatalog
             {
                 TypeId = "ui.on", Icon = "hand-pointing", Title = "On UI Event", Subtitle = "trigger", Category = NodeCategory.Ui,
                 TriggerEvent = "ui",
-                Description = "Fires when a window control is used - a button click or a text-field submit (Enter). Filter by Window, event type and element id. Outputs the {ui_id}, the typed {ui_value} (for submit) and the {ui_event}.",
+                Description = "Fires when a window control is used - a button click or a text-field submit (Enter). Filter by Window, event type and element id. Outputs the {ui_id}, the typed {ui_value} (for submit) and the {ui_event}. A click or submit also exposes every text field's current value as {ui_field_<id>}, so one Save button can persist a whole form.",
                 Outputs = new[] { Ex("then"), Tx("id"), Tx("value"), Tx("event") },
                 Params = new[]
                 {
