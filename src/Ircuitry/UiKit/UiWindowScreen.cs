@@ -184,7 +184,10 @@ public sealed class UiWindowScreen : IScreen
         float v = e.Min + t * (e.Max - e.Min);
         if (e.Step > 0f) v = MathF.Round(v / e.Step) * e.Step;
         float lo = MathF.Min(e.Min, e.Max), hi = MathF.Max(e.Min, e.Max);
+        string before = FormatValue(e.Value);
         e.Value = System.Math.Clamp(v, lo, hi);
+        string after = FormatValue(e.Value);
+        if (after != before) Emit(new UiEvent { Type = "change", Id = e.Id, Value = after });   // live: drive things while dragging
     }
 
     public void Draw(Renderer r, Clock clock)

@@ -4169,7 +4169,7 @@ public static class NodeCatalog
                 SummaryParam = "shape",
                 Exec = c =>
                 {
-                    var shape = c.Param("shape") switch { "sphere" => Ircuitry.UiKit.Mesh3D.Sphere, "plane" => Ircuitry.UiKit.Mesh3D.Plane, "cylinder" => Ircuitry.UiKit.Mesh3D.Cylinder, _ => Ircuitry.UiKit.Mesh3D.Box };
+                    var shape = c.Resolve(c.Param("shape")) switch { "sphere" => Ircuitry.UiKit.Mesh3D.Sphere, "plane" => Ircuitry.UiKit.Mesh3D.Plane, "cylinder" => Ircuitry.UiKit.Mesh3D.Cylinder, _ => Ircuitry.UiKit.Mesh3D.Box };
                     c.UiMesh(c.Resolve(c.Param("window")), new Ircuitry.UiKit.Obj3D
                     {
                         Id = c.Resolve(c.Param("id")), Mesh = shape,
@@ -4177,7 +4177,7 @@ public static class NodeCatalog
                         Rx = ParseF(c.Resolve(c.Param("rx"))), Ry = ParseF(c.Resolve(c.Param("ry"))), Rz = ParseF(c.Resolve(c.Param("rz"))),
                         Sx = ParseF(c.Resolve(c.Param("sx")), 1f), Sy = ParseF(c.Resolve(c.Param("sy")), 1f), Sz = ParseF(c.Resolve(c.Param("sz")), 1f),
                         Color = UiColor(c.Resolve(c.Param("color")), 0xC8C2D6FF),
-                        Tex = c.Param("texture") == "checker" ? "checker" : "",
+                        Tex = c.Resolve(c.Param("texture")) == "checker" ? "checker" : "",
                     }); c.Pulse(0);
                 },
             },
@@ -4229,12 +4229,12 @@ public static class NodeCatalog
             {
                 TypeId = "ui.on", Icon = "hand-pointing", Title = "On UI Event", Subtitle = "trigger", Category = NodeCategory.Ui,
                 TriggerEvent = "ui",
-                Description = "Fires when a window control is used - a button click or a text-field submit (Enter). Filter by Window, event type and element id. Outputs the {ui_id}, the typed {ui_value} (for submit) and the {ui_event}. A click or submit also exposes every text field's current value as {ui_field_<id>}, so one Save button can persist a whole form.",
+                Description = "Fires when a window control is used - a button click, a text-field submit (Enter), or a slider drag ('change', with {ui_value} = the live value). Filter by Window, event type and element id. Outputs the {ui_id}, the {ui_value} and the {ui_event}. A click or submit also exposes every text field's current value as {ui_field_<id>}, so one Save button can persist a whole form.",
                 Outputs = new[] { Ex("then"), Tx("id"), Tx("value"), Tx("event") },
                 Params = new[]
                 {
                     P("window", "Window", ParamType.Text, "", "(any)"),
-                    P("event", "Event", ParamType.Choice, "any", "", new[] { "any", "click", "submit", "close" }),
+                    P("event", "Event", ParamType.Choice, "any", "", new[] { "any", "click", "submit", "change", "close" }),
                     P("id", "Element id", ParamType.Text, "", "(any)"),
                 },
                 Exec = c =>

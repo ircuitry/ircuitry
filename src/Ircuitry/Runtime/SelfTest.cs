@@ -3635,6 +3635,15 @@ public static class SelfTest
         GraphExecutor.Fire(gs, sink2, st, Vars("", "a", "#t"));
         var sv = sink2.UiScenes.TryGetValue("mita", out var msc) ? msc.Find("speed") : null;
         fails += Expect("ui-slider-node", sv?.Kind == Ircuitry.UiKit.UiKind.Slider && System.Math.Abs((sv?.Value ?? 0) - 3.3f) < 0.001f && System.Math.Abs((sv?.Max ?? 0) - 8f) < 0.001f, "ui.slider builds a slider with min/max/value");
+
+        // a slider drag fires a 'change' event; On UI Event (event=change) catches the live value
+        var gc = new NodeGraph();
+        var onc = N(gc, "ui.on", 0, 0); onc.SetParam("event", "change"); onc.SetParam("id", "speed");
+        var logc = N(gc, "action.log", 300, 0); logc.SetParam("text", "SPIN={ui_value}");
+        gc.Connect(onc.Id, 0, logc.Id, 0);
+        var sc3 = new FakeSink();
+        GraphExecutor.Fire(gc, sc3, onc, new Dictionary<string, string> { ["window"] = "t", ["ui_event"] = "change", ["ui_id"] = "speed", ["ui_value"] = "5.4" });
+        fails += Expect("ui-slider-change", sc3.Logs.Exists(l => l.Contains("SPIN=5.4")), "On UI Event (change) catches a live slider value");
         return fails;
     }
 
