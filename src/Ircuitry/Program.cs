@@ -15,11 +15,6 @@ public static class Program
             Environment.Exit(Ircuitry.Runtime.SelfTest.RunAll());
             return;
         }
-        if (Array.IndexOf(args, "--emit-ircd") >= 0)
-        {
-            Console.WriteLine(Ircuitry.Runtime.SelfTest.EmitIrcdNodeGraph());   // the all-node IRCd as .ircbot JSON
-            return;
-        }
         if (Array.IndexOf(args, "--ui-window") >= 0)
         {
             // A window-host render process: one OS window painting a UiScene with ircuitry's own renderer,
@@ -32,15 +27,6 @@ public static class Program
             // The web-surface process: a native webview window (Photino) loading a URL/HTML, bridging the page
             // to the graph. Separate from --ui-window because the renderer is the OS webview, not MonoGame.
             Environment.Exit(Ircuitry.UiKit.UiWebProcess.Run(args));
-            return;
-        }
-        if (Array.IndexOf(args, "--publish-ircd") >= 0)
-        {
-            // Write the freshly-built all-node IRCd straight into a bot in the workspace, in place (no copy/paste,
-            // no import). A running app's file-watcher reloads the change. Optional arg: the target bot name.
-            int pi = Array.IndexOf(args, "--publish-ircd");
-            string botName = pi + 1 < args.Length && !args[pi + 1].StartsWith("--") ? args[pi + 1] : "IRCd (nodes)";
-            Environment.Exit(Ircuitry.Runtime.SelfTest.PublishIrcdToWorkspace(botName));
             return;
         }
         if (Array.IndexOf(args, "--run") >= 0 || Array.IndexOf(args, "--headless") >= 0)

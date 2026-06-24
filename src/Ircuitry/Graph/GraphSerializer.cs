@@ -69,25 +69,49 @@ public static class GraphSerializer
         return JsonSerializer.Serialize(doc, Opts);
     }
 
-    /// <summary>Parse a workflow. Unknown node types are skipped (and their wires dropped).</summary>
+    /// <summary>Parse a workflow. Unknown node types are preserved as inert placeholders (with their wires).</summary>
     public static (NodeGraph graph, string name) Load(string json) => Load(json, out _);
 
     /// <summary>
-    /// Parse a workflow, reporting any node types that were skipped because this build does not know
-    /// them (an out-of-date app, or a community node that is not installed). Callers can warn the user
-    /// instead of silently dropping the nodes and their wires.
+    /// Parse a workflow. A node type this build does not know (an out-of-date app, or a community node that is
+    /// not installed) is NOT dropped: it is loaded as an inert <see cref="NodeDef.IsPlaceholder"/> stand-in that
+    /// carries the original type, params and wires verbatim, so a load/save round-trip never deletes a node a
+    /// newer ircuitry wrote. <paramref name="unknownTypes"/> lists those types so callers can tell the user to
+    /// update or install them.
     /// </summary>
-    public static (NodeGraph graph, string name) Load(string json, out List<string> skippedTypes)
+    public static (NodeGraph graph, string name) Load(string json, out List<string> unknownTypes)
     {
-        skippedTypes = new List<string>();
+        unknownTypes = new List<string>();
         var doc = JsonSerializer.Deserialize<Doc>(json, Opts) ?? new Doc();
         var g = new NodeGraph();
         var live = new HashSet<string>();
+        var placeholders = new HashSet<string>();
+
+        // which records are unknown to this build, and how far their wires reach into each, so the placeholder
+        // gets real pin slots to carry (and draw) those wires through
+        var unknownIds = new HashSet<string>();
+        foreach (var rec in doc.nodes)
+            if (!string.IsNullOrEmpty(rec.id) && !NodeCatalog.TryGet(rec.type, out _)) unknownIds.Add(rec.id);
+        var maxIn = new Dictionary<string, int>();
+        var maxOut = new Dictionary<string, int>();
+        if (unknownIds.Count > 0)
+            foreach (var c in doc.connections)
+            {
+                if (unknownIds.Contains(c.to)) maxIn[c.to] = System.Math.Max(maxIn.GetValueOrDefault(c.to, -1), c.toPin);
+                if (unknownIds.Contains(c.from)) maxOut[c.from] = System.Math.Max(maxOut.GetValueOrDefault(c.from, -1), c.fromPin);
+            }
+
         foreach (var rec in doc.nodes)
         {
             if (!NodeCatalog.TryGet(rec.type, out var def))
             {
-                if (!string.IsNullOrEmpty(rec.type) && !skippedTypes.Contains(rec.type)) skippedTypes.Add(rec.type);
+                if (!string.IsNullOrEmpty(rec.type) && !unknownTypes.Contains(rec.type)) unknownTypes.Add(rec.type);
+                var ph = PlaceholderDef(rec.type, maxIn.GetValueOrDefault(rec.id, -1) + 1, maxOut.GetValueOrDefault(rec.id, -1) + 1);
+                var pn = new Node(rec.id, rec.type) { Def = ph, Pos = new Vector2(rec.x, rec.y), Muted = rec.muted, StreamAsTool = rec.streamAsTool ?? false, Title = rec.title ?? "", ColorTag = rec.colorTag };
+                foreach (var kv in rec.@params) pn.Params[kv.Key] = kv.Value;   // keep EVERY param verbatim - the real def may want them later
+                g.Nodes.Add(pn);
+                live.Add(pn.Id);
+                placeholders.Add(pn.Id);
                 continue;
             }
             var n = new Node(rec.id, rec.type) { Def = def, Pos = new Vector2(rec.x, rec.y), Muted = rec.muted, StreamAsTool = rec.streamAsTool ?? def.StreamByDefault, Title = rec.title ?? "", ColorTag = rec.colorTag };
@@ -98,8 +122,15 @@ public static class GraphSerializer
         foreach (var c in doc.connections)
         {
             if (!live.Contains(c.from) || !live.Contains(c.to)) continue;
-            // route through Connect so single-wire-input and pin-kind/range rules are enforced
-            g.Connect(c.from, c.fromPin, c.to, c.toPin);
+            if (placeholders.Contains(c.from) || placeholders.Contains(c.to))
+            {
+                // a placeholder's real pin kinds are unknown, so bypass the compatibility/single-wire rules and
+                // preserve the wire exactly as written (the real def re-validates it once the type is known)
+                var conn = new Connection(c.from, c.fromPin, c.to, c.toPin);
+                if (!g.Connections.Any(x => x.SameEndpoints(conn))) g.Connections.Add(conn);
+            }
+            // route known<->known through Connect so single-wire-input and pin-kind/range rules are enforced
+            else g.Connect(c.from, c.fromPin, c.to, c.toPin);
         }
         if (doc.frames != null)
             foreach (var fr in doc.frames)
@@ -108,7 +139,31 @@ public static class GraphSerializer
         return (g, doc.name);
     }
 
-    /// <summary>A human warning for node types <see cref="Load"/> skipped, or "" if none were skipped.</summary>
-    public static string SkippedWarning(List<string> skipped) => skipped.Count == 0 ? ""
-        : $"skipped {skipped.Count} unknown node(s) ({string.Join(", ", skipped)}) - update ircuitry to the latest release, or install the missing node, then re-import";
+    /// <summary>A stand-in for an unknown node type: inert (never triggers, no-op exec) with enough neutral pins
+    /// to carry the node's wires, so it renders and round-trips instead of being dropped. <see cref="Load"/>
+    /// keeps its params verbatim, and <see cref="Save"/> writes the original type + params straight back.</summary>
+    private static NodeDef PlaceholderDef(string typeId, int inputs, int outputs)
+    {
+        var ins = new PinDef[System.Math.Max(0, inputs)];
+        for (int i = 0; i < ins.Length; i++) ins[i] = new PinDef($"in{i}", PinKind.Text);
+        var outs = new PinDef[System.Math.Max(0, outputs)];
+        for (int i = 0; i < outs.Length; i++) outs[i] = new PinDef($"out{i}", PinKind.Text);
+        return new NodeDef
+        {
+            TypeId = typeId,
+            Title = string.IsNullOrEmpty(typeId) ? "unknown" : typeId,
+            Subtitle = "unknown node",
+            Icon = "warning-circle",
+            Category = Ircuitry.Core.NodeCategory.Code,
+            Description = "A node type this build does not know - from a newer ircuitry, or a community node you have not installed. It is preserved exactly (type, params and wires) so saving will not delete it; update ircuitry or install the node to edit it.",
+            Inputs = ins,
+            Outputs = outs,
+            IsPlaceholder = true,
+        };
+    }
+
+    /// <summary>A human warning for unknown node types <see cref="Load"/> preserved as placeholders, or "" if
+    /// none. They are kept (saving will not lose them) but cannot be edited until the build catches up.</summary>
+    public static string SkippedWarning(List<string> unknown) => unknown.Count == 0 ? ""
+        : $"{unknown.Count} unknown node type(s) ({string.Join(", ", unknown)}) are from a newer ircuitry or an uninstalled community node - preserved as placeholders (saving keeps them), but not editable until you update or install them";
 }

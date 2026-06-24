@@ -284,6 +284,7 @@ public static class SelfTest
         fails += IrcdNodesTlsTest();
         fails += UiTweenTest();
         fails += UiNodesTest();
+        fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -3590,6 +3591,43 @@ public static class SelfTest
         return fails;
     }
 
+    /// <summary>An unknown node type (a newer build, or an uninstalled community node) is PRESERVED on load,
+    /// not dropped: it loads as an inert placeholder that keeps its type, params and wires, and survives a
+    /// Save -> Load round-trip - so an out-of-date app can never silently strip newer nodes from a saved bot.</summary>
+    private static int UnknownNodePreserveTest()
+    {
+        int fails = 0;
+        string json =
+            """
+            {"format":"ircuitry.workflow.v1","name":"wf","nodes":[
+              {"id":"a","type":"event.start","x":0,"y":0,"params":{}},
+              {"id":"b","type":"future.widget","x":10,"y":20,"params":{"hello":"world","n":"42"}},
+              {"id":"c","type":"action.log","x":30,"y":0,"params":{"text":"hi"}}],
+             "connections":[
+              {"from":"a","fromPin":0,"to":"b","toPin":0},
+              {"from":"b","fromPin":0,"to":"c","toPin":0}]}
+            """;
+        var (g, _) = Ircuitry.Graph.GraphSerializer.Load(json, out var unknown);
+        var b = g.Find("b");
+        fails += Expect("unknown-preserved", b != null && b!.TypeId == "future.widget" && b.Def.IsPlaceholder,
+            b == null ? "placeholder node missing" : $"{b.TypeId}/placeholder={b.Def.IsPlaceholder}");
+        fails += Expect("unknown-params", b != null && b!.GetParam("hello") == "world" && b.GetParam("n") == "42", "params kept verbatim");
+        fails += Expect("unknown-wires",
+            g.Connections.Any(c => c.FromNode == "a" && c.ToNode == "b") && g.Connections.Any(c => c.FromNode == "b" && c.ToNode == "c"),
+            $"both wires through the placeholder survive ({g.Connections.Count})");
+        fails += Expect("unknown-reported", unknown.Contains("future.widget"), "type reported to caller");
+        fails += Expect("unknown-inert", b != null && !b!.Def.IsTrigger, "placeholder never triggers a flow");
+
+        // Save -> Load again: still there, params + wires intact (the round-trip an old binary would do)
+        var (g2, _) = Ircuitry.Graph.GraphSerializer.Load(Ircuitry.Graph.GraphSerializer.Save(g, "wf"), out _);
+        var b2 = g2.Find("b");
+        fails += Expect("unknown-roundtrip",
+            b2 != null && b2!.TypeId == "future.widget" && b2.GetParam("hello") == "world"
+                && g2.Connections.Count(c => c.FromNode == "b" || c.ToNode == "b") == 2,
+            b2 == null ? "lost on Save->Load" : "survives Save->Load");
+        return fails;
+    }
+
     /// <summary>The declarative UI scene tween engine: easing, lerp, ping-pong, delay, JSON round-trip - the
     /// animation that the window-host render process advances each frame for node-authored UI.</summary>
     private static int UiTweenTest()
@@ -3623,38 +3661,6 @@ public static class SelfTest
         var back = Ircuitry.UiKit.UiScene.FromJson(scene.ToJson());
         fails += Expect("ui-scene-json", back.Width == 321 && back.Find("btn")?.Kind == Ircuitry.UiKit.UiKind.Button && back.Find("btn")?.Text == "Go", "scene survives JSON round-trip");
         return fails;
-    }
-
-    /// <summary>The all-built-in-node IRCd (no code node) serialized as portable .ircbot JSON, for `--emit-ircd`
-    /// so it can be dropped straight into a workspace.</summary>
-    public static string EmitIrcdNodeGraph() => Ircuitry.Graph.GraphSerializer.Save(BuildIrcdNodeGraph(6667), "IRCd (nodes)");
-
-    /// <summary>`--publish-ircd [bot]`: drop the freshly-built all-node IRCd graph straight into the workspace
-    /// in place - replacing the named bot's graph (creating the bot if missing) and writing workspace.ircuitry
-    /// back. A running app's file-watcher reloads the change; no copy/paste, no import, no token round-trip.
-    /// Returns a process exit code (0 ok).</summary>
-    public static int PublishIrcdToWorkspace(string botName)
-    {
-        try
-        {
-            var path = System.IO.Path.Combine(Ircuitry.App.AppModel.WorkspaceDir, "workspace.ircuitry");
-            if (!System.IO.File.Exists(path))
-            {
-                Console.Error.WriteLine($"no workspace at {path} - start ircuitry once to create it");
-                return 1;
-            }
-            var (bots, active, groups) = Ircuitry.App.WorkspaceSerializer.Load(System.IO.File.ReadAllText(path));
-            var graph = BuildIrcdNodeGraph(6667);
-            var bot = bots.FirstOrDefault(b => string.Equals(b.Name, botName, StringComparison.OrdinalIgnoreCase));
-            string verb;
-            if (bot != null) { bot.Graph = graph; verb = "updated"; }
-            else { bot = new Ircuitry.App.Bot(botName) { Graph = graph }; bots.Add(bot); active = bots.Count - 1; verb = "created"; }
-            System.IO.File.WriteAllText(path, Ircuitry.App.WorkspaceSerializer.Save(bots, active, groups));
-            Console.WriteLine($"{verb} \"{bot.Name}\" -> {graph.Nodes.Count} nodes / {graph.Connections.Count} wires in {path}");
-            Console.WriteLine("a running ircuitry will reload it; restart the bot to apply to a live session.");
-            return 0;
-        }
-        catch (Exception ex) { Console.Error.WriteLine("publish failed: " + ex.Message); return 1; }
     }
 
     private static NodeGraph BuildIrcdNodeGraph(int port) => BuildIrcdNodeGraph(port, false);
@@ -4873,9 +4879,9 @@ public static class SelfTest
     }
 
     /// <summary>
-    /// Loading a workflow that uses a node type this build doesn't know must REPORT it (so import/paste
-    /// can warn), not silently drop the node and its wires with no trace - the thing that made an
-    /// out-of-date app look like it had shipped a broken workflow.
+    /// Loading a workflow that uses a node type this build doesn't know must PRESERVE it (keep the node + its
+    /// wires as an inert placeholder) AND REPORT it (so import/paste can warn) - never silently drop it, the
+    /// thing that made an out-of-date app strip newer nodes and look like a broken workflow.
     /// </summary>
     private static int UnknownNodeWarningTest()
     {
@@ -4885,12 +4891,13 @@ public static class SelfTest
             + "{\"id\":\"b\",\"type\":\"totally.bogus\"},"
             + "{\"id\":\"c\",\"type\":\"action.reply\"}],"
             + "\"connections\":[{\"from\":\"a\",\"fromPin\":0,\"to\":\"b\",\"toPin\":0},{\"from\":\"a\",\"fromPin\":0,\"to\":\"c\",\"toPin\":0}]}";
-        var (g, _) = Ircuitry.Graph.GraphSerializer.Load(json, out var skipped);
-        bool dropped = g.Nodes.Count == 2 && g.Find("b") == null;                 // unknown node gone
-        bool wireGone = g.Connections.All(c => c.ToNode != "b" && c.FromNode != "b"); // its wire gone too
-        bool reported = skipped.Contains("totally.bogus")
-            && Ircuitry.Graph.GraphSerializer.SkippedWarning(skipped).Contains("totally.bogus");
-        fails += Expect("unknown-node-reported", dropped && wireGone && reported, $"nodes={g.Nodes.Count} skipped=[{string.Join(",", skipped)}]");
+        var (g, _) = Ircuitry.Graph.GraphSerializer.Load(json, out var unknown);
+        var bn = g.Find("b");
+        bool preserved = g.Nodes.Count == 3 && bn != null && bn!.Def.IsPlaceholder && bn.TypeId == "totally.bogus"; // kept, not dropped
+        bool wireKept = g.Connections.Any(c => c.FromNode == "a" && c.ToNode == "b");                               // its wire kept too
+        bool reported = unknown.Contains("totally.bogus")
+            && Ircuitry.Graph.GraphSerializer.SkippedWarning(unknown).Contains("totally.bogus");
+        fails += Expect("unknown-node-preserved", preserved && wireKept && reported, $"nodes={g.Nodes.Count} unknown=[{string.Join(",", unknown)}]");
 
         var (_, _2) = Ircuitry.Graph.GraphSerializer.Load("{\"name\":\"y\",\"nodes\":[{\"id\":\"a\",\"type\":\"event.command\"}]}", out var none);
         fails += Expect("known-graph-no-warning", none.Count == 0 && Ircuitry.Graph.GraphSerializer.SkippedWarning(none).Length == 0, $"skipped=[{string.Join(",", none)}]");

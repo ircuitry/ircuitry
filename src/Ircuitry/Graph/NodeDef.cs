@@ -71,6 +71,11 @@ public sealed class NodeDef
     public System.Func<Node, PinDef[]>? DynInputs;
     public System.Func<Node, PinDef[]>? DynOutputs;
 
+    /// <summary>True for a synthesized stand-in created when loading a node type this build does not know (a
+    /// newer ircuitry, or an uninstalled community node). It is inert - never triggers, no-op exec - and exists
+    /// only so the node + its wires survive a load/save round-trip instead of being dropped.</summary>
+    public bool IsPlaceholder;
+
     /// <summary>Key param shown as a one-line summary on the node body.</summary>
     public string? SummaryParam;
 
