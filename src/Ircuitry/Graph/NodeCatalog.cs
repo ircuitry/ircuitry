@@ -4319,6 +4319,21 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "app.panel", Icon = "sidebar", Title = "Add Side Panel", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Register a docked side panel that lives inside ircuitry across every tab. Build its contents in an On App Event flow (event = panel, id = this panel's id) using ui.* nodes that draw into a window whose id is this panel's id. Buttons/sliders inside fire On UI Event.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("id", "Panel id", ParamType.Text, "panel", "unique id (also the ui.* window id)"),
+                    P("title", "Title", ParamType.Text, "My Panel", ""),
+                    P("icon", "Icon", ParamType.Text, "sidebar", "phosphor name"),
+                    P("dock", "Dock", ParamType.Choice, "right", "", new[] { "left", "right" }),
+                },
+                SummaryParam = "title",
+                Exec = c => { c.AppContribute("panel", c.Resolve(c.Param("id")), c.Resolve(c.Param("title")), c.Param("icon"), c.Param("dock")); c.Pulse(0); },
+            },
+            new()
+            {
                 TypeId = "app.toast", Icon = "bell-ringing", Title = "Toast", Subtitle = "plugin", Category = NodeCategory.App,
                 Description = "Show a toast notification in ircuitry.",
                 Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
@@ -4338,7 +4353,7 @@ public static class NodeCatalog
                 Outputs = new[] { Ex("then"), Tx("id"), Tx("event") },
                 Params = new[]
                 {
-                    P("event", "Event", ParamType.Choice, "any", "", new[] { "any", "menu", "toolbar", "command", "context" }),
+                    P("event", "Event", ParamType.Choice, "any", "", new[] { "any", "menu", "toolbar", "command", "context", "panel" }),
                     P("id", "Item id", ParamType.Text, "", "(any)"),
                 },
                 Exec = c =>

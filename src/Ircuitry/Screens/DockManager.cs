@@ -42,6 +42,7 @@ public sealed class DockManager
     private Panel? _resize; private Vector2 _resizeStart; private float _resizeStartSize; private RectF _resizeStartRect;
 
     public void Add(Panel p) { _panels.Add(p); }
+    public void Remove(string id) { _panels.RemoveAll(p => p.Id == id); }
 
     /// <summary>Place panels for this viewport by sequentially CARVING a shrinking 'remaining' rect: Left then
     /// Right take full-height side strips, then Top then Bottom take bands spanning only the width BETWEEN the

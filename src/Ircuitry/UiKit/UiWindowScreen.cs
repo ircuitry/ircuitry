@@ -28,6 +28,12 @@ public sealed class UiWindowScreen : IScreen
     private readonly List<UiEvent> _events = new();
     private Scene3DRenderer? _r3d;
 
+    // When this screen paints an in-app dock panel instead of owning a whole OS window, the host sets an Origin
+    // (the panel's content top-left, so a scene authored at 0,0 lands inside the panel) and a Clip (the panel rect,
+    // so drawing is scissored and only mouse-in-panel interacts). Both default off -> normal full-window behaviour.
+    public Microsoft.Xna.Framework.Vector2 Origin;
+    public RectF? Clip;
+
     // first-person controller state (Controls == "fps")
     private bool _fpsInit, _gunBaseSet;
     private float _yaw, _pitch, _ex, _ey, _ez, _bob, _gunBaseY;
@@ -130,22 +136,28 @@ public sealed class UiWindowScreen : IScreen
         s.Advance(clock.Dt);
         if (s.Controls == "fps" && s.World != null) UpdateFps(input, clock.Dt);
 
-        // topmost interactive element under the cursor
+        // topmost interactive element under the cursor (in-panel: only when the cursor is over this panel)
         var m = input.Mouse;
+        bool inClip = Clip is not { } cr || Hit(cr, m);
         string? over = null;
-        for (int i = s.Elements.Count - 1; i >= 0; i--)
-        {
-            var e = s.Elements[i];
-            if (e.Visible && (e.Kind == UiKind.Button || e.Kind == UiKind.Input || e.Kind == UiKind.Slider) && Hit(Bounds(s, e), m)) { over = e.Id; break; }
-        }
+        if (inClip)
+            for (int i = s.Elements.Count - 1; i >= 0; i--)
+            {
+                var e = s.Elements[i];
+                if (e.Visible && (e.Kind == UiKind.Button || e.Kind == UiKind.Input || e.Kind == UiKind.Slider) && Hit(Bounds(s, e), m)) { over = e.Id; break; }
+            }
         _hoverId = over;
 
         if (input.LeftPressed)
         {
-            _pressId = over;
-            _focusId = over != null && s.Find(over)?.Kind == UiKind.Input ? over : null;   // focus an input, blur otherwise
-            _dragId = over != null && s.Find(over)?.Kind == UiKind.Slider ? over : null;    // grab a slider handle
-            if (_dragId != null && s.Find(_dragId) is { } sl0) DragSlider(s, sl0, m.X);     // jump straight to the click point
+            if (!inClip) { _focusId = null; _pressId = null; }   // a click outside this panel blurs its field
+            else
+            {
+                _pressId = over;
+                _focusId = over != null && s.Find(over)?.Kind == UiKind.Input ? over : null;   // focus an input, blur otherwise
+                _dragId = over != null && s.Find(over)?.Kind == UiKind.Slider ? over : null;    // grab a slider handle
+                if (_dragId != null && s.Find(_dragId) is { } sl0) DragSlider(s, sl0, m.X);     // jump straight to the click point
+            }
         }
         if (_dragId != null)                                                                // follow the mouse while held
         {
@@ -193,8 +205,11 @@ public sealed class UiWindowScreen : IScreen
     public void Draw(Renderer r, Clock clock)
     {
         var scene = _scene;
-        if (scene.World != null) (_r3d ??= new Scene3DRenderer(_gd)).Draw(scene.World);   // 3D world first (with depth)
-        r.Begin();                                                                        // then the 2D overlay on top
+        if (scene.World != null && Clip == null) (_r3d ??= new Scene3DRenderer(_gd)).Draw(scene.World);   // 3D world first (with depth); panels are 2D
+        Microsoft.Xna.Framework.Rectangle? scissor = Clip is { } c
+            ? new Microsoft.Xna.Framework.Rectangle((int)c.X, (int)c.Y, (int)MathF.Ceiling(c.W), (int)MathF.Ceiling(c.H))
+            : null;
+        r.Begin(scissor: scissor);                                                        // 2D overlay (scissored to the panel when in-app)
         foreach (var e in scene.Elements)
             if (e.Visible) DrawElement(r, scene, e, clock);
         r.End();
@@ -212,10 +227,10 @@ public sealed class UiWindowScreen : IScreen
         return (x, y);
     }
 
-    private static RectF Bounds(UiScene s, UiElement e)
+    private RectF Bounds(UiScene s, UiElement e)
     {
         var (ax, ay) = Abs(s, e);
-        return new RectF(ax, ay, e.W * e.Scale, e.H * e.Scale);
+        return new RectF(ax + Origin.X, ay + Origin.Y, e.W * e.Scale, e.H * e.Scale);   // Origin shifts a panel scene into its dock rect
     }
 
     private static bool Hit(RectF r, Vector2 m) => m.X >= r.X && m.X < r.X + r.W && m.Y >= r.Y && m.Y < r.Y + r.H;

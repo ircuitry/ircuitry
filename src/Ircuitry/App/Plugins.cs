@@ -62,6 +62,13 @@ public sealed class AppSink : IRuntimeSink
     public void AppNav(string action, string arg) => _host.Manager.App.Nav(action, arg);
     public void AppBot(string action, string bot) => _host.Manager.App.BotCmd(action, bot);
 
+    // ---- in-app panel scene building (the plugin's ui.* nodes draw into a dock panel, not an OS window) ----
+    public void UiWindow(string id, string title, int width, int height, uint bg) => _host.UiWindow(id, title, width, height, bg);
+    public void UiUpsert(string id, Ircuitry.UiKit.UiElement element) => _host.UiUpsert(id, element);
+    public void UiAnimate(string id, string elementId, Ircuitry.UiKit.Tween tween) => _host.UiAnimate(id, elementId, tween);
+    public void UiRemove(string id, string elementId) => _host.UiRemove(id, elementId);
+    public void UiClose(string id) => _host.UiClose(id);
+
     // ---- plugin's own persistent state (kept in the host) ----
     public string GetState(string key) => _host.State.TryGetValue(key, out var v) ? v : "";
     public void SetState(string key, string value) => _host.State[key] = value;
@@ -94,9 +101,52 @@ public sealed class PluginHost
     public readonly PluginManager Manager;
     private readonly AppSink _sink;
 
+    // in-app panel scenes the plugin's ui.* nodes build (keyed by window/panel id). Rendered by MainScreen into a
+    // dock panel rect. In-process (no child window): mutated + read on the UI thread, so no locking is needed.
+    public readonly Dictionary<string, UiKit.UiScene> Scenes = new();
+    public UiKit.UiScene? SceneFor(string id) => Scenes.TryGetValue(id.Length == 0 ? "main" : id, out var s) ? s : null;
+
     public PluginHost(PluginManager mgr, string id, NodeGraph graph)
     {
         Manager = mgr; Id = id; Graph = graph; _sink = new AppSink(this);
+    }
+
+    private UiKit.UiScene EnsureScene(string id)
+    {
+        if (id.Length == 0) id = "main";
+        if (!Scenes.TryGetValue(id, out var s)) { s = new(); Scenes[id] = s; }
+        return s;
+    }
+
+    // ---- ui.* scene building (mirrors ServerConn's handlers, minus the child-window streaming) ----
+    public void UiWindow(string id, string title, int w, int h, uint bg)
+    { var s = EnsureScene(id); if (title.Length > 0) s.Title = title; if (w > 0) s.Width = w; if (h > 0) s.Height = h; s.Bg = bg; }
+    public void UiUpsert(string id, UiKit.UiElement e)
+    {
+        if (e.Id.Length == 0) return;
+        var s = EnsureScene(id);
+        int i = s.Elements.FindIndex(x => x.Id == e.Id);
+        if (i >= 0) { if (e.Tweens.Count == 0) e.Tweens = s.Elements[i].Tweens; s.Elements[i] = e; }   // keep running tweens on update
+        else s.Elements.Add(e);
+    }
+    public void UiAnimate(string id, string elementId, UiKit.Tween t)
+    { var e = EnsureScene(id).Find(elementId); if (e != null) e.Tweens.Add(t); }
+    public void UiRemove(string id, string elementId)
+    {
+        if (!Scenes.TryGetValue(id.Length == 0 ? "main" : id, out var s)) return;
+        if (elementId.Length == 0) s.Elements.Clear(); else s.Elements.RemoveAll(x => x.Id == elementId);
+    }
+    public void UiClose(string id) => Scenes.Remove(id.Length == 0 ? "main" : id);
+
+    /// <summary>A panel interaction (button click / slider change / input submit) -> fire the plugin's ui.on flows,
+    /// exactly like a node-authored UI window does via ServerConn.OnUiEvent.</summary>
+    public void DeliverUiEvent(string windowId, UiKit.UiEvent ev)
+    {
+        var v = BaseVars();
+        v["window"] = windowId;
+        v["ui_event"] = ev.Type; v["ui_id"] = ev.Id; v["ui_value"] = ev.Value;
+        if (ev.Fields != null) foreach (var kv in ev.Fields) v["ui_field_" + kv.Key] = kv.Value;
+        FireFamily("ui", v);
     }
 
     private Dictionary<string, string> BaseVars() => new() { ["botnick"] = "ircuitry", ["plugin"] = Id };
@@ -152,6 +202,28 @@ public sealed class PluginManager
     {
         PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
         h?.Activate(kind, id, extra);
+    }
+
+    /// <summary>(Re)build a panel's contents: fire its On App Event (event=panel, id=panelId) so the plugin's ui.*
+    /// nodes repopulate the scene.</summary>
+    public void BuildPanel(string pluginId, string panelId)
+    {
+        PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
+        h?.Activate("panel", panelId);
+    }
+
+    /// <summary>The live scene a plugin built for one of its panels (null until built / if disabled).</summary>
+    public Ircuitry.UiKit.UiScene? PanelScene(string pluginId, string windowId)
+    {
+        PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
+        return h?.SceneFor(windowId);
+    }
+
+    /// <summary>Route a panel interaction back to its plugin (fires ui.on).</summary>
+    public void PanelEvent(string pluginId, string windowId, Ircuitry.UiKit.UiEvent ev)
+    {
+        PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
+        h?.DeliverUiEvent(windowId, ev);
     }
 
     public void Enable(PluginMeta p)

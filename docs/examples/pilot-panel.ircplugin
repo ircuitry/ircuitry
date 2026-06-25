@@ -1,0 +1,53 @@
+{
+ "format": "ircuitry.plugin.v1",
+ "name": "Pilot Panel",
+ "version": "1.0.0",
+ "icon": "compass",
+ "description": "A docked side panel that lives across every tab: shows the active bot, a Restart button, and a typing-speed slider. Demonstrates the in-app panel power - the panel is authored entirely from ui.* nodes.",
+ "permissions": [ "app-state", "control-bots", "dialogs", "panel" ],
+ "nodes": [
+  { "id": "s",  "type": "app.start", "x": 0,   "y": 0, "params": {} },
+  { "id": "pn", "type": "app.panel", "x": 240, "y": 0,
+    "params": { "id": "pilot", "title": "Pilot", "icon": "compass", "dock": "right" } },
+
+  { "id": "ob", "type": "app.on", "x": 0, "y": 180, "params": { "event": "panel", "id": "pilot" } },
+  { "id": "w",  "type": "ui.window", "x": 220, "y": 180, "params": { "window": "pilot", "title": "Pilot" } },
+  { "id": "card", "type": "ui.panel", "x": 440, "y": 180,
+    "params": { "window": "pilot", "id": "card", "x": "0", "y": "0", "w": "248", "h": "88", "color": "#241F33", "radius": "14" } },
+  { "id": "lbl", "type": "ui.text", "x": 660, "y": 180,
+    "params": { "window": "pilot", "id": "lbl", "x": "16", "y": "14", "text": "NOW FLYING", "size": "11", "font": "bold", "color": "#9C8CFF" } },
+  { "id": "info", "type": "app.info", "x": 660, "y": 320, "params": { "what": "bot-name" } },
+  { "id": "botname", "type": "ui.text", "x": 880, "y": 180,
+    "params": { "window": "pilot", "id": "botname", "x": "16", "y": "30", "text": "Bot", "size": "24", "font": "display", "color": "#F4F0FA" } },
+  { "id": "btn", "type": "ui.button", "x": 1100, "y": 180,
+    "params": { "window": "pilot", "id": "restart", "x": "0", "y": "100", "w": "248", "h": "40", "text": "Restart bot", "color": "#6C5CE7", "textColor": "#FFFFFF", "radius": "12" } },
+  { "id": "spl", "type": "ui.text", "x": 1320, "y": 180,
+    "params": { "window": "pilot", "id": "spl", "x": "2", "y": "150", "text": "Typing speed", "size": "12", "color": "#C9C0E0" } },
+  { "id": "sld", "type": "ui.slider", "x": 1540, "y": 180,
+    "params": { "window": "pilot", "id": "speed", "x": "0", "y": "170", "w": "248", "h": "32", "min": "1", "max": "10", "value": "3", "step": "1", "color": "#FF6FB5" } },
+
+  { "id": "oc",  "type": "ui.on", "x": 0, "y": 460, "params": { "window": "pilot", "event": "click", "id": "restart" } },
+  { "id": "bot", "type": "app.bot", "x": 240, "y": 460, "params": { "action": "restart", "bot": "" } },
+  { "id": "ts",  "type": "app.toast", "x": 480, "y": 460, "params": { "message": "Restarting {plugin}", "kind": "info" } },
+
+  { "id": "och", "type": "ui.on", "x": 0, "y": 620, "params": { "window": "pilot", "event": "change", "id": "speed" } },
+  { "id": "sv",  "type": "data.setvar", "x": 240, "y": 620, "params": { "name": "typing_speed", "value": "{ui_value}" } }
+ ],
+ "connections": [
+  { "from": "s",  "fromPin": 0, "to": "pn", "toPin": 0 },
+
+  { "from": "ob",   "fromPin": 0, "to": "w",       "toPin": 0 },
+  { "from": "w",    "fromPin": 0, "to": "card",    "toPin": 0 },
+  { "from": "card", "fromPin": 0, "to": "lbl",     "toPin": 0 },
+  { "from": "lbl",  "fromPin": 0, "to": "botname", "toPin": 0 },
+  { "from": "info", "fromPin": 0, "to": "botname", "toPin": 1 },
+  { "from": "botname","fromPin": 0, "to": "btn",   "toPin": 0 },
+  { "from": "btn",  "fromPin": 0, "to": "spl",     "toPin": 0 },
+  { "from": "spl",  "fromPin": 0, "to": "sld",     "toPin": 0 },
+
+  { "from": "oc",  "fromPin": 0, "to": "bot", "toPin": 0 },
+  { "from": "bot", "fromPin": 0, "to": "ts",  "toPin": 0 },
+
+  { "from": "och", "fromPin": 0, "to": "sv", "toPin": 0 }
+ ]
+}

@@ -296,6 +296,7 @@ public static class SelfTest
         fails += PluginManagerTest();
         fails += PluginHooksTest();
         fails += PluginPowersTest();
+        fails += PluginPanelTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3821,6 +3822,48 @@ public static class SelfTest
         var perms = Ircuitry.App.PluginBundle.PermissionsFor(g);
         fails += Expect("plugin-powers-perms", perms.Contains("app-state") && perms.Contains("navigate") && perms.Contains("control-bots"),
             $"power nodes derive permissions ({string.Join(",", perms)})");
+        return fails;
+    }
+
+    /// <summary>An in-app side panel end-to-end: app.panel registers a docked panel; building it (On App Event
+    /// event=panel) runs the plugin's ui.* nodes which populate the panel's scene in-process (no child window),
+    /// with {tokens} resolved; and a button click inside the panel routes back through ui.on to fire the flow.</summary>
+    private static int PluginPanelTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        // register
+        var st = N(g, "app.start", 0, 0);
+        var pnl = N(g, "app.panel", 1, 0); pnl.SetParam("id", "settings"); pnl.SetParam("title", "Settings"); pnl.SetParam("dock", "right");
+        g.Connect(st.Id, 0, pnl.Id, 0);
+        // build flow: ui.window -> ui.text -> ui.button, all into window "settings"
+        var on = N(g, "app.on", 0, 1); on.SetParam("event", "panel"); on.SetParam("id", "settings");
+        var win = N(g, "ui.window", 1, 1); win.SetParam("window", "settings"); win.SetParam("title", "Settings");
+        var txt = N(g, "ui.text", 2, 1); txt.SetParam("window", "settings"); txt.SetParam("id", "hdr"); txt.SetParam("text", "Hi {plugin}");
+        var btn = N(g, "ui.button", 3, 1); btn.SetParam("window", "settings"); btn.SetParam("id", "save"); btn.SetParam("text", "Save");
+        g.Connect(on.Id, 0, win.Id, 0); g.Connect(win.Id, 0, txt.Id, 0); g.Connect(txt.Id, 0, btn.Id, 0);
+        // interaction: a click on the panel's Save button -> ui.on -> toast
+        var uon = N(g, "ui.on", 0, 2); uon.SetParam("event", "click"); uon.SetParam("id", "save");
+        var toast = N(g, "app.toast", 1, 2); toast.SetParam("message", "saved {ui_id}");
+        g.Connect(uon.Id, 0, toast.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "P", Graph = g });
+        fails += Expect("plugin-panel-register", mgr.Contributions("panel").Any(c => c.Id == "settings" && c.At == "right"),
+            $"app.panel registers a right-docked panel ({mgr.Contributions("panel").Count})");
+
+        var pre = mgr.PanelScene("P", "settings");
+        fails += Expect("plugin-panel-prebuilt", pre == null || pre.Elements.Count == 0, "panel scene is empty before it is built");
+        mgr.BuildPanel("P", "settings");
+        var scene = mgr.PanelScene("P", "settings");
+        fails += Expect("plugin-panel-build", scene != null && scene.Find("hdr") != null && scene.Find("save") != null,
+            $"building the panel runs the ui.* flow ({scene?.Elements.Count})");
+        fails += Expect("plugin-panel-token", scene?.Find("hdr")?.Text == "Hi P", $"ui.text resolved {{plugin}} ({scene?.Find("hdr")?.Text})");
+
+        mgr.PanelEvent("P", "settings", new Ircuitry.UiKit.UiEvent { Type = "click", Id = "save" });
+        fails += Expect("plugin-panel-click", app.Toasts.Any(t => t.Contains("saved save")),
+            $"a click inside the panel fires ui.on ({string.Join("|", app.Toasts)})");
         return fails;
     }
 

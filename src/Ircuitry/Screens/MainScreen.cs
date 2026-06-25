@@ -36,6 +36,11 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private float _paletteScroll;
     // event console: scroll position. Sizing + resizing are owned by the dock system (drag its top border).
     private readonly DockManager _dock = new();
+    // plugin-authored dock panels: a render surface per live "panel" contribution (built lazily once we have a
+    // GraphicsDevice from the first Draw). The plugin's ui.* nodes build each scene; we paint it into the dock rect.
+    private Microsoft.Xna.Framework.Graphics.GraphicsDevice? _gd;
+    private readonly Dictionary<string, Ircuitry.UiKit.UiWindowScreen> _panelScreens = new();
+    private readonly HashSet<string> _panelBuilt = new();
     private float _consoleScroll;
     private float _inspScroll;        // inspector panel scroll (the connection panel can run long)
     private string _inspKey = "";     // what the inspector is showing, to reset scroll on change
@@ -472,6 +477,81 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         var dp = _dock.DraggingPanel;
         if (dp != null) r.RoundOutline(dp.Rect, Theme.WithAlpha(Theme.Sky, 0.9f), Hud.PanelRadius);
         r.End();
+    }
+
+    // ---------- plugin-authored side panels (an app.panel contribution rendered into a dock rect) ----------
+    private static string PanelKey(Ircuitry.App.PluginContribution c) => "plugin:" + c.PluginId + ":" + c.Id;
+
+    // the scene's drawable area: inside the panel, below its Hud title bar, with a little breathing room
+    private static RectF PanelInner(DockManager.Panel p)
+    {
+        const float pad = 12f; float top = Hud.HeaderH + 8f;
+        return new RectF(p.Rect.X + pad, p.Rect.Y + top, MathF.Max(0, p.Rect.W - pad * 2), MathF.Max(0, p.Rect.H - top - pad));
+    }
+
+    /// <summary>Reconcile dock panels with the live "panel" contributions: add a docked panel for each (building its
+    /// scene once on first appearance) and drop any whose plugin was uninstalled. Runs before the dock layout pass so
+    /// a freshly registered panel gets a rect the same frame.</summary>
+    private void EnsurePluginDockPanels()
+    {
+        var contribs = _plugins.Contributions("panel");
+        var wanted = new HashSet<string>();
+        foreach (var c in contribs)
+        {
+            string id = PanelKey(c);
+            wanted.Add(id);
+            if (_dock.Get(id) == null)
+                _dock.Add(new DockManager.Panel { Id = id, Dock = c.At == "left" ? DockManager.Edge.Left : DockManager.Edge.Right, Size = 288 });
+            if (_panelBuilt.Add(id)) _plugins.BuildPanel(c.PluginId, c.Id);   // populate the scene the first time we see it
+        }
+        foreach (var p in _dock.Panels.Where(p => p.Id.StartsWith("plugin:", System.StringComparison.Ordinal)).ToList())
+            if (!wanted.Contains(p.Id)) { _dock.Remove(p.Id); _panelScreens.Remove(p.Id); _panelBuilt.Remove(p.Id); }
+    }
+
+    // bind a panel's live scene + dock rect to its render surface (creating the surface lazily). Shared by update/draw.
+    private Ircuitry.UiKit.UiWindowScreen? BindPanel(Ircuitry.App.PluginContribution c)
+    {
+        if (_gd == null) return null;
+        var p = _dock.Get(PanelKey(c));
+        if (p == null || !p.Visible) return null;
+        var scene = _plugins.PanelScene(c.PluginId, c.Id);
+        if (scene == null) return null;
+        if (!_panelScreens.TryGetValue(p.Id, out var screen)) { screen = new Ircuitry.UiKit.UiWindowScreen(_gd); _panelScreens[p.Id] = screen; }
+        if (!ReferenceEquals(screen.Scene, scene)) screen.Scene = scene;   // only on rebuild, so focus/drag survive frames
+        var inner = PanelInner(p);
+        screen.Origin = new Vector2(inner.X, inner.Y);
+        screen.Clip = inner;
+        return screen;
+    }
+
+    /// <summary>Feed input to each plugin panel (the surface ignores clicks outside its own rect) and route the
+    /// interactions it emits back to the plugin, firing its On UI Event flows.</summary>
+    private void UpdatePluginPanels(InputState input, Clock clock)
+    {
+        if (_gd == null) return;
+        foreach (var c in _plugins.Contributions("panel"))
+        {
+            var screen = BindPanel(c);
+            if (screen == null) continue;
+            screen.Update(input, clock);
+            foreach (var ev in screen.DrainEvents()) _plugins.PanelEvent(c.PluginId, c.Id, ev);
+        }
+    }
+
+    /// <summary>Draw each plugin panel: the same titled card as the built-ins (violet App accent) with the plugin's
+    /// ui.* scene painted, scissored, into its content area.</summary>
+    private void DrawPluginPanels(Renderer r, Clock clock)
+    {
+        if (_gd == null) return;
+        foreach (var c in _plugins.Contributions("panel"))
+        {
+            var p = _dock.Get(PanelKey(c));
+            if (p == null || !p.Visible) continue;
+            r.Begin();
+            Hud.Panel(r, p.Rect, c.Label, Theme.Category(Ircuitry.Core.NodeCategory.App));
+            r.End();
+            BindPanel(c)?.Draw(r, clock);
+        }
     }
 
     private Bot Bot => _app.ActiveBot;
@@ -981,6 +1061,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     {
         _input = input;
         _editor.Graph = Bot.Graph;
+        EnsurePluginDockPanels();   // add/drop dock panels for plugin contributions before the layout pass
         _l = DockLayout();
         ClipboardPoll(clock);
         AchievementsTick(clock);
@@ -1013,6 +1094,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             bool overBar = PlaybackBarRect().Contains(input.Mouse);   // the on-canvas playback bar swallows canvas input
             DockInputTick(input);                                     // drag panels to dock/float + resize them
+            UpdatePluginPanels(input, clock);                         // plugin-panel widgets (buttons/sliders) get input first
             bool overPanel = _dock.OverPanel(input.Mouse) || _dock.Dragging;   // panels overlay the map - they eat canvas input
             overBar = overBar || overPanel;
 
@@ -1081,6 +1163,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     public void Draw(Renderer r, Clock clock)
     {
         _vw = r.ViewW; _vh = r.ViewH;
+        _gd ??= r.Gd;   // first frame: capture the device so plugin panels can build their render surfaces
         _l = DockLayout();
         if (_demoShotFit && _vw > 0) { _demoShotFit = false; _editor.FocusContent(_l.Canvas); }   // frame the demo graph for screenshots
         _editor.Graph = Bot.Graph;
@@ -1122,6 +1205,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         DrawPalette(r);
         DrawInspector(r);
         if (consoleOn) DrawConsole(r);
+        DrawPluginPanels(r, clock);   // plugin-authored side panels (their ui.* scene painted into the dock rect)
         DrawDockChrome(r);   // panel close buttons + drop highlight + drag ghost, over the panels
 
         // ---------- canvas save floppy + map corner buttons (console + bot's-eye) ----------

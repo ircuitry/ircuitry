@@ -211,9 +211,15 @@ Each phase is shippable and testable headlessly (sink fakes + selftests, like th
 - **Distribution:** `.ircplugin` joins the file-association machinery (double-click installs; `OpenFile` routes it) on Linux/Windows/macOS + the `.deb`/AppImage/`.app` packaging.
 - **Tests:** `PluginLoopTest` + `PluginManagerTest` + `PluginHooksTest` (toolbar/context/command register + activate, `{app_node}` flows, `.ircplugin` round-trip). Full selftest green. Sample: `~/greeter.ircplugin`.
 
+**Phase 3b: in-app side panels - COMPLETE.**
+- **Node:** `app.panel` (id / title / icon / dock left|right) registers a docked panel; the plugin builds its contents in an On App Event flow (event=panel, id=this panel) using the ordinary `ui.*` nodes drawing into a window whose id is the panel id. Buttons / sliders / inputs inside fire `ui.on` (the existing UI-event family) - no new interaction surface.
+- **Renderer reuse:** `UiWindowScreen` (the exact renderer that paints node-authored OS windows) gained an `Origin` + `Clip` so the same code paints a scene into a dock rect, scissored, with mouse-in-panel hit-testing. No second renderer.
+- **In-process scenes:** `AppSink` fulfils `UiWindow/UiUpsert/UiAnimate/UiRemove/UiClose` by building `UiScene`s on the `PluginHost` (no child process - mutated + read on the UI thread). `MainScreen` reconciles a `DockManager` panel per contribution, paints each with the violet App-category card chrome, and routes panel `UiEvent`s back through `PluginManager.PanelEvent` -> the plugin's `ui.on`.
+- **Test:** `PluginPanelTest` (register -> build populates the scene with {tokens} resolved -> a click routes through ui.on). Selftest green. Sample: `docs/examples/pilot-panel.ircplugin` (active bot name + Restart button + typing-speed slider). Verified it renders headlessly (`--shot`).
+
 **Phase 3a: app state, navigation & bot control - COMPLETE.**
 - **Nodes:** `app.info` (pure: `bot-name`, `running`, `tab-count`, `active-index`, `bots`, `version`), `app.nav` (`next-tab` / `prev-tab` / `open-bot`), `app.bot` (`run` / `stop` / `restart` a named or the active bot).
 - **Plumbing:** `IRuntimeSink.AppInfo/AppNav/AppBot` (default no-ops; only an `AppSink` fulfils them) → `INodeContext` → `GraphExecutor.NodeCtx` → `AppSink` → `IAppHost.Info/Nav/BotCmd`, implemented on `MainScreen` against `AppModel` (tab switch via `_app.Active`, run/stop via `Bot.Runtime`). New `app-state` permission for `app.info`; `navigate` / `control-bots` already covered nav / bot.
 - **Test:** `PluginPowersTest` (app.info threads through a var into a toast; nav + bot reach the host; permissions derived). Selftest green.
 
-**Next (Phase 3b+):** in-app **panels & dialogs** (render `ui.*` scenes into a dock rect / modal - the big one); **act-on-active-bot graph edits** (`app.graph.*`); trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) + a richer manager.
+**Next (Phase 4+):** **modal dialogs** (`app.dialog` / `app.confirm` - a yes/no that pauses + resumes a branch); **act-on-active-bot graph edits** (`app.graph.*`); trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) + a richer manager.
