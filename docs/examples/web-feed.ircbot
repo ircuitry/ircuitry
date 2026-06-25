@@ -1,0 +1,34 @@
+{
+ "format": "ircuitry.workflow.v1",
+ "name": "Web Feed",
+ "description": "A page that loads data from a backend, built with nodes: web.fetch pulls JSON on mount into a list state, web.list renders it (keyed), themed. Point web.fetch at an event.webhook flow in the same graph for full-stack. Hit RUN.",
+ "author": "ircuitry",
+ "category": "Utility",
+ "tags": ["web", "fetch", "backend", "demo"],
+ "nodes": [
+  { "id": "start", "type": "event.start", "x": 0,   "y": 0,   "params": {} },
+  { "id": "prev",  "type": "web.preview", "x": 280, "y": 0,   "params": { "window": "feed", "title": "Feed", "width": "420", "height": "560" } },
+
+  { "id": "theme", "type": "web.theme",   "x": 0,   "y": 160, "params": { "tokens": "brand: #2D9CDB\nbg: #F2F7FB\nink: #1E2A33\nradius: 10px" } },
+  { "id": "items", "type": "web.state",   "x": 0,   "y": 300, "params": { "name": "items", "initial": "[]", "kind": "list" } },
+  { "id": "fetch", "type": "web.fetch",   "x": 0,   "y": 420, "params": { "url": "https://jsonplaceholder.typicode.com/todos?_limit=8", "into": "items" } },
+
+  { "id": "root",  "type": "web.element", "x": 280, "y": 200, "params": { "tag": "div", "style": "max-width:380px;margin:28px auto;font-family:system-ui,sans-serif;color:var(--ink)" } },
+  { "id": "h2",    "type": "web.element", "x": 540, "y": 120, "params": { "tag": "h2", "text": "My feed", "style": "color:var(--brand);margin:0 0 12px" } },
+  { "id": "list",  "type": "web.list",    "x": 540, "y": 280, "params": { "items": "items", "item": "item", "key": "id", "tag": "ul", "style": "list-style:none;padding:0;display:flex;flex-direction:column;gap:7px" } },
+  { "id": "li",    "type": "web.element", "x": 800, "y": 280, "params": { "tag": "li", "style": "padding:10px 12px;background:var(--bg);border-radius:var(--radius)" } },
+  { "id": "title", "type": "web.element", "x": 1060,"y": 280, "params": { "tag": "span", "bind": "item.title" } }
+ ],
+ "connections": [
+  { "from": "start", "fromPin": 0, "to": "prev", "toPin": 0 },
+  { "from": "root",  "fromPin": 0, "to": "prev", "toPin": 1 },
+  { "from": "items", "fromPin": 0, "to": "prev", "toPin": 2 },
+  { "from": "fetch", "fromPin": 0, "to": "prev", "toPin": 2 },
+  { "from": "theme", "fromPin": 0, "to": "prev", "toPin": 2 },
+
+  { "from": "h2",    "fromPin": 0, "to": "root", "toPin": 0 },
+  { "from": "list",  "fromPin": 0, "to": "root", "toPin": 0 },
+  { "from": "li",    "fromPin": 0, "to": "list", "toPin": 0 },
+  { "from": "title", "fromPin": 0, "to": "li",   "toPin": 0 }
+ ]
+}

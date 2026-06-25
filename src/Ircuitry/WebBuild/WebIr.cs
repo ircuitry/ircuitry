@@ -16,7 +16,16 @@ public sealed class WebApp
     public string Name = "App";
     public List<WebState> States = new();
     public List<(string Name, string Value)> Tokens = new();   // design tokens -> CSS variables (:root { --name: value })
+    public List<WebFetch> Fetches = new();                     // on mount: GET each url -> set a state (the backend link)
     public WebEl Root = new() { Tag = "div" };
+}
+
+/// <summary>On mount, fetch <see cref="Url"/> (JSON) and store it in the <see cref="Into"/> state. The endpoint can
+/// be another flow in the SAME ircuitry graph (an event.webhook + db) - full-stack on one canvas.</summary>
+public sealed class WebFetch
+{
+    public string Url = "";
+    public string Into = "";
 }
 
 /// <summary>One piece of reactive state (a signal). <see cref="Kind"/>: number | string | bool.</summary>

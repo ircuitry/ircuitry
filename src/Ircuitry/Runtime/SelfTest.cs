@@ -308,6 +308,7 @@ public static class SelfTest
         fails += WebCounterTest();
         fails += WebNodesCounterTest();
         fails += WebTodoTest();
+        fails += WebFetchTest();
         fails += WebEjectTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -4262,6 +4263,35 @@ public static class SelfTest
         GraphExecutor.Fire(g, sink, prev2, new Dictionary<string, string>());
         string html = sink.WebOpens.Count > 0 ? sink.WebOpens[0].html : "";
         fails += Expect("web-todo-nodes", html.Contains("repeat: { list: \"todos\"") && html.Contains("bind: \"item.text\""), $"web.list node -> repeat + item binding");
+        return fails;
+    }
+
+    /// <summary>Backend-in-one-graph: web.fetch loads a URL (JSON) into a state on mount - vanilla runs it from the
+    /// IR, React uses useEffect. Point the URL at an event.webhook flow in the same graph for full-stack.</summary>
+    private static int WebFetchTest()
+    {
+        int fails = 0;
+        var app = new Ircuitry.WebBuild.WebApp { Name = "Feed" };
+        app.States.Add(new Ircuitry.WebBuild.WebState { Name = "items", Init = "[]", Kind = "list" });
+        app.Fetches.Add(new Ircuitry.WebBuild.WebFetch { Url = "/api/items", Into = "items" });
+        app.Root = new Ircuitry.WebBuild.WebEl { Tag = "div" };
+
+        var v = Ircuitry.WebBuild.WebCodegen.Vanilla(app);
+        fails += Expect("web-fetch-v", v.Contains("fetches: [") && v.Contains("url: \"/api/items\"") && v.Contains("IR.fetches"), "vanilla fetches on mount from the IR");
+        var r = Ircuitry.WebBuild.WebCodegen.React(app);
+        fails += Expect("web-fetch-r", r.Contains("import { useState, useEffect }") && r.Contains("useEffect(() => { fetch('/api/items').then(r => r.json()).then(setItems)"), $"React useEffect fetch ({r.Length})");
+
+        // node path
+        var g = new NodeGraph();
+        var items = N(g, "web.state", 0, 0); items.SetParam("name", "items"); items.SetParam("kind", "list"); items.SetParam("initial", "[]");
+        var fetch = N(g, "web.fetch", 0, 1); fetch.SetParam("url", "/api/items"); fetch.SetParam("into", "items");
+        var root3 = N(g, "web.element", 1, 0); root3.SetParam("tag", "div");
+        var prev3 = N(g, "web.preview", 2, 0); prev3.SetParam("window", "wp");
+        g.Connect(root3.Id, 0, prev3.Id, 1); g.Connect(items.Id, 0, prev3.Id, 2); g.Connect(fetch.Id, 0, prev3.Id, 2);
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, prev3, new Dictionary<string, string>());
+        string html = sink.WebOpens.Count > 0 ? sink.WebOpens[0].html : "";
+        fails += Expect("web-fetch-nodes", html.Contains("url: \"/api/items\"") && html.Contains("into: \"items\""), "web.fetch node -> fetch in the IR");
         return fails;
     }
 

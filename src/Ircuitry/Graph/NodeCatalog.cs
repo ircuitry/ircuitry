@@ -313,6 +313,8 @@ public static class NodeCatalog
                     int i = line.IndexOf(':');
                     if (i > 0) app.Tokens.Add((line[..i].Trim(), line[(i + 1)..].Trim()));
                 }
+            else if (sn.TypeId == "web.fetch")
+                app.Fetches.Add(new Ircuitry.WebBuild.WebFetch { Url = sn.GetParam("url"), Into = sn.GetParam("into") });
         }
         var roots = c.SourcesInto(rootPin);
         if (roots.Count > 0) app.Root = WebBuildEl(c, roots[0], 0);
@@ -4609,6 +4611,19 @@ public static class NodeCatalog
                 Outputs = new[] { Tx("theme") },
                 Params = new[] { P("tokens", "Tokens", ParamType.Multiline, "brand: #6C5CE7\nbg: #F4EFFB\nink: #2E2940\nradius: 12px", "name: value per line") },
                 SummaryParam = "tokens",
+                Exec = c => { },   // pure declaration: read structurally by Web Preview / Web Eject
+            },
+            new()
+            {
+                TypeId = "web.fetch", Icon = "cloud-arrow-down", Title = "Web Fetch", Subtitle = "data", Category = NodeCategory.Web,
+                Description = "On page load, GET a URL (JSON) and store the result in a state. Point it at another flow in THIS graph (an event.webhook + db) to wire your page to a real backend - frontend + API on one canvas. Wire into Web Preview / Web Eject's 'states'.",
+                Outputs = new[] { Tx("fetch") },
+                Params = new[]
+                {
+                    P("url", "URL", ParamType.Text, "/api/data", "an endpoint returning JSON"),
+                    P("into", "Into state", ParamType.Text, "data", "the state filled with the response"),
+                },
+                SummaryParam = "url",
                 Exec = c => { },   // pure declaration: read structurally by Web Preview / Web Eject
             },
             new()

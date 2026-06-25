@@ -36,7 +36,10 @@ public static class WebCodegen
         var sb = new StringBuilder();
         sb.Append("{ states: [");
         sb.Append(string.Join(", ", app.States.Select(s => "{ name: " + JsStr(s.Name) + ", init: " + JsStr(s.Init) + ", kind: " + JsStr(s.Kind) + " }")));
-        sb.Append("], root: ");
+        sb.Append("], ");
+        if (app.Fetches.Count > 0)
+            sb.Append("fetches: [").Append(string.Join(", ", app.Fetches.Select(f => "{ url: " + JsStr(f.Url) + ", into: " + JsStr(f.Into) + " }"))).Append("], ");
+        sb.Append("root: ");
         NodeToJs(app.Root, sb);
         sb.Append(" }");
         return sb.ToString();
@@ -116,6 +119,7 @@ function act(spec){
 document.addEventListener('input', function(e){ var t = e.target.closest && e.target.closest('[data-model]'); if (t) s[t.getAttribute('data-model')] = t.value; });
 document.addEventListener('click', function(e){ var t = e.target.closest && e.target.closest('[data-on-click]'); if (t) act(t.getAttribute('data-on-click')); });
 document.addEventListener('change', function(e){ var t = e.target.closest && e.target.closest('[data-on-change]'); if (t) act(t.getAttribute('data-on-change')); });
+(IR.fetches || []).forEach(function(f){ fetch(f.url).then(function(r){ return r.json(); }).then(function(d){ s[f.into] = d; render(); }).catch(function(){}); });
 render();
 ";
 
@@ -123,11 +127,13 @@ render();
     public static string React(WebApp app)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("import { useState } from 'react';");
+        sb.AppendLine("import { useState" + (app.Fetches.Count > 0 ? ", useEffect" : "") + " } from 'react';");
         sb.AppendLine();
         sb.AppendLine("export default function " + Ident(app.Name) + "() {");
         foreach (var s in app.States)
             sb.AppendLine("  const [" + s.Name + ", set" + Cap(s.Name) + "] = useState(" + JsLiteral(s) + ");");
+        foreach (var f in app.Fetches)
+            sb.AppendLine("  useEffect(() => { fetch('" + f.Url + "').then(r => r.json()).then(set" + Cap(f.Into) + ").catch(() => {}); }, []);");
         sb.AppendLine("  return (");
         var jsx = new StringBuilder();
         RenderJsx(app.Root, jsx, 4, null, null);
