@@ -547,8 +547,13 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             var p = _dock.Get(PanelKey(c));
             if (p == null || !p.Visible) continue;
+            var scene = _plugins.PanelScene(c.PluginId, c.Id);
             r.Begin();
             Hud.Panel(r, p.Rect, c.Label, Theme.Category(Ircuitry.Core.NodeCategory.App));
+            // the content area is a little embedded UI-window surface: paint the scene's own background (dark by
+            // default) so the ui.* colour defaults - which are tuned for a window - read against it, instead of
+            // vanishing on the light cozy card (e.g. the default near-white label colour).
+            if (scene != null) r.RoundFill(PanelInner(p), Ircuitry.UiKit.UiWindowScreen.Rgba(scene.Bg), 10f);
             r.End();
             BindPanel(c)?.Draw(r, clock);
         }
