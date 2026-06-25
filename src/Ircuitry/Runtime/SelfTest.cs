@@ -307,6 +307,7 @@ public static class SelfTest
         fails += UnknownNodePreserveTest();
         fails += WebCounterTest();
         fails += WebNodesCounterTest();
+        fails += WebTodoTest();
         fails += WebEjectTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -4155,10 +4156,10 @@ public static class SelfTest
 
         // vanilla (preview): the runtime + bindings + the action-spec the delegated listener reads
         var v = Ircuitry.WebBuild.WebCodegen.Vanilla(app);
-        fails += Expect("web-vanilla-state", v.Contains("var s = { count: 0 }"), "vanilla seeds the state object");
-        fails += Expect("web-vanilla-bind", v.Contains("data-b=\"count\""), "h1 carries the count text-binding");
-        fails += Expect("web-vanilla-action", v.Contains("data-on-click=\"count:inc:\"") && v.Contains("data-on-click=\"count:dec:\""), "buttons carry inc/dec actions");
-        fails += Expect("web-vanilla-runtime", v.Contains("function render()") && v.Contains("function act("), $"runtime present");
+        fails += Expect("web-vanilla-state", v.Contains("name: \"count\""), "vanilla IR carries the state");
+        fails += Expect("web-vanilla-bind", v.Contains("bind: \"count\""), "h1 carries the count text-binding");
+        fails += Expect("web-vanilla-action", v.Contains("op: \"inc\"") && v.Contains("op: \"dec\""), "buttons carry inc/dec actions");
+        fails += Expect("web-vanilla-runtime", v.Contains("function render()") && v.Contains("function act("), $"interpreter present");
 
         // React (eject): idiomatic hooks + handlers + binding, plus a buildable Vite project
         var r = Ircuitry.WebBuild.WebCodegen.React(app);
@@ -4178,7 +4179,7 @@ public static class SelfTest
         var v2 = Ircuitry.WebBuild.WebCodegen.Vanilla(app);
         var r2 = Ircuitry.WebBuild.WebCodegen.React(app);
         fails += Expect("web-style-token", v2.Contains(":root { --brand: #6C5CE7;"), "tokens become CSS variables");
-        fails += Expect("web-style-inline", v2.Contains("style=\"padding:8px;color:var(--brand)\""), "element style is inline (vanilla)");
+        fails += Expect("web-style-inline", v2.Contains("style: \"padding:8px;color:var(--brand)\""), "element style in the IR (vanilla)");
         fails += Expect("web-style-react", r2.Contains("style={{ padding: '8px', color: 'var(--brand)' }}"), $"element style becomes a React object");
         return fails;
     }
@@ -4208,10 +4209,59 @@ public static class SelfTest
 
         fails += Expect("web-nodes-rendered", sink.WebOpens.Count == 1 && sink.WebOpens[0].id == "wp", $"preview pushed one page to ui.web ({sink.WebOpens.Count})");
         string html = sink.WebOpens.Count > 0 ? sink.WebOpens[0].html : "";
-        fails += Expect("web-nodes-state", html.Contains("var s = { count: 0 }"), "state gathered from the wired web.state node");
-        fails += Expect("web-nodes-actions", html.Contains("data-on-click=\"count:inc:\"") && html.Contains("data-on-click=\"count:dec:\""), "both button actions made it into the page");
-        fails += Expect("web-nodes-bind", html.Contains("data-b=\"count\""), "the h1 binding made it in");
-        fails += Expect("web-nodes-order", html.IndexOf(">+1<") < html.IndexOf(">-1<") && html.IndexOf(">-1<") < html.IndexOf("data-b=\"count\""), "children kept wire order (+1, -1, h1)");
+        fails += Expect("web-nodes-state", html.Contains("name: \"count\""), "state gathered from the wired web.state node");
+        fails += Expect("web-nodes-actions", html.Contains("op: \"inc\"") && html.Contains("op: \"dec\""), "both button actions made it into the page");
+        fails += Expect("web-nodes-bind", html.Contains("bind: \"count\""), "the h1 binding made it in");
+        fails += Expect("web-nodes-order", html.IndexOf("text: \"+1\"") < html.IndexOf("text: \"-1\"") && html.IndexOf("text: \"-1\"") < html.IndexOf("bind: \"count\""), "children kept wire order (+1, -1, h1)");
+        return fails;
+    }
+
+    /// <summary>Lists / reactivity at scale: a todo (array state + keyed list + two-way input + add/remove) compiles
+    /// to a working vanilla page (the IR interpreter) AND idiomatic React (.map with keys, filter, append). Also
+    /// proves the web.list node produces a repeat in the IR.</summary>
+    private static int WebTodoTest()
+    {
+        int fails = 0;
+        var app = new Ircuitry.WebBuild.WebApp { Name = "Todo" };
+        app.States.Add(new Ircuitry.WebBuild.WebState { Name = "todos", Init = "[]", Kind = "list" });
+        app.States.Add(new Ircuitry.WebBuild.WebState { Name = "input", Init = "", Kind = "string" });
+        var inputEl = new Ircuitry.WebBuild.WebEl { Tag = "input", Model = "input" };
+        var addBtn = new Ircuitry.WebBuild.WebEl { Tag = "button", Text = "Add", On = { ["click"] = new() { State = "todos", Op = "add", Arg = "input" } } };
+        var li = new Ircuitry.WebBuild.WebEl
+        {
+            Tag = "li",
+            Children =
+            {
+                new Ircuitry.WebBuild.WebEl { Tag = "span", Bind = "item.text" },
+                new Ircuitry.WebBuild.WebEl { Tag = "button", Text = "x", On = { ["click"] = new() { State = "todos", Op = "remove" } } },
+            },
+        };
+        var list = new Ircuitry.WebBuild.WebEl { Tag = "ul", Repeat = new() { List = "todos", Item = "item", Key = "id" }, Children = { li } };
+        app.Root = new Ircuitry.WebBuild.WebEl { Tag = "div", Children = { inputEl, addBtn, list } };
+
+        var v = Ircuitry.WebBuild.WebCodegen.Vanilla(app);
+        fails += Expect("web-todo-v-repeat", v.Contains("repeat: { list: \"todos\""), "list -> repeat in the IR");
+        fails += Expect("web-todo-v-actions", v.Contains("op: \"add\"") && v.Contains("op: \"remove\""), "add + remove actions in the IR");
+        fails += Expect("web-todo-v-model", v.Contains("model: \"input\""), "input two-way binding in the IR");
+
+        var r = Ircuitry.WebBuild.WebCodegen.React(app);
+        fails += Expect("web-todo-r-map", r.Contains("todos.map((item) =>") && r.Contains("key={item.id}"), $"React .map with keys ({r.Length})");
+        fails += Expect("web-todo-r-remove", r.Contains("setTodos(a => a.filter(x => x.id !== item.id))"), "React remove via keyed filter");
+        fails += Expect("web-todo-r-add", r.Contains("setTodos(a => [...a, { id: Date.now(), text: input }])") && r.Contains("setInput('')"), "React add appends + clears");
+        fails += Expect("web-todo-r-model", r.Contains("value={input}") && r.Contains("onChange={(e) => setInput(e.target.value)}"), "React two-way input");
+
+        // node path: a web.list node produces a repeat with an item binding
+        var g = new NodeGraph();
+        var todos = N(g, "web.state", 0, 0); todos.SetParam("name", "todos"); todos.SetParam("kind", "list"); todos.SetParam("initial", "[]");
+        var span = N(g, "web.element", 1, 0); span.SetParam("tag", "span"); span.SetParam("bind", "item.text");
+        var ul = N(g, "web.list", 2, 0); ul.SetParam("items", "todos"); ul.SetParam("key", "id");
+        var root2 = N(g, "web.element", 3, 0); root2.SetParam("tag", "div");
+        var prev2 = N(g, "web.preview", 4, 0); prev2.SetParam("window", "wp");
+        g.Connect(span.Id, 0, ul.Id, 0); g.Connect(ul.Id, 0, root2.Id, 0); g.Connect(root2.Id, 0, prev2.Id, 1); g.Connect(todos.Id, 0, prev2.Id, 2);
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, prev2, new Dictionary<string, string>());
+        string html = sink.WebOpens.Count > 0 ? sink.WebOpens[0].html : "";
+        fails += Expect("web-todo-nodes", html.Contains("repeat: { list: \"todos\"") && html.Contains("bind: \"item.text\""), $"web.list node -> repeat + item binding");
         return fails;
     }
 

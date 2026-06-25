@@ -35,9 +35,20 @@ public sealed class WebEl
     public Dictionary<string, string> Attrs = new();   // static attributes (class, type, href, ...)
     public string? Style;                               // inline CSS, e.g. "padding:12px;display:flex;gap:8px;color:var(--brand)"
     public string? Text;                                // static text content (leaf)
-    public string? Bind;                                // dynamic text: the name of a state whose value is shown
+    public string? Bind;                                // dynamic text: a state name, or "item.field" inside a repeat
+    public string? Model;                               // two-way bind an <input>'s value to this state name
+    public WebRepeat? Repeat;                           // when set: render this element once per item of a list state
     public Dictionary<string, WebAction> On = new();    // dom event ("click") -> action
     public List<WebEl> Children = new();
+}
+
+/// <summary>Marks an element as a list template: render it once per item of <see cref="List"/> (an array state),
+/// exposing each item as <see cref="Item"/> (for {item.field} bindings) and keyed by <see cref="Key"/>.</summary>
+public sealed class WebRepeat
+{
+    public string List = "";
+    public string Item = "item";
+    public string Key = "id";
 }
 
 /// <summary>An action a UI event triggers against a state. <see cref="Op"/>: inc | dec | set | toggle.

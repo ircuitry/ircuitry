@@ -322,10 +322,19 @@ public static class NodeCatalog
     // turn a wired tree of web.element nodes into the Web-IR (read structurally, never executed)
     private static Ircuitry.WebBuild.WebEl WebBuildEl(INodeContext c, Node node, int depth)
     {
+        bool isList = node.TypeId == "web.list";
         string tag = node.GetParam("tag");
-        var el = new Ircuitry.WebBuild.WebEl { Tag = tag.Length > 0 ? tag : "div" };
+        var el = new Ircuitry.WebBuild.WebEl { Tag = tag.Length > 0 ? tag : (isList ? "ul" : "div") };
         var cls = node.GetParam("class"); if (cls.Length > 0) el.Attrs["class"] = cls;
         var style = node.GetParam("style"); if (style.Length > 0) el.Style = style;
+        if (isList)
+            el.Repeat = new Ircuitry.WebBuild.WebRepeat
+            {
+                List = node.GetParam("items"),
+                Item = node.GetParam("item").Length > 0 ? node.GetParam("item") : "item",
+                Key = node.GetParam("key").Length > 0 ? node.GetParam("key") : "id",
+            };
+        var model = node.GetParam("model"); if (model.Length > 0) el.Model = model;
         var bind = node.GetParam("bind");
         if (bind.Length > 0) el.Bind = bind;
         else { var t = node.GetParam("text"); if (t.Length > 0) el.Text = t; }
@@ -333,7 +342,7 @@ public static class NodeCatalog
         if (ev.Length > 0 && act.Length > 0) el.On[ev] = WebParseAction(act);
         if (depth < 64)
             foreach (var ch in c.SourcesInto(node, 0))           // children, in wire order
-                if (ch.TypeId == "web.element") el.Children.Add(WebBuildEl(c, ch, depth + 1));
+                if (ch.TypeId == "web.element" || ch.TypeId == "web.list") el.Children.Add(WebBuildEl(c, ch, depth + 1));
         return el;
     }
 
@@ -4587,8 +4596,8 @@ public static class NodeCatalog
                 Params = new[]
                 {
                     P("name", "Name", ParamType.Text, "count", "the name elements reference"),
-                    P("initial", "Initial", ParamType.Text, "0", ""),
-                    P("kind", "Type", ParamType.Choice, "number", "", new[] { "number", "string", "bool" }),
+                    P("initial", "Initial", ParamType.Text, "0", "(list: a JSON array, e.g. [])"),
+                    P("kind", "Type", ParamType.Choice, "number", "", new[] { "number", "string", "bool", "list" }),
                 },
                 SummaryParam = "name",
                 Exec = c => { },   // pure declaration: read structurally by Web Preview, never executed
@@ -4615,11 +4624,29 @@ public static class NodeCatalog
                     P("bind", "Text from state", ParamType.Text, "", "(optional) a state name; shows its live value"),
                     P("class", "CSS class", ParamType.Text, "", ""),
                     P("style", "Style", ParamType.Text, "", "inline CSS: padding:12px;display:flex;gap:8px;color:var(--brand)"),
+                    P("model", "Bind input value", ParamType.Text, "", "(for an input) two-way bind to a state name"),
                     P("event", "On event", ParamType.Choice, "", "", new[] { "", "click", "input", "change" }),
-                    P("action", "Action", ParamType.Text, "", "state.op  e.g. count.inc · count.set:5 · open.toggle"),
+                    P("action", "Action", ParamType.Text, "", "state.op  e.g. count.inc · count.set:5 · todos.add:input · todos.remove"),
                 },
                 SummaryParam = "tag",
                 Exec = c => { },   // pure declaration: read structurally by Web Preview, never executed
+            },
+            new()
+            {
+                TypeId = "web.list", Icon = "list-bullets", Title = "Web List", Subtitle = "repeat", Category = NodeCategory.Web,
+                Description = "Render a list: repeat the wired child element once per item of an array state, keyed for correct add/remove. Inside the template bind to {item.field}; an action like todos.remove drops the current item. Wire ONE child (the item template) into 'children', and this into a parent.",
+                Inputs = new[] { new PinDef("children", PinKind.Text, true) },
+                Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("items", "Items (state)", ParamType.Text, "todos", "an array state name"),
+                    P("item", "Item name", ParamType.Text, "item", "the per-item variable for {item.field}"),
+                    P("key", "Key field", ParamType.Text, "id", "a unique field per item, for correct updates"),
+                    P("tag", "Wrapper tag", ParamType.Text, "ul", ""),
+                    P("style", "Style", ParamType.Text, "", "inline CSS on the wrapper"),
+                },
+                SummaryParam = "items",
+                Exec = c => { },   // pure declaration: read structurally by Web Preview / Web Eject
             },
             new()
             {

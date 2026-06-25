@@ -1,0 +1,42 @@
+{
+ "format": "ircuitry.workflow.v1",
+ "name": "Web Todo",
+ "description": "A real little web app built with nodes: a reactive todo list. web.state (a list) + a two-way input + web.list (keyed) + add/remove, themed with web.theme, previewed live. Type, Add, x to remove. Hit RUN.",
+ "author": "ircuitry",
+ "category": "Utility",
+ "tags": ["web", "todo", "list", "demo"],
+ "nodes": [
+  { "id": "start", "type": "event.start", "x": 0,   "y": 0,   "params": {} },
+  { "id": "prev",  "type": "web.preview", "x": 280, "y": 0,   "params": { "window": "todo", "title": "Todo", "width": "420", "height": "520" } },
+
+  { "id": "theme", "type": "web.theme",   "x": 0,   "y": 160, "params": { "tokens": "brand: #6C5CE7\nbg: #F4EFFB\nink: #2E2940\nradius: 10px" } },
+  { "id": "todos", "type": "web.state",   "x": 0,   "y": 320, "params": { "name": "todos", "initial": "[]", "kind": "list" } },
+  { "id": "input", "type": "web.state",   "x": 0,   "y": 440, "params": { "name": "input", "initial": "", "kind": "string" } },
+
+  { "id": "root",  "type": "web.element", "x": 280, "y": 200, "params": { "tag": "div", "style": "max-width:380px;margin:28px auto;font-family:system-ui,sans-serif;color:var(--ink)" } },
+  { "id": "row",   "type": "web.element", "x": 540, "y": 120, "params": { "tag": "div", "style": "display:flex;gap:8px;margin-bottom:14px" } },
+  { "id": "inEl",  "type": "web.element", "x": 800, "y": 60,  "params": { "tag": "input", "model": "input", "style": "flex:1;padding:9px;border:1px solid #ccc;border-radius:var(--radius)" } },
+  { "id": "addB",  "type": "web.element", "x": 800, "y": 160, "params": { "tag": "button", "text": "Add", "event": "click", "action": "todos.add:input", "style": "padding:9px 16px;background:var(--brand);color:#fff;border:0;border-radius:var(--radius);cursor:pointer" } },
+
+  { "id": "list",  "type": "web.list",    "x": 540, "y": 300, "params": { "items": "todos", "item": "item", "key": "id", "tag": "ul", "style": "list-style:none;padding:0;display:flex;flex-direction:column;gap:7px" } },
+  { "id": "li",    "type": "web.element", "x": 800, "y": 300, "params": { "tag": "li", "style": "display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:var(--bg);border-radius:var(--radius)" } },
+  { "id": "span",  "type": "web.element", "x": 1060,"y": 240, "params": { "tag": "span", "bind": "item.text" } },
+  { "id": "rm",    "type": "web.element", "x": 1060,"y": 340, "params": { "tag": "button", "text": "x", "event": "click", "action": "todos.remove", "style": "border:0;background:transparent;cursor:pointer;color:#c33;font-weight:700" } }
+ ],
+ "connections": [
+  { "from": "start", "fromPin": 0, "to": "prev", "toPin": 0 },
+  { "from": "root",  "fromPin": 0, "to": "prev", "toPin": 1 },
+  { "from": "todos", "fromPin": 0, "to": "prev", "toPin": 2 },
+  { "from": "input", "fromPin": 0, "to": "prev", "toPin": 2 },
+  { "from": "theme", "fromPin": 0, "to": "prev", "toPin": 2 },
+
+  { "from": "row",   "fromPin": 0, "to": "root", "toPin": 0 },
+  { "from": "list",  "fromPin": 0, "to": "root", "toPin": 0 },
+  { "from": "inEl",  "fromPin": 0, "to": "row",  "toPin": 0 },
+  { "from": "addB",  "fromPin": 0, "to": "row",  "toPin": 0 },
+
+  { "from": "li",    "fromPin": 0, "to": "list", "toPin": 0 },
+  { "from": "span",  "fromPin": 0, "to": "li",   "toPin": 0 },
+  { "from": "rm",    "fromPin": 0, "to": "li",   "toPin": 0 }
+ ]
+}

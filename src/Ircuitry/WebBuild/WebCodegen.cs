@@ -16,66 +16,108 @@ public static class WebCodegen
     // ---------------- vanilla (live preview): one HTML file, no build step ----------------
     public static string Vanilla(WebApp app)
     {
-        var body = new StringBuilder();
-        RenderHtml(app.Root, body, 4);
-
-        // initial state object, e.g. { count: 0, name: "" }
-        string init = "{ " + string.Join(", ", app.States.Select(s => s.Name + ": " + JsLiteral(s))) + " }";
-
         var html = new StringBuilder();
         html.AppendLine("<!doctype html>");
         html.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\">");
         html.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
         html.AppendLine("<title>" + Esc(app.Name) + "</title>");
         if (app.Tokens.Count > 0) html.AppendLine("<style>" + TokenCss(app) + "</style>");
-        html.AppendLine("</head>");
-        html.AppendLine("<body>");
-        html.Append(body);
+        html.AppendLine("</head><body><div id=\"__app\"></div>");
         html.AppendLine("<script>");
-        html.AppendLine("(function(){");
-        html.AppendLine("  var s = " + init + ";");
-        html.AppendLine("  function render(){ document.querySelectorAll('[data-b]').forEach(function(el){ el.textContent = s[el.getAttribute('data-b')]; }); }");
-        html.AppendLine("  function act(spec){ var p = spec.split(':'), n = p[0], op = p[1], arg = p[2];");
-        html.AppendLine("    if (op === 'inc') s[n] = (+s[n]) + (arg ? +arg : 1);");
-        html.AppendLine("    else if (op === 'dec') s[n] = (+s[n]) - (arg ? +arg : 1);");
-        html.AppendLine("    else if (op === 'set') s[n] = (arg !== '' && !isNaN(+arg)) ? +arg : arg;");
-        html.AppendLine("    else if (op === 'toggle') s[n] = !s[n];");
-        html.AppendLine("    render(); }");
-        html.AppendLine("  ['click','input','change'].forEach(function(ev){ document.addEventListener(ev, function(e){");
-        html.AppendLine("    var t = e.target.closest('[data-on-' + ev + ']'); if (t) act(t.getAttribute('data-on-' + ev)); }); });");
-        html.AppendLine("  render();");
-        html.AppendLine("})();");
-        html.AppendLine("</script>");
-        html.AppendLine("</body></html>");
+        html.AppendLine("var IR = " + IrToJs(app) + ";");
+        html.AppendLine(Interpreter);
+        html.AppendLine("</script></body></html>");
         return html.ToString();
     }
 
-    private static void RenderHtml(WebEl el, StringBuilder sb, int indent)
+    // the IR shipped to the live page as a JS object literal (the preview interprets it; the eject compiles it)
+    private static string IrToJs(WebApp app)
     {
-        string pad = new string(' ', indent);
-        var attrs = new StringBuilder();
-        foreach (var kv in el.Attrs) attrs.Append(' ').Append(kv.Key).Append("=\"").Append(Esc(kv.Value)).Append('"');
-        if (!string.IsNullOrWhiteSpace(el.Style)) attrs.Append(" style=\"").Append(Esc(el.Style)).Append('"');
-        if (el.Bind != null) attrs.Append(" data-b=\"").Append(Esc(el.Bind)).Append('"');
-        foreach (var kv in el.On) attrs.Append(" data-on-").Append(kv.Key).Append("=\"").Append(Esc(ActionSpec(kv.Value))).Append('"');
-
-        bool leaf = el.Children.Count == 0;
-        sb.Append(pad).Append('<').Append(el.Tag).Append(attrs).Append('>');
-        if (leaf)
-        {
-            if (el.Bind != null) sb.Append(Esc(el.Bind));                 // initial = state name's value, filled by render()
-            else if (el.Text != null) sb.Append(Esc(el.Text));
-            sb.Append("</").Append(el.Tag).Append(">\n");
-        }
-        else
-        {
-            sb.Append('\n');
-            foreach (var c in el.Children) RenderHtml(c, sb, indent + 2);
-            sb.Append(pad).Append("</").Append(el.Tag).Append(">\n");
-        }
+        var sb = new StringBuilder();
+        sb.Append("{ states: [");
+        sb.Append(string.Join(", ", app.States.Select(s => "{ name: " + JsStr(s.Name) + ", init: " + JsStr(s.Init) + ", kind: " + JsStr(s.Kind) + " }")));
+        sb.Append("], root: ");
+        NodeToJs(app.Root, sb);
+        sb.Append(" }");
+        return sb.ToString();
     }
 
-    private static string ActionSpec(WebAction a) => a.State + ":" + a.Op + ":" + a.Arg;
+    private static void NodeToJs(WebEl el, StringBuilder sb)
+    {
+        sb.Append("{ tag: ").Append(JsStr(el.Tag));
+        if (el.Attrs.Count > 0) sb.Append(", attrs: { ").Append(string.Join(", ", el.Attrs.Select(kv => JsStr(kv.Key) + ": " + JsStr(kv.Value)))).Append(" }");
+        if (!string.IsNullOrEmpty(el.Style)) sb.Append(", style: ").Append(JsStr(el.Style!));
+        if (el.Bind != null) sb.Append(", bind: ").Append(JsStr(el.Bind));
+        if (el.Model != null) sb.Append(", model: ").Append(JsStr(el.Model));
+        if (el.Text != null) sb.Append(", text: ").Append(JsStr(el.Text));
+        if (el.Repeat != null) sb.Append(", repeat: { list: ").Append(JsStr(el.Repeat.List)).Append(", item: ").Append(JsStr(el.Repeat.Item)).Append(", key: ").Append(JsStr(el.Repeat.Key)).Append(" }");
+        if (el.On.Count > 0) sb.Append(", on: { ").Append(string.Join(", ", el.On.Select(kv => JsStr(kv.Key) + ": { state: " + JsStr(kv.Value.State) + ", op: " + JsStr(kv.Value.Op) + ", arg: " + JsStr(kv.Value.Arg) + " }"))).Append(" }");
+        if (el.Children.Count > 0)
+        {
+            sb.Append(", children: [");
+            for (int i = 0; i < el.Children.Count; i++) { if (i > 0) sb.Append(", "); NodeToJs(el.Children[i], sb); }
+            sb.Append(']');
+        }
+        sb.Append(" }");
+    }
+
+    private static string JsStr(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "") + "\"";
+
+    // the live runtime: interprets the IR against reactive state. All JS literals use single quotes + Q for the
+    // attribute-value quote, so this verbatim string needs no escaping.
+    private const string Interpreter = @"
+var Q = '\'';
+var s = {};
+IR.states.forEach(function(st){
+  s[st.name] = st.kind === 'number' ? (parseFloat(st.init) || 0)
+    : st.kind === 'bool' ? (st.init === 'true')
+    : st.kind === 'list' ? (function(){ try { return JSON.parse(st.init || '[]'); } catch(e){ return []; } })()
+    : st.init;
+});
+var KEYS = {};
+function esc(x){ return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function lookup(expr, scope){ var p = expr.split('.'); var v = (p[0] in scope) ? scope[p[0]] : s[p[0]]; for (var i = 1; i < p.length; i++){ v = v == null ? '' : v[p[i]]; } return v; }
+function attrs(n, scope, key){
+  var a = '';
+  if (n.attrs) for (var k in n.attrs) a += ' ' + k + '=' + Q + esc(n.attrs[k]) + Q;
+  if (n.style) a += ' style=' + Q + esc(n.style) + Q;
+  if (n.model) a += ' data-model=' + Q + n.model + Q + ' value=' + Q + esc(s[n.model]) + Q;
+  if (n.on) for (var ev in n.on){ var ac = n.on[ev]; a += ' data-on-' + ev + '=' + Q + ac.state + ':' + ac.op + ':' + (ac.arg || '') + (key != null ? '#' + esc(key) : '') + Q; }
+  return a;
+}
+function renderTag(n, scope, key){
+  var inner = '';
+  if (n.children && n.children.length) for (var i = 0; i < n.children.length; i++) inner += renderNode(n.children[i], scope);
+  else if (n.bind) inner = esc(lookup(n.bind, scope));
+  else if (n.text != null) inner = esc(n.text);
+  return '<' + n.tag + attrs(n, scope, key) + '>' + inner + '</' + n.tag + '>';
+}
+function renderNode(n, scope){
+  if (n.repeat){
+    KEYS[n.repeat.list] = n.repeat.key;
+    var arr = s[n.repeat.list] || [], out = '';
+    for (var i = 0; i < arr.length; i++){ var sc = {}; for (var k in scope) sc[k] = scope[k]; sc[n.repeat.item] = arr[i]; out += renderTag(n, sc, arr[i][n.repeat.key]); }
+    return out;
+  }
+  return renderTag(n, scope, null);
+}
+function render(){ document.getElementById('__app').innerHTML = renderNode(IR.root, {}); }
+function act(spec){
+  var key = null, h = spec.indexOf('#'); if (h >= 0){ key = spec.slice(h + 1); spec = spec.slice(0, h); }
+  var p = spec.split(':'), n = p[0], op = p[1], arg = p[2];
+  if (op === 'inc') s[n] = (parseFloat(s[n]) || 0) + (arg ? +arg : 1);
+  else if (op === 'dec') s[n] = (parseFloat(s[n]) || 0) - (arg ? +arg : 1);
+  else if (op === 'set') s[n] = (arg !== '' && !isNaN(+arg)) ? +arg : arg;
+  else if (op === 'toggle') s[n] = !s[n];
+  else if (op === 'remove'){ var kf = KEYS[n] || 'id'; s[n] = (s[n] || []).filter(function(x){ return String(x[kf]) !== String(key); }); }
+  else if (op === 'add'){ var kf = KEYS[n] || 'id'; var it = {}; it[kf] = Date.now() + Math.floor(Math.random() * 1000); it.text = s[arg]; if (it.text){ s[n] = (s[n] || []).concat([it]); s[arg] = ''; } }
+  render();
+}
+document.addEventListener('input', function(e){ var t = e.target.closest && e.target.closest('[data-model]'); if (t) s[t.getAttribute('data-model')] = t.value; });
+document.addEventListener('click', function(e){ var t = e.target.closest && e.target.closest('[data-on-click]'); if (t) act(t.getAttribute('data-on-click')); });
+document.addEventListener('change', function(e){ var t = e.target.closest && e.target.closest('[data-on-change]'); if (t) act(t.getAttribute('data-on-change')); });
+render();
+";
 
     // ---------------- React (eject): the App component (+ a Vite project around it) ----------------
     public static string React(WebApp app)
@@ -88,25 +130,29 @@ public static class WebCodegen
             sb.AppendLine("  const [" + s.Name + ", set" + Cap(s.Name) + "] = useState(" + JsLiteral(s) + ");");
         sb.AppendLine("  return (");
         var jsx = new StringBuilder();
-        RenderJsx(app.Root, jsx, 4);
+        RenderJsx(app.Root, jsx, 4, null, null);
         sb.Append(jsx);
         sb.AppendLine("  );");
         sb.AppendLine("}");
         return sb.ToString();
     }
 
-    private static void RenderJsx(WebEl el, StringBuilder sb, int indent)
+    private static void RenderJsx(WebEl el, StringBuilder sb, int indent, WebRepeat? rep, string? keyAttr)
     {
         string pad = new string(' ', indent);
-        var attrs = new StringBuilder();
-        foreach (var kv in el.Attrs)
-        {
-            string name = kv.Key == "class" ? "className" : kv.Key == "for" ? "htmlFor" : kv.Key;
-            attrs.Append(' ').Append(name).Append("=\"").Append(Esc(kv.Value)).Append('"');
-        }
-        if (!string.IsNullOrWhiteSpace(el.Style)) attrs.Append(" style={{ ").Append(CssToReactStyle(el.Style!)).Append(" }}");
-        foreach (var kv in el.On) attrs.Append(' ').Append(JsxEvent(kv.Key)).Append("={").Append(ReactHandler(kv.Value)).Append('}');
 
+        if (el.Repeat != null)   // a list: <TAG>{LIST.map((item) => ( <template key=.../> ))}</TAG>
+        {
+            var template = el.Children.Count > 0 ? el.Children[0] : new WebEl { Tag = "div" };
+            sb.Append(pad).Append('<').Append(el.Tag).Append(JsxAttrs(el, rep, keyAttr)).Append(">\n");
+            sb.Append(pad).Append("  {").Append(el.Repeat.List).Append(".map((").Append(el.Repeat.Item).Append(") => (\n");
+            RenderJsx(template, sb, indent + 4, el.Repeat, "key={" + el.Repeat.Item + "." + el.Repeat.Key + "}");
+            sb.Append(pad).Append("  ))}\n");
+            sb.Append(pad).Append("</").Append(el.Tag).Append(">\n");
+            return;
+        }
+
+        var attrs = JsxAttrs(el, rep, keyAttr);
         bool hasContent = el.Children.Count > 0 || el.Bind != null || el.Text != null;
         sb.Append(pad).Append('<').Append(el.Tag).Append(attrs);
         if (!hasContent) { sb.Append(" />\n"); return; }
@@ -120,9 +166,24 @@ public static class WebCodegen
         else
         {
             sb.Append('\n');
-            foreach (var c in el.Children) RenderJsx(c, sb, indent + 2);
+            foreach (var c in el.Children) RenderJsx(c, sb, indent + 2, rep, null);
             sb.Append(pad).Append("</").Append(el.Tag).Append(">\n");
         }
+    }
+
+    private static string JsxAttrs(WebEl el, WebRepeat? rep, string? keyAttr)
+    {
+        var a = new StringBuilder();
+        if (keyAttr != null) a.Append(' ').Append(keyAttr);
+        foreach (var kv in el.Attrs)
+        {
+            string name = kv.Key == "class" ? "className" : kv.Key == "for" ? "htmlFor" : kv.Key;
+            a.Append(' ').Append(name).Append("=\"").Append(Esc(kv.Value)).Append('"');
+        }
+        if (!string.IsNullOrWhiteSpace(el.Style)) a.Append(" style={{ ").Append(CssToReactStyle(el.Style!)).Append(" }}");
+        if (el.Model != null) a.Append(" value={").Append(el.Model).Append("} onChange={(e) => set").Append(Cap(el.Model)).Append("(e.target.value)}");
+        foreach (var kv in el.On) a.Append(' ').Append(JsxEvent(kv.Key)).Append("={").Append(ReactHandler(kv.Value, rep)).Append('}');
+        return a.ToString();
     }
 
     private static string JsxEvent(string dom) => dom switch
@@ -131,7 +192,7 @@ public static class WebCodegen
         _ => "on" + Cap(dom),
     };
 
-    private static string ReactHandler(WebAction a)
+    private static string ReactHandler(WebAction a, WebRepeat? rep)
     {
         string set = "set" + Cap(a.State);
         return a.Op switch
@@ -140,6 +201,8 @@ public static class WebCodegen
             "dec" => "() => " + set + "(v => v - " + (a.Arg.Length > 0 ? a.Arg : "1") + ")",
             "toggle" => "() => " + set + "(v => !v)",
             "set" => "() => " + set + "(" + SetLiteral(a.Arg) + ")",
+            "remove" => rep != null ? "() => " + set + "(a => a.filter(x => x." + rep.Key + " !== " + rep.Item + "." + rep.Key + "))" : "() => {}",
+            "add" => "() => { " + set + "(a => [...a, { id: Date.now(), text: " + a.Arg + " }]); set" + Cap(a.Arg) + "('') }",
             _ => "() => {}",
         };
     }
