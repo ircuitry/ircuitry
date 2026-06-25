@@ -305,6 +305,7 @@ public static class SelfTest
         fails += PluginTrustTest();
         fails += PluginSettingsTest();
         fails += UnknownNodePreserveTest();
+        fails += WebCounterTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -4128,6 +4129,46 @@ public static class SelfTest
             Environment.SetEnvironmentVariable("IRCUITRY_HOME", prev);
             try { System.IO.Directory.Delete(tmp, true); } catch { }
         }
+        return fails;
+    }
+
+    /// <summary>Web builder spine: the same counter IR (state + element tree + click->action) compiles to BOTH a
+    /// self-contained vanilla page (for the live preview) and an idiomatic React component + Vite project (for eject).
+    /// Proves the IR + codegen - the load-bearing piece the whole node-graph website builder hangs off.</summary>
+    private static int WebCounterTest()
+    {
+        int fails = 0;
+        var app = new Ircuitry.WebBuild.WebApp { Name = "Counter" };
+        app.States.Add(new Ircuitry.WebBuild.WebState { Name = "count", Init = "0", Kind = "number" });
+        app.Root = new Ircuitry.WebBuild.WebEl
+        {
+            Tag = "div",
+            Children =
+            {
+                new Ircuitry.WebBuild.WebEl { Tag = "button", Text = "+1", On = { ["click"] = new() { State = "count", Op = "inc" } } },
+                new Ircuitry.WebBuild.WebEl { Tag = "button", Text = "-1", On = { ["click"] = new() { State = "count", Op = "dec" } } },
+                new Ircuitry.WebBuild.WebEl { Tag = "h1", Bind = "count" },
+            },
+        };
+
+        // vanilla (preview): the runtime + bindings + the action-spec the delegated listener reads
+        var v = Ircuitry.WebBuild.WebCodegen.Vanilla(app);
+        fails += Expect("web-vanilla-state", v.Contains("var s = { count: 0 }"), "vanilla seeds the state object");
+        fails += Expect("web-vanilla-bind", v.Contains("data-b=\"count\""), "h1 carries the count text-binding");
+        fails += Expect("web-vanilla-action", v.Contains("data-on-click=\"count:inc:\"") && v.Contains("data-on-click=\"count:dec:\""), "buttons carry inc/dec actions");
+        fails += Expect("web-vanilla-runtime", v.Contains("function render()") && v.Contains("function act("), $"runtime present");
+
+        // React (eject): idiomatic hooks + handlers + binding, plus a buildable Vite project
+        var r = Ircuitry.WebBuild.WebCodegen.React(app);
+        fails += Expect("web-react-state", r.Contains("const [count, setCount] = useState(0)"), $"useState declared ({r.Length} chars)");
+        fails += Expect("web-react-inc", r.Contains("onClick={() => setCount(v => v + 1)}"), "inc handler is idiomatic React");
+        fails += Expect("web-react-dec", r.Contains("onClick={() => setCount(v => v - 1)}"), "dec handler is idiomatic React");
+        fails += Expect("web-react-bind", r.Contains("{count}") && r.Contains("export default function Counter()"), "binding + component export");
+
+        var proj = Ircuitry.WebBuild.WebCodegen.ReactProject(app);
+        fails += Expect("web-react-project", proj.ContainsKey("package.json") && proj["package.json"].Contains("\"react\"") && proj["package.json"].Contains("\"vite\"")
+            && proj.ContainsKey("src/Counter.jsx") && proj.ContainsKey("src/main.jsx") && proj.ContainsKey("index.html"),
+            $"Vite project scaffolded ({string.Join(",", proj.Keys)})");
         return fails;
     }
 
