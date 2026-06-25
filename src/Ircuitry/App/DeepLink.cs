@@ -28,6 +28,12 @@ public static class DeepLink
     /// (<c>.ircnode</c>) file - what the OS passes when you double-click one of ours.</summary>
     public static bool IsFile(string arg)
     {
+        // a scheme link (ircuitry://install-plugin?url=...Terminal.ircplugin) ends in a known extension but is NOT a
+        // file - it's a deep link the parser handles. Only file:// or a bare path is a file.
+        if (arg.StartsWith("ircuitry://", StringComparison.OrdinalIgnoreCase)
+            || arg.StartsWith("ircbot://", StringComparison.OrdinalIgnoreCase)
+            || arg.StartsWith("irc://", StringComparison.OrdinalIgnoreCase)
+            || arg.StartsWith("ircs://", StringComparison.OrdinalIgnoreCase)) return false;
         var p = FilePath(arg);
         return p.EndsWith(".ircbot", StringComparison.OrdinalIgnoreCase)
             || p.EndsWith(".ircnode", StringComparison.OrdinalIgnoreCase)

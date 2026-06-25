@@ -967,6 +967,11 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             StageThemeInstall(text);      // live-previews the theme so you can try before keeping
             return;
         }
+        if (action == "install-plugin")
+        {
+            StagePluginInstall(text);     // shows the trust card (what it can do) before installing + enabling
+            return;
+        }
         StageInstall(text, "link");   // default action: install-node
     }
 
