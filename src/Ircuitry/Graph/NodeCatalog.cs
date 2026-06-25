@@ -4085,9 +4085,11 @@ public static class NodeCatalog
                     P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
                     P("w", "Width", ParamType.Int, "260", ""), P("h", "Height", ParamType.Int, "44", ""),
                     P("color", "Colour", ParamType.Text, "#554F66", "#rrggbb"),
+                    P("font", "Font", ParamType.Choice, "sans", "", new[] { "sans", "bold", "mono", "monobold", "display" }),
+                    P("size", "Font size", ParamType.Int, "16", ""),
                     P("multiline", "Multi-line", ParamType.Bool, "false", "wraps text + Enter inserts a newline (great for a long prompt)"),
                 },
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 260), H = c.ParamInt("h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF), Multiline = c.ParamBool("multiline") }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 260), H = c.ParamInt("h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF), Font = c.Param("font"), FontSize = c.ParamInt("size", 16), Multiline = c.ParamBool("multiline") }); c.Pulse(0); },
             },
             new()
             {
@@ -4327,7 +4329,7 @@ public static class NodeCatalog
                     P("id", "Panel id", ParamType.Text, "panel", "unique id (also the ui.* window id)"),
                     P("title", "Title", ParamType.Text, "My Panel", ""),
                     P("icon", "Icon", ParamType.Text, "sidebar", "phosphor name"),
-                    P("dock", "Dock", ParamType.Choice, "right", "", new[] { "left", "right" }),
+                    P("dock", "Dock", ParamType.Choice, "right", "", new[] { "left", "right", "bottom" }),
                 },
                 SummaryParam = "title",
                 Exec = c => { c.AppContribute("panel", c.Resolve(c.Param("id")), c.Resolve(c.Param("title")), c.Param("icon"), c.Param("dock")); c.Pulse(0); },

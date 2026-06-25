@@ -299,6 +299,7 @@ public static class SelfTest
         fails += PluginPanelTest();
         fails += PluginDialogTest();
         fails += PluginGraphEditTest();
+        fails += PluginTerminalTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3942,6 +3943,38 @@ public static class SelfTest
 
         var perms = Ircuitry.App.PluginBundle.PermissionsFor(g);
         fails += Expect("plugin-graph-perms", perms.Contains("edit-graph"), $"graph nodes derive edit-graph ({string.Join(",", perms)})");
+        return fails;
+    }
+
+    /// <summary>The Terminal plugin's wiring (sample docs/examples/terminal.ircplugin): a panel submit carries the
+    /// typed command into container.exec, whose result is appended to the term_out display var. The container needs
+    /// a real runtime to produce output, but the capture/append/refresh plumbing is proven without one (the result is
+    /// just an error string here). Also: container nodes derive the run-commands permission for the trust card.</summary>
+    private static int PluginTerminalTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var st = N(g, "app.start", 0, 0);
+        var seed = N(g, "data.setvar", 1, 0); seed.SetParam("name", "term_out"); seed.SetParam("value", "ready\n"); seed.SetParam("mode", "default");
+        g.Connect(st.Id, 0, seed.Id, 0);
+
+        var on = N(g, "ui.on", 0, 1); on.SetParam("window", "term"); on.SetParam("event", "submit"); on.SetParam("id", "cmd");
+        var ex = N(g, "container.exec", 1, 1); ex.SetParam("container", "no-such-box"); ex.SetParam("command", "{ui_value}"); ex.SetParam("timeout", "2");
+        var sl = N(g, "data.setvar", 2, 1); sl.SetParam("name", "last");
+        var so = N(g, "data.setvar", 3, 1); so.SetParam("name", "term_out"); so.SetParam("value", "{term_out}$ {ui_value}\n{last}\n");
+        var ts = N(g, "app.toast", 4, 1); ts.SetParam("message", "OUT:{term_out}");
+        g.Connect(on.Id, 0, ex.Id, 0); g.Connect(ex.Id, 1, sl.Id, 1); g.Connect(ex.Id, 0, sl.Id, 0);
+        g.Connect(sl.Id, 0, so.Id, 0); g.Connect(so.Id, 0, ts.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "T", Graph = g });   // fires app.start -> seeds term_out
+        mgr.PanelEvent("T", "term", new Ircuitry.UiKit.UiEvent { Type = "submit", Id = "cmd", Value = "echo hi" });
+        fails += Expect("plugin-terminal-submit", app.Toasts.Any(t => t.Contains("$ echo hi")),
+            $"a submitted command is captured + appended to the output ({string.Join("|", app.Toasts)})");
+
+        var perms = Ircuitry.App.PluginBundle.PermissionsFor(g);
+        fails += Expect("plugin-terminal-perms", perms.Contains("run-commands"), $"container nodes derive run-commands ({string.Join(",", perms)})");
         return fails;
     }
 

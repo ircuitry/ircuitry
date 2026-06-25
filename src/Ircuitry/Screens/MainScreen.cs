@@ -458,6 +458,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         "navigate" => ("arrow-line-right", "Switch between tabs"),
         "control-bots" => ("play-circle", "Start and stop your bots"),
         "edit-graph" => ("flow-arrow", "Add and change nodes in the open bot"),
+        "run-commands" => ("terminal-window", "Run sandboxed shell commands"),
+        "network" => ("globe", "Make network requests"),
         _ => ("puzzle-piece", perm),
     };
 
@@ -660,7 +662,10 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             string id = PanelKey(c);
             wanted.Add(id);
             if (_dock.Get(id) == null)
-                _dock.Add(new DockManager.Panel { Id = id, Dock = c.At == "left" ? DockManager.Edge.Left : DockManager.Edge.Right, Size = 288 });
+            {
+                var edge = c.At switch { "left" => DockManager.Edge.Left, "bottom" => DockManager.Edge.Bottom, _ => DockManager.Edge.Right };
+                _dock.Add(new DockManager.Panel { Id = id, Dock = edge, Size = edge == DockManager.Edge.Bottom ? 240 : 288 });   // Size is height for bottom
+            }
             if (_panelBuilt.Add(id)) _plugins.BuildPanel(c.PluginId, c.Id);   // populate the scene the first time we see it
         }
         foreach (var p in _dock.Panels.Where(p => p.Id.StartsWith("plugin:", System.StringComparison.Ordinal)).ToList())

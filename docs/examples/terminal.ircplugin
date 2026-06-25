@@ -1,0 +1,52 @@
+{
+ "format": "ircuitry.plugin.v1",
+ "name": "Terminal",
+ "version": "1.0.0",
+ "icon": "terminal-window",
+ "description": "A bottom-docked terminal, like VS Code. Type a command, press Enter, see the output. Each command runs in an isolated alpine container (network off) - state persists between commands.",
+ "permissions": [ "panel", "run-commands" ],
+ "nodes": [
+  { "id": "s",    "type": "app.start", "x": 0, "y": 0, "params": {} },
+  { "id": "pn",   "type": "app.panel", "x": 240, "y": 0,
+    "params": { "id": "term", "title": "Terminal", "icon": "terminal-window", "dock": "bottom" } },
+  { "id": "seed", "type": "data.setvar", "x": 480, "y": 0,
+    "params": { "name": "term_out", "mode": "default", "value": "ircuitry terminal  -  alpine sandbox, network off. try:  uname -a\n\n" } },
+
+  { "id": "ob",  "type": "app.on", "x": 0, "y": 200, "params": { "event": "panel", "id": "term" } },
+  { "id": "w",   "type": "ui.window", "x": 220, "y": 200,
+    "params": { "window": "term", "title": "Terminal", "bg": "#0E0F16", "width": "760", "height": "240" } },
+  { "id": "out", "type": "ui.input", "x": 440, "y": 200,
+    "params": { "window": "term", "id": "out", "x": "4", "y": "2", "w": "724", "h": "128", "text": "{term_out}", "color": "#222734", "font": "mono", "size": "13", "multiline": "true" } },
+  { "id": "pr",  "type": "ui.text", "x": 660, "y": 200,
+    "params": { "window": "term", "id": "pr", "x": "6", "y": "140", "text": "$", "font": "monobold", "size": "14", "color": "#7CF2A8" } },
+  { "id": "cmd", "type": "ui.input", "x": 880, "y": 200,
+    "params": { "window": "term", "id": "cmd", "x": "22", "y": "136", "w": "706", "h": "26", "text": "", "color": "#2A2F3A", "font": "mono", "size": "13", "multiline": "false" } },
+
+  { "id": "on2",    "type": "ui.on", "x": 0, "y": 440, "params": { "window": "term", "event": "submit", "id": "cmd" } },
+  { "id": "start",  "type": "container.start", "x": 220, "y": 440, "params": { "name": "ircuitry-term", "image": "alpine", "network": "false" } },
+  { "id": "exec",   "type": "container.exec", "x": 440, "y": 440, "params": { "name": "run", "container": "ircuitry-term", "command": "{ui_value}", "timeout": "10" } },
+  { "id": "setlast","type": "data.setvar", "x": 660, "y": 440, "params": { "name": "last", "mode": "set" } },
+  { "id": "setout", "type": "data.setvar", "x": 880, "y": 440, "params": { "name": "term_out", "mode": "set", "value": "{term_out}$ {ui_value}\n{last}\n" } },
+  { "id": "ref",    "type": "ui.input", "x": 1100, "y": 440,
+    "params": { "window": "term", "id": "out", "x": "4", "y": "2", "w": "724", "h": "128", "text": "{term_out}", "color": "#222734", "font": "mono", "size": "13", "multiline": "true" } },
+  { "id": "clr",    "type": "ui.input", "x": 1320, "y": 440,
+    "params": { "window": "term", "id": "cmd", "x": "22", "y": "136", "w": "706", "h": "26", "text": "", "color": "#2A2F3A", "font": "mono", "size": "13", "multiline": "false" } }
+ ],
+ "connections": [
+  { "from": "s",  "fromPin": 0, "to": "pn",   "toPin": 0 },
+  { "from": "pn", "fromPin": 0, "to": "seed", "toPin": 0 },
+
+  { "from": "ob",  "fromPin": 0, "to": "w",   "toPin": 0 },
+  { "from": "w",   "fromPin": 0, "to": "out", "toPin": 0 },
+  { "from": "out", "fromPin": 0, "to": "pr",  "toPin": 0 },
+  { "from": "pr",  "fromPin": 0, "to": "cmd", "toPin": 0 },
+
+  { "from": "on2",     "fromPin": 0, "to": "start",   "toPin": 0 },
+  { "from": "start",   "fromPin": 0, "to": "exec",    "toPin": 0 },
+  { "from": "exec",    "fromPin": 0, "to": "setlast", "toPin": 0 },
+  { "from": "exec",    "fromPin": 1, "to": "setlast", "toPin": 1 },
+  { "from": "setlast", "fromPin": 0, "to": "setout",  "toPin": 0 },
+  { "from": "setout",  "fromPin": 0, "to": "ref",     "toPin": 0 },
+  { "from": "ref",     "fromPin": 0, "to": "clr",     "toPin": 0 }
+ ]
+}

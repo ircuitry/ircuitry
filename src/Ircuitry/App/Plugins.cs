@@ -389,6 +389,8 @@ public static class PluginBundle
                 case "app.info": perms.Add("app-state"); break;
                 default:
                     if (n.TypeId.StartsWith("app.graph", StringComparison.Ordinal)) perms.Add("edit-graph");
+                    else if (n.TypeId.StartsWith("container.", StringComparison.Ordinal) || n.TypeId == "code.run") perms.Add("run-commands");
+                    else if (n.TypeId == "net.http" || n.TypeId.StartsWith("socket.", StringComparison.Ordinal)) perms.Add("network");
                     break;
             }
         }
