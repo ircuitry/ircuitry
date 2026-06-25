@@ -294,6 +294,7 @@ public static class SelfTest
         fails += SetVarModeTest();
         fails += PluginLoopTest();
         fails += PluginManagerTest();
+        fails += PluginHooksTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3756,6 +3757,33 @@ public static class SelfTest
         var loaded = Ircuitry.App.PluginBundle.Load(json);
         fails += Expect("plugin-bundle", loaded.Name == "Greeter" && loaded.Version == "1.2.0" && loaded.Graph.Nodes.Count == g.Nodes.Count
             && loaded.Permissions.Contains("menu") && loaded.Permissions.Contains("dialogs"), $"bundle round-trips ({string.Join(",", loaded.Permissions)})");
+        return fails;
+    }
+
+    /// <summary>Phase 2 surfaces: a plugin registers a toolbar button, a node right-click item and a command;
+    /// activating each fires On App Event with the right {app_event}/{app_id}, and a context activation carries
+    /// the right-clicked node as {app_node}.</summary>
+    private static int PluginHooksTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var st = N(g, "app.start", 0, 0);
+        var tb = N(g, "app.toolbar", 1, 0); tb.SetParam("id", "tb"); tb.SetParam("label", "TB");
+        var cx = N(g, "app.context", 2, 0); cx.SetParam("id", "cx"); cx.SetParam("label", "CX"); cx.SetParam("on", "node");
+        var cmd = N(g, "app.command", 3, 0); cmd.SetParam("id", "cmd"); cmd.SetParam("label", "CMD");
+        g.Connect(st.Id, 0, tb.Id, 0); g.Connect(tb.Id, 0, cx.Id, 0); g.Connect(cx.Id, 0, cmd.Id, 0);
+        var on = N(g, "app.on", 0, 1); on.SetParam("event", "any");
+        var toast = N(g, "app.toast", 1, 1); toast.SetParam("message", "{app_event}/{app_id}/{app_node}");
+        g.Connect(on.Id, 0, toast.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "P", Graph = g });
+        fails += Expect("plugin-hooks-register", mgr.Contributions("toolbar").Any(c => c.Id == "tb") && mgr.Contributions("context").Any(c => c.Id == "cx" && c.At == "node") && mgr.Contributions("command").Any(c => c.Id == "cmd"), "toolbar + context + command all registered");
+        mgr.Activate("P", "toolbar", "tb");
+        mgr.Activate("P", "context", "cx", new Dictionary<string, string> { ["app_node"] = "n1" });
+        fails += Expect("plugin-hooks-toolbar", app.Toasts.Any(t => t.Contains("toolbar/tb/")), $"toolbar activation ({string.Join("|", app.Toasts)})");
+        fails += Expect("plugin-hooks-context", app.Toasts.Any(t => t.Contains("context/cx/n1")), "context activation carries {app_node}");
         return fails;
     }
 

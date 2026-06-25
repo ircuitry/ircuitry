@@ -77,6 +77,20 @@ public sealed partial class MainScreen
             Item(Ircuitry.Core.Icons.Glyph("graduation-cap"), "Tutorial", "", true, ForceStartTutorial);
         }
 
+        // plugin-contributed right-click items (filtered to node vs canvas)
+        var pctx = _plugins.Contributions("context").Where(c => c.At == "any" || c.At == (onNode ? "node" : "canvas")).ToList();
+        if (pctx.Count > 0)
+        {
+            Sep();
+            string ctxNode = onNode && _editor.Selection.Count > 0 ? _editor.Selection.First() : "";
+            foreach (var c in pctx)
+            {
+                var cap = c;
+                Item(string.IsNullOrEmpty(cap.Icon) ? "puzzle-piece" : cap.Icon, cap.Label, "", true,
+                    () => _plugins.Activate(cap.PluginId, "context", cap.Id, new System.Collections.Generic.Dictionary<string, string> { ["app_node"] = ctxNode }));
+            }
+        }
+
         _ctxOpen = true; _ctxJustOpened = true;
     }
 

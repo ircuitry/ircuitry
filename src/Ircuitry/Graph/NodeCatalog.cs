@@ -4276,6 +4276,49 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "app.toolbar", Icon = "app-window", Title = "Add Toolbar Button", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Add a button to ircuitry's top toolbar. Clicking it fires On App Event (event = toolbar, id = this button's id).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("id", "Button id", ParamType.Text, "do-thing", ""),
+                    P("label", "Tooltip", ParamType.Text, "Do the thing", ""),
+                    P("icon", "Icon", ParamType.Text, "sparkle", "phosphor name"),
+                },
+                SummaryParam = "label",
+                Exec = c => { c.AppContribute("toolbar", c.Resolve(c.Param("id")), c.Resolve(c.Param("label")), c.Param("icon"), ""); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.context", Icon = "cursor-click", Title = "Add Right-click Item", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Add an entry to the canvas / node right-click menu. Choosing it fires On App Event (event = context, id = this item's id, with {app_node} = the right-clicked node).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("id", "Item id", ParamType.Text, "do-thing", ""),
+                    P("label", "Label", ParamType.Text, "Do the thing", ""),
+                    P("icon", "Icon", ParamType.Text, "sparkle", "phosphor name"),
+                    P("on", "Show on", ParamType.Choice, "node", "", new[] { "node", "canvas", "any" }),
+                },
+                SummaryParam = "label",
+                Exec = c => { c.AppContribute("context", c.Resolve(c.Param("id")), c.Resolve(c.Param("label")), c.Param("icon"), c.Param("on")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.command", Icon = "magnifying-glass", Title = "Add Command", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Add a command to the Cmd+K palette. Running it fires On App Event (event = command, id = this command's id).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("id", "Command id", ParamType.Text, "do-thing", ""),
+                    P("label", "Label", ParamType.Text, "Do the thing", ""),
+                    P("icon", "Icon", ParamType.Text, "sparkle", "phosphor name"),
+                },
+                SummaryParam = "label",
+                Exec = c => { c.AppContribute("command", c.Resolve(c.Param("id")), c.Resolve(c.Param("label")), c.Param("icon"), ""); c.Pulse(0); },
+            },
+            new()
+            {
                 TypeId = "app.toast", Icon = "bell-ringing", Title = "Toast", Subtitle = "plugin", Category = NodeCategory.App,
                 Description = "Show a toast notification in ircuitry.",
                 Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },

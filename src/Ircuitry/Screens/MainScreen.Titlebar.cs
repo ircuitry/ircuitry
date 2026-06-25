@@ -88,6 +88,11 @@ public sealed partial class MainScreen
         var playR = Btn(50, 4);
         DrawPlayStop(r, playR);
         NoDrag(playR);
+        foreach (var c in _plugins.Contributions("toolbar"))   // plugin toolbar buttons, to the left of Run
+        {
+            var cap = c; var pr = Btn(34, 8);
+            if (IconBtn(r, pr, Ircuitry.Core.Icons.Glyph(string.IsNullOrEmpty(cap.Icon) ? "puzzle-piece" : cap.Icon), 16)) _plugins.Activate(cap.PluginId, "toolbar", cap.Id);
+        }
         r.End();
 
         // tabs fill the gutter between the icon and the action cluster (manages its own scissor batches)

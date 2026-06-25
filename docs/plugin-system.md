@@ -203,12 +203,12 @@ Each phase is shippable and testable headlessly (sink fakes + selftests, like th
 
 ## 12. Status
 
-**Phase 1: COMPLETE** - a real, end-to-end loop (author → bundle → install → menu item appears → click runs your flow).
+**Phases 1-2: COMPLETE** - a real, end-to-end loop (author → bundle → install → it appears in the menu / toolbar / right-click / Cmd+K → using it runs your flow).
 
-- **Nodes + category:** `App / Plugins` category; `app.start`, `app.menu`, `app.on`, `app.toast`.
+- **Nodes + category:** `App / Plugins` category; triggers `app.start` + `app.on`; effects `app.toast`; and the four hook actions `app.menu`, `app.toolbar`, `app.context`, `app.command`.
 - **Runtime:** `PluginHost` (a plugin graph run under an `AppSink : IRuntimeSink`) + `PluginManager` (installed plugins, live hosts, the contribution registry) + the `.ircplugin` bundle format (`PluginBundle`, permissions derived from the `app.*` nodes used).
-- **Chrome:** `MainScreen` is the `IAppHost` (toasts via `PushToast`); the More menu merges plugin menu items + **Bundle this as a plugin…** + a **Plugins…** manager (list / uninstall); installed plugins auto-load + enable on app start.
+- **Chrome (all 4 surfaces):** `MainScreen` is the `IAppHost`; plugins inject into the **More menu**, the **toolbar** (`DrawTitlebar`), the **right-click menu** (node + canvas, carrying `{app_node}`), and the **Cmd+K palette** (`BuildCommands`). Plus **Bundle this as a plugin…** + a **Plugins…** manager (list / uninstall); installed plugins auto-enable on app start.
 - **Distribution:** `.ircplugin` joins the file-association machinery (double-click installs; `OpenFile` routes it) on Linux/Windows/macOS + the `.deb`/AppImage/`.app` packaging.
-- **Tests:** `PluginLoopTest` (node-level register→fire) + `PluginManagerTest` (manager enable→activate→disable + `.ircplugin` round-trip with derived permissions). Full selftest green. Sample: `~/greeter.ircplugin`.
+- **Tests:** `PluginLoopTest` + `PluginManagerTest` + `PluginHooksTest` (toolbar/context/command register + activate, `{app_node}` flows, `.ircplugin` round-trip). Full selftest green. Sample: `~/greeter.ircplugin`.
 
-**Next (Phase 2+):** toolbar + right-click + command-palette hooks; in-app panels & dialogs (the `ui.*`-into-a-dock-rect renderer); act-on-active-bot + nav + state; trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) and a richer manager.
+**Next (Phase 3+):** in-app **panels & dialogs** (render `ui.*` scenes into a dock rect / modal - the big one); **act-on-active-bot** + nav + app state; trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) + a richer manager.

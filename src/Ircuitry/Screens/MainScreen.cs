@@ -3930,6 +3930,12 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 _editor.Selection.Clear(); _editor.Selection.Add(n.Id); _app.MarkDirty();
             });
         }
+        // plugin commands + plugin menu items, all searchable in the palette
+        foreach (var c in _plugins.Contributions("command").Concat(_plugins.Contributions("menu")))
+        {
+            var cap = c;
+            A(string.IsNullOrEmpty(cap.Icon) ? "puzzle-piece" : cap.Icon, cap.Label, "plugin", () => _plugins.Activate(cap.PluginId, cap.Kind, cap.Id));
+        }
         return list;
     }
 
