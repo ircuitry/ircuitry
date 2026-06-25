@@ -304,8 +304,16 @@ public static class NodeCatalog
     {
         var app = new Ircuitry.WebBuild.WebApp { Name = name };
         foreach (var sn in c.SourcesInto(statesPin))
+        {
             if (sn.TypeId == "web.state")
                 app.States.Add(new Ircuitry.WebBuild.WebState { Name = sn.GetParam("name"), Init = sn.GetParam("initial"), Kind = sn.GetParam("kind") });
+            else if (sn.TypeId == "web.theme")
+                foreach (var line in sn.GetParam("tokens").Split('\n'))
+                {
+                    int i = line.IndexOf(':');
+                    if (i > 0) app.Tokens.Add((line[..i].Trim(), line[(i + 1)..].Trim()));
+                }
+        }
         var roots = c.SourcesInto(rootPin);
         if (roots.Count > 0) app.Root = WebBuildEl(c, roots[0], 0);
         return app;
@@ -317,6 +325,7 @@ public static class NodeCatalog
         string tag = node.GetParam("tag");
         var el = new Ircuitry.WebBuild.WebEl { Tag = tag.Length > 0 ? tag : "div" };
         var cls = node.GetParam("class"); if (cls.Length > 0) el.Attrs["class"] = cls;
+        var style = node.GetParam("style"); if (style.Length > 0) el.Style = style;
         var bind = node.GetParam("bind");
         if (bind.Length > 0) el.Bind = bind;
         else { var t = node.GetParam("text"); if (t.Length > 0) el.Text = t; }
@@ -4586,6 +4595,15 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "web.theme", Icon = "palette", Title = "Web Theme", Subtitle = "tokens", Category = NodeCategory.Web,
+                Description = "Design tokens for the page, emitted as CSS variables (:root). One per line: name: value (e.g. brand: #6C5CE7). Reference them in element styles as var(--name). Wire into Web Preview / Web Eject's 'states'.",
+                Outputs = new[] { Tx("theme") },
+                Params = new[] { P("tokens", "Tokens", ParamType.Multiline, "brand: #6C5CE7\nbg: #F4EFFB\nink: #2E2940\nradius: 12px", "name: value per line") },
+                SummaryParam = "tokens",
+                Exec = c => { },   // pure declaration: read structurally by Web Preview / Web Eject
+            },
+            new()
+            {
                 TypeId = "web.element", Icon = "browser", Title = "Web Element", Subtitle = "html", Category = NodeCategory.Web,
                 Description = "One HTML element. Set its tag, static text OR a {state} text-binding, a CSS class, and an optional event -> action (e.g. click -> count.inc / count.dec / count.set:5 / open.toggle). Wire child elements into 'children' (in order); wire this into a parent's 'children', or into Web Preview's 'root'.",
                 Inputs = new[] { new PinDef("children", PinKind.Text, true) },   // multi-connect: child elements, in wire order
@@ -4596,6 +4614,7 @@ public static class NodeCatalog
                     P("text", "Text", ParamType.Text, "", "static text (for a leaf)"),
                     P("bind", "Text from state", ParamType.Text, "", "(optional) a state name; shows its live value"),
                     P("class", "CSS class", ParamType.Text, "", ""),
+                    P("style", "Style", ParamType.Text, "", "inline CSS: padding:12px;display:flex;gap:8px;color:var(--brand)"),
                     P("event", "On event", ParamType.Choice, "", "", new[] { "", "click", "input", "change" }),
                     P("action", "Action", ParamType.Text, "", "state.op  e.g. count.inc · count.set:5 · open.toggle"),
                 },

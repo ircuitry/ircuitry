@@ -15,6 +15,7 @@ public sealed class WebApp
 {
     public string Name = "App";
     public List<WebState> States = new();
+    public List<(string Name, string Value)> Tokens = new();   // design tokens -> CSS variables (:root { --name: value })
     public WebEl Root = new() { Tag = "div" };
 }
 
@@ -32,6 +33,7 @@ public sealed class WebEl
 {
     public string Tag = "div";
     public Dictionary<string, string> Attrs = new();   // static attributes (class, type, href, ...)
+    public string? Style;                               // inline CSS, e.g. "padding:12px;display:flex;gap:8px;color:var(--brand)"
     public string? Text;                                // static text content (leaf)
     public string? Bind;                                // dynamic text: the name of a state whose value is shown
     public Dictionary<string, WebAction> On = new();    // dom event ("click") -> action

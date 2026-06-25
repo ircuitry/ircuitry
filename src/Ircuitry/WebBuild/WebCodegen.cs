@@ -26,7 +26,9 @@ public static class WebCodegen
         html.AppendLine("<!doctype html>");
         html.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\">");
         html.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-        html.AppendLine("<title>" + Esc(app.Name) + "</title></head>");
+        html.AppendLine("<title>" + Esc(app.Name) + "</title>");
+        if (app.Tokens.Count > 0) html.AppendLine("<style>" + TokenCss(app) + "</style>");
+        html.AppendLine("</head>");
         html.AppendLine("<body>");
         html.Append(body);
         html.AppendLine("<script>");
@@ -53,6 +55,7 @@ public static class WebCodegen
         string pad = new string(' ', indent);
         var attrs = new StringBuilder();
         foreach (var kv in el.Attrs) attrs.Append(' ').Append(kv.Key).Append("=\"").Append(Esc(kv.Value)).Append('"');
+        if (!string.IsNullOrWhiteSpace(el.Style)) attrs.Append(" style=\"").Append(Esc(el.Style)).Append('"');
         if (el.Bind != null) attrs.Append(" data-b=\"").Append(Esc(el.Bind)).Append('"');
         foreach (var kv in el.On) attrs.Append(" data-on-").Append(kv.Key).Append("=\"").Append(Esc(ActionSpec(kv.Value))).Append('"');
 
@@ -101,6 +104,7 @@ public static class WebCodegen
             string name = kv.Key == "class" ? "className" : kv.Key == "for" ? "htmlFor" : kv.Key;
             attrs.Append(' ').Append(name).Append("=\"").Append(Esc(kv.Value)).Append('"');
         }
+        if (!string.IsNullOrWhiteSpace(el.Style)) attrs.Append(" style={{ ").Append(CssToReactStyle(el.Style!)).Append(" }}");
         foreach (var kv in el.On) attrs.Append(' ').Append(JsxEvent(kv.Key)).Append("={").Append(ReactHandler(kv.Value)).Append('}');
 
         bool hasContent = el.Children.Count > 0 || el.Bind != null || el.Text != null;
@@ -152,8 +156,9 @@ public static class WebCodegen
                 "  \"devDependencies\": { \"@vitejs/plugin-react\": \"^4.3.1\", \"vite\": \"^5.4.0\" }\n}\n",
             ["vite.config.js"] = "import react from '@vitejs/plugin-react';\nexport default { plugins: [react()], server: { host: true } };\n",
             ["index.html"] = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n" +
-                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" + Esc(app.Name) + "</title></head>\n" +
-                "<body><div id=\"root\"></div><script type=\"module\" src=\"/src/main.jsx\"></script></body></html>\n",
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" + Esc(app.Name) + "</title>\n" +
+                (app.Tokens.Count > 0 ? "<style>" + TokenCss(app) + "</style>\n" : "") +
+                "</head>\n<body><div id=\"root\"></div><script type=\"module\" src=\"/src/main.jsx\"></script></body></html>\n",
             ["src/main.jsx"] = "import { StrictMode } from 'react';\nimport { createRoot } from 'react-dom/client';\nimport " + comp + " from './" + comp + ".jsx';\n\n" +
                 "createRoot(document.getElementById('root')).render(<StrictMode><" + comp + " /></StrictMode>);\n",
             ["src/" + comp + ".jsx"] = React(app),
@@ -172,6 +177,34 @@ public static class WebCodegen
         double.TryParse(arg, NumberStyles.Any, CultureInfo.InvariantCulture, out _) ? arg
         : arg == "true" || arg == "false" ? arg
         : "\"" + arg.Replace("\"", "\\\"") + "\"";
+
+    // design tokens -> ":root { --name: value; ... }"
+    private static string TokenCss(WebApp app) =>
+        ":root { " + string.Join(" ", app.Tokens.Where(t => t.Name.Length > 0).Select(t => "--" + t.Name + ": " + t.Value + ";")) + " }";
+
+    // "padding:12px; display:flex; color:var(--brand)" -> "padding: '12px', display: 'flex', color: 'var(--brand)'"
+    private static string CssToReactStyle(string css)
+    {
+        var parts = new List<string>();
+        foreach (var decl in css.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            int i = decl.IndexOf(':');
+            if (i <= 0) continue;
+            string k = decl[..i].Trim(), v = decl[(i + 1)..].Trim();
+            // CSS custom properties (--x) stay quoted-string keys; normal props become camelCase
+            string key = k.StartsWith("--") ? "'" + k + "'" : CamelCss(k);
+            parts.Add(key + ": '" + v.Replace("'", "\\'") + "'");
+        }
+        return string.Join(", ", parts);
+    }
+
+    private static string CamelCss(string k)
+    {
+        var sb = new StringBuilder();
+        bool up = false;
+        foreach (var ch in k) { if (ch == '-') up = true; else { sb.Append(up ? char.ToUpperInvariant(ch) : ch); up = false; } }
+        return sb.ToString();
+    }
 
     private static string Esc(string s) => (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
     private static string JsxText(string s) => (s ?? "").Replace("{", "{'{'}").Replace("}", "{'}'}");

@@ -4171,6 +4171,15 @@ public static class SelfTest
         fails += Expect("web-react-project", proj.ContainsKey("package.json") && proj["package.json"].Contains("\"react\"") && proj["package.json"].Contains("\"vite\"")
             && proj.ContainsKey("src/Counter.jsx") && proj.ContainsKey("src/main.jsx") && proj.ContainsKey("index.html"),
             $"Vite project scaffolded ({string.Join(",", proj.Keys)})");
+
+        // styling: tokens -> CSS variables; element style -> inline (vanilla) / a JS object (React)
+        app.Tokens.Add(("brand", "#6C5CE7"));
+        app.Root.Children[0].Style = "padding:8px;color:var(--brand)";
+        var v2 = Ircuitry.WebBuild.WebCodegen.Vanilla(app);
+        var r2 = Ircuitry.WebBuild.WebCodegen.React(app);
+        fails += Expect("web-style-token", v2.Contains(":root { --brand: #6C5CE7;"), "tokens become CSS variables");
+        fails += Expect("web-style-inline", v2.Contains("style=\"padding:8px;color:var(--brand)\""), "element style is inline (vanilla)");
+        fails += Expect("web-style-react", r2.Contains("style={{ padding: '8px', color: 'var(--brand)' }}"), $"element style becomes a React object");
         return fails;
     }
 
