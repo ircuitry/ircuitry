@@ -2157,6 +2157,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         NodeCategory.Media => "Media",
         NodeCategory.Ui => "UI",
         NodeCategory.App => "App / Plugins",
+        NodeCategory.Web => "Web",
         NodeCategory.Action => "Actions",
         _ => c.ToString(),
     };
@@ -2176,6 +2177,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         NodeCategory.Media => Ircuitry.Core.Icons.Glyph("image"),
         NodeCategory.Ui => Ircuitry.Core.Icons.Glyph("app-window"),
         NodeCategory.App => Ircuitry.Core.Icons.Glyph("puzzle-piece"),
+        NodeCategory.Web => Ircuitry.Core.Icons.Glyph("browser"),
         NodeCategory.Action => Ircuitry.Core.Icons.Glyph("chat-circle"),
         _ => Ircuitry.Core.Icons.Glyph("puzzle-piece"),
     };

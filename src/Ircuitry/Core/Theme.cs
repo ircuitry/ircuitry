@@ -78,6 +78,7 @@ public static class Theme
         NodeCategory.Media => Active.C("gold", "amber"),
         NodeCategory.Ui => Active.C("mint", "teal"),
         NodeCategory.App => Active.C("plugin", "violet"),
+        NodeCategory.Web => Active.C("web", "sky"),
         NodeCategory.Action => Lime,
         _ => Idle,
     };
@@ -123,5 +124,6 @@ public enum NodeCategory
     Media,    // offline knowledge (zim) + media download/transform
     Ui,       // node-authored UI: windows, panels, text, media, controls, animation
     App,      // plugins: hook ircuitry's own chrome (menus, toolbar, panels, right-click) + app events
+    Web,      // node-graph website builder: reactive state, elements, preview, eject
     Action,   // vestigial (former catch-all) - no node maps here after the taxonomy fix
 }

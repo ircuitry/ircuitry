@@ -28,6 +28,10 @@ public interface INodeContext
     /// <summary>All source nodes wired into one of this node's input pins (for multi-connect pins like AI tools).</summary>
     System.Collections.Generic.IReadOnlyList<Node> SourcesInto(int inputIndex);
 
+    /// <summary>The source nodes wired into one of ANOTHER node's input pins, in wire order (for walking a
+    /// structural tree across the graph, e.g. a web page's element children).</summary>
+    System.Collections.Generic.IReadOnlyList<Node> SourcesInto(Node node, int inputIndex);
+
     /// <summary>Synchronously run another node's behaviour within the same execution (used to invoke AI tools).</summary>
     void RunNode(Node node);
 

@@ -298,6 +298,37 @@ public static class NodeCatalog
     private static string UiLabel(INodeContext c, string text) => c.ParamBool("icon") ? Ircuitry.Core.Icons.Glyph(text) : text;
     // a ui.* coordinate/size param that resolves {tokens} first (so a panel can size itself to {app_panel_h} etc.)
     private static int Px(INodeContext c, string key, int def) => (int)MathF.Round(ParseF(c.Resolve(c.Param(key)), def));
+
+    // ---- web builder: turn a wired tree of web.element nodes into the Web-IR (read structurally, never executed) ----
+    private static Ircuitry.WebBuild.WebEl WebBuildEl(INodeContext c, Node node, int depth)
+    {
+        string tag = node.GetParam("tag");
+        var el = new Ircuitry.WebBuild.WebEl { Tag = tag.Length > 0 ? tag : "div" };
+        var cls = node.GetParam("class"); if (cls.Length > 0) el.Attrs["class"] = cls;
+        var bind = node.GetParam("bind");
+        if (bind.Length > 0) el.Bind = bind;
+        else { var t = node.GetParam("text"); if (t.Length > 0) el.Text = t; }
+        var ev = node.GetParam("event"); var act = node.GetParam("action");
+        if (ev.Length > 0 && act.Length > 0) el.On[ev] = WebParseAction(act);
+        if (depth < 64)
+            foreach (var ch in c.SourcesInto(node, 0))           // children, in wire order
+                if (ch.TypeId == "web.element") el.Children.Add(WebBuildEl(c, ch, depth + 1));
+        return el;
+    }
+
+    // "count.inc" | "count.dec" | "count.set:5" | "open.toggle" -> a WebAction
+    private static Ircuitry.WebBuild.WebAction WebParseAction(string s)
+    {
+        var a = new Ircuitry.WebBuild.WebAction();
+        int dot = s.IndexOf('.');
+        if (dot < 0) { a.State = s; return a; }
+        a.State = s[..dot];
+        var rest = s[(dot + 1)..];
+        int colon = rest.IndexOf(':');
+        if (colon >= 0) { a.Op = rest[..colon]; a.Arg = rest[(colon + 1)..]; }
+        else a.Op = rest;
+        return a;
+    }
     private static float ParseF(string s, float def = 0f) => float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : def;
 
     private static string CodeRoot(INodeContext c) => c.Resolve(c.Param("root"));
@@ -4525,6 +4556,65 @@ public static class NodeCatalog
                 },
                 Exec = c => { c.AppGraph("wire", c.InOr(1, c.Resolve(c.Param("from"))) + "#" + c.Param("fromPin"), c.InOr(2, c.Resolve(c.Param("to"))) + "#" + c.Param("toPin"), "", ""); c.Pulse(0); },
             },
+
+            // ===================== WEB (build websites with nodes - vanilla preview now, React eject next) =====================
+            new()
+            {
+                TypeId = "web.state", Icon = "function", Title = "Web State", Subtitle = "reactive", Category = NodeCategory.Web,
+                Description = "A reactive state variable for a web page (a signal). Wire it into Web Preview's 'states', then reference it by name from elements - as a text binding or in a click action like count.inc.",
+                Outputs = new[] { Tx("state") },
+                Params = new[]
+                {
+                    P("name", "Name", ParamType.Text, "count", "the name elements reference"),
+                    P("initial", "Initial", ParamType.Text, "0", ""),
+                    P("kind", "Type", ParamType.Choice, "number", "", new[] { "number", "string", "bool" }),
+                },
+                SummaryParam = "name",
+                Exec = c => { },   // pure declaration: read structurally by Web Preview, never executed
+            },
+            new()
+            {
+                TypeId = "web.element", Icon = "browser", Title = "Web Element", Subtitle = "html", Category = NodeCategory.Web,
+                Description = "One HTML element. Set its tag, static text OR a {state} text-binding, a CSS class, and an optional event -> action (e.g. click -> count.inc / count.dec / count.set:5 / open.toggle). Wire child elements into 'children' (in order); wire this into a parent's 'children', or into Web Preview's 'root'.",
+                Inputs = new[] { new PinDef("children", PinKind.Text, true) },   // multi-connect: child elements, in wire order
+                Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("tag", "Tag", ParamType.Text, "div", "div · button · h1 · p · span · a · input"),
+                    P("text", "Text", ParamType.Text, "", "static text (for a leaf)"),
+                    P("bind", "Text from state", ParamType.Text, "", "(optional) a state name; shows its live value"),
+                    P("class", "CSS class", ParamType.Text, "", ""),
+                    P("event", "On event", ParamType.Choice, "", "", new[] { "", "click", "input", "change" }),
+                    P("action", "Action", ParamType.Text, "", "state.op  e.g. count.inc · count.set:5 · open.toggle"),
+                },
+                SummaryParam = "tag",
+                Exec = c => { },   // pure declaration: read structurally by Web Preview, never executed
+            },
+            new()
+            {
+                TypeId = "web.preview", Icon = "play-circle", Title = "Web Preview", Subtitle = "web", Category = NodeCategory.Web,
+                Description = "Render the wired page live in a webview (ui.web). Wire the root element into 'root' and your Web State nodes into 'states', then trigger this. The vanilla runtime makes it interactive: clicks/inputs in the page update the state and re-render. (Eject to React/Vite is the next node.)",
+                Inputs = new[] { Ex(), Tx("root"), new PinDef("states", PinKind.Text, true) },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("window", "Window", ParamType.Text, "web-preview", ""),
+                    P("title", "Title", ParamType.Text, "Preview", ""),
+                    P("width", "Width", ParamType.Int, "440", ""), P("height", "Height", ParamType.Int, "560", ""),
+                },
+                SummaryParam = "title",
+                Exec = c =>
+                {
+                    var app = new Ircuitry.WebBuild.WebApp { Name = c.Resolve(c.Param("title")) };
+                    foreach (var sn in c.SourcesInto(2))
+                        if (sn.TypeId == "web.state")
+                            app.States.Add(new Ircuitry.WebBuild.WebState { Name = sn.GetParam("name"), Init = sn.GetParam("initial"), Kind = sn.GetParam("kind") });
+                    var roots = c.SourcesInto(1);
+                    if (roots.Count > 0) app.Root = WebBuildEl(c, roots[0], 0);
+                    c.UiWeb(c.Resolve(c.Param("window")), "", Ircuitry.WebBuild.WebCodegen.Vanilla(app), c.ParamInt("width", 440), c.ParamInt("height", 560), c.Resolve(c.Param("title")));
+                    c.Pulse(0);
+                },
+            },
         };
 
         // authoritative categorisation: one mapping is the source of truth for every node's family, so the
@@ -4621,6 +4711,7 @@ public static class NodeCatalog
             "zim" or "media" => NodeCategory.Media,
             "ui" => NodeCategory.Ui,
             "app" => NodeCategory.App,
+            "web" => NodeCategory.Web,
             "num" or "gen" or "data" => NodeCategory.Data,
             _ => NodeCategory.Action,   // vestigial; nothing should land here
         };
@@ -4633,7 +4724,7 @@ public static class NodeCatalog
         {
             NodeCategory.Event, NodeCategory.Filter, NodeCategory.Logic, NodeCategory.Data, NodeCategory.Ai,
             NodeCategory.Storage, NodeCategory.Network, NodeCategory.Irc, NodeCategory.Ircv3, NodeCategory.Code,
-            NodeCategory.Media, NodeCategory.Ui, NodeCategory.Action,
+            NodeCategory.Media, NodeCategory.Ui, NodeCategory.App, NodeCategory.Web, NodeCategory.Action,
         };
         return All.GroupBy(d => d.Category).OrderBy(g => Array.IndexOf(order, g.Key));
     }

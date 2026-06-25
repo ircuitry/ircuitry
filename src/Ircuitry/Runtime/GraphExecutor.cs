@@ -310,6 +310,7 @@ public static class GraphExecutor
         public void Pulse(int execOutputIndex) => Pulses.Add(execOutputIndex);
         public void Run(int execOutputIndex) => _run.RunOutput(_node, execOutputIndex);
         public System.Collections.Generic.IReadOnlyList<Node> SourcesInto(int inputIndex) => _run.SourcesInto(_node, inputIndex);
+        public System.Collections.Generic.IReadOnlyList<Node> SourcesInto(Node node, int inputIndex) => _run.SourcesInto(node, inputIndex);
         public void RunNode(Node node) => _run.RunExec(node);
         public void InvalidatePure() => _run.InvalidatePure();
         public Dictionary<string, string> RunSubflow(NodeGraph sub, Dictionary<string, string> inputs) => _run.RunSubflow(sub, inputs);

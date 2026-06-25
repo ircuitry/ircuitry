@@ -1,0 +1,27 @@
+{
+ "format": "ircuitry.workflow.v1",
+ "name": "Web Counter",
+ "description": "Build a website with nodes: a reactive counter. web.state + web.element tree + web.preview render a live, interactive page in a webview - click +1 / -1 and the count updates. Hit RUN.",
+ "author": "ircuitry",
+ "category": "Utility",
+ "tags": ["web", "counter", "demo"],
+ "nodes": [
+  { "id": "start", "type": "event.start", "x": 0,   "y": 0,   "params": {} },
+  { "id": "prev",  "type": "web.preview", "x": 260, "y": 0,   "params": { "window": "counter", "title": "Counter", "width": "360", "height": "320" } },
+
+  { "id": "count", "type": "web.state",   "x": 0,   "y": 200, "params": { "name": "count", "initial": "0", "kind": "number" } },
+  { "id": "root",  "type": "web.element", "x": 260, "y": 200, "params": { "tag": "div", "class": "app" } },
+  { "id": "plus",  "type": "web.element", "x": 520, "y": 120, "params": { "tag": "button", "text": "+1", "event": "click", "action": "count.inc" } },
+  { "id": "minus", "type": "web.element", "x": 520, "y": 220, "params": { "tag": "button", "text": "-1", "event": "click", "action": "count.dec" } },
+  { "id": "label", "type": "web.element", "x": 520, "y": 320, "params": { "tag": "h1", "bind": "count" } }
+ ],
+ "connections": [
+  { "from": "start", "fromPin": 0, "to": "prev",  "toPin": 0 },
+  { "from": "root",  "fromPin": 0, "to": "prev",  "toPin": 1 },
+  { "from": "count", "fromPin": 0, "to": "prev",  "toPin": 2 },
+
+  { "from": "plus",  "fromPin": 0, "to": "root",  "toPin": 0 },
+  { "from": "minus", "fromPin": 0, "to": "root",  "toPin": 0 },
+  { "from": "label", "fromPin": 0, "to": "root",  "toPin": 0 }
+ ]
+}

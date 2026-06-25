@@ -306,6 +306,7 @@ public static class SelfTest
         fails += PluginSettingsTest();
         fails += UnknownNodePreserveTest();
         fails += WebCounterTest();
+        fails += WebNodesCounterTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -4169,6 +4170,38 @@ public static class SelfTest
         fails += Expect("web-react-project", proj.ContainsKey("package.json") && proj["package.json"].Contains("\"react\"") && proj["package.json"].Contains("\"vite\"")
             && proj.ContainsKey("src/Counter.jsx") && proj.ContainsKey("src/main.jsx") && proj.ContainsKey("index.html"),
             $"Vite project scaffolded ({string.Join(",", proj.Keys)})");
+        return fails;
+    }
+
+    /// <summary>The Web nodes wired as an actual graph: web.state + a tree of web.element + web.preview. Firing
+    /// preview walks the wired tree (SourcesInto) into the Web-IR, compiles the vanilla page, and hands it to ui.web.
+    /// Proves graph -> IR -> live preview through the real nodes (the "build a page with nodes" path).</summary>
+    private static int WebNodesCounterTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var count = N(g, "web.state", 0, 0); count.SetParam("name", "count"); count.SetParam("initial", "0"); count.SetParam("kind", "number");
+        var plus = N(g, "web.element", 1, 0); plus.SetParam("tag", "button"); plus.SetParam("text", "+1"); plus.SetParam("event", "click"); plus.SetParam("action", "count.inc");
+        var minus = N(g, "web.element", 1, 1); minus.SetParam("tag", "button"); minus.SetParam("text", "-1"); minus.SetParam("event", "click"); minus.SetParam("action", "count.dec");
+        var label = N(g, "web.element", 1, 2); label.SetParam("tag", "h1"); label.SetParam("bind", "count");
+        var root = N(g, "web.element", 2, 0); root.SetParam("tag", "div");
+        var prev = N(g, "web.preview", 3, 0); prev.SetParam("title", "Counter"); prev.SetParam("window", "wp");
+
+        g.Connect(plus.Id, 0, root.Id, 0);    // children, in wire order: +1, -1, h1
+        g.Connect(minus.Id, 0, root.Id, 0);
+        g.Connect(label.Id, 0, root.Id, 0);
+        g.Connect(root.Id, 0, prev.Id, 1);    // root element -> preview.root
+        g.Connect(count.Id, 0, prev.Id, 2);   // state -> preview.states
+
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, prev, new Dictionary<string, string>());
+
+        fails += Expect("web-nodes-rendered", sink.WebOpens.Count == 1 && sink.WebOpens[0].id == "wp", $"preview pushed one page to ui.web ({sink.WebOpens.Count})");
+        string html = sink.WebOpens.Count > 0 ? sink.WebOpens[0].html : "";
+        fails += Expect("web-nodes-state", html.Contains("var s = { count: 0 }"), "state gathered from the wired web.state node");
+        fails += Expect("web-nodes-actions", html.Contains("data-on-click=\"count:inc:\"") && html.Contains("data-on-click=\"count:dec:\""), "both button actions made it into the page");
+        fails += Expect("web-nodes-bind", html.Contains("data-b=\"count\""), "the h1 binding made it in");
+        fails += Expect("web-nodes-order", html.IndexOf(">+1<") < html.IndexOf(">-1<") && html.IndexOf(">-1<") < html.IndexOf("data-b=\"count\""), "children kept wire order (+1, -1, h1)");
         return fails;
     }
 
