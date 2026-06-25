@@ -178,6 +178,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showgh") >= 0) ms?.DebugShowGh();
         if (Array.IndexOf(_args, "--showinstall") >= 0) ms?.DebugOpenInstall();
         if (Array.IndexOf(_args, "--showplugininstall") >= 0) ms?.DebugStagePluginInstall();
+        if (Array.IndexOf(_args, "--showpluginsettings") >= 0) ms?.DebugOpenPluginSettings();
         if (Array.IndexOf(_args, "--showinstallclip") >= 0) ms?.DebugInstallClip();
         if (Array.IndexOf(_args, "--showuninstall") >= 0) ms?.DebugOpenUninstall();
         if (Array.IndexOf(_args, "--showircwindow") >= 0) ms?.DebugOpenIrcWindow();

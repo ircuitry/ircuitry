@@ -110,6 +110,8 @@ public interface INodeContext
     void AppDialog(string title, string message, string okLabel);
     void AppConfirm(string title, string message, string okLabel, string cancelLabel);
     string AppGraph(string op, string a1, string a2, string a3, string a4);
+    void AppSettingsField(string key, string label, string type, string placeholder);
+    void AppOpenSettings();
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

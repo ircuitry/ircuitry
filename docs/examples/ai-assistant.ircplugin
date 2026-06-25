@@ -1,0 +1,73 @@
+{
+ "format": "ircuitry.plugin.v1",
+ "name": "AI Assistant",
+ "version": "1.0.0",
+ "icon": "robot",
+ "description": "Chat with an AI in a side panel. It can view and edit any of your workflows when you ask. Click the gear to set your API base URL, model, and key (the key is picked from your saved secrets). Works with any OpenAI-compatible API.",
+ "permissions": [ "edit-graph", "network", "panel", "settings" ],
+ "nodes": [
+  { "id": "s",   "type": "app.start", "x": 0, "y": 0, "params": {} },
+  { "id": "pn",  "type": "app.panel", "x": 200, "y": 0, "params": { "id": "ai", "title": "AI Assistant", "icon": "robot", "dock": "right" } },
+  { "id": "sf1", "type": "app.settings", "x": 400, "y": 0, "params": { "key": "ai_baseurl", "label": "API base URL", "type": "text", "placeholder": "https://api.openai.com/v1" } },
+  { "id": "sf2", "type": "app.settings", "x": 600, "y": 0, "params": { "key": "ai_model", "label": "Model", "type": "text", "placeholder": "gpt-4o-mini" } },
+  { "id": "sf3", "type": "app.settings", "x": 800, "y": 0, "params": { "key": "ai_key", "label": "API key", "type": "secret", "placeholder": "" } },
+  { "id": "dv1", "type": "data.setvar", "x": 1000, "y": 0, "params": { "name": "ai_baseurl", "mode": "default", "value": "https://api.openai.com/v1" } },
+  { "id": "dv2", "type": "data.setvar", "x": 1200, "y": 0, "params": { "name": "ai_model", "mode": "default", "value": "gpt-4o-mini" } },
+  { "id": "dv3", "type": "data.setvar", "x": 1400, "y": 0, "params": { "name": "chat", "mode": "default", "value": "Hi! Ask me anything, or tell me to look at or edit one of your workflows.\n\n" } },
+
+  { "id": "ob",   "type": "app.on", "x": 0, "y": 220, "params": { "event": "panel", "id": "ai" } },
+  { "id": "w",    "type": "ui.window", "x": 180, "y": 220, "params": { "window": "ai", "title": "AI Assistant", "bg": "#10131A" } },
+  { "id": "title","type": "ui.text", "x": 360, "y": 220, "params": { "window": "ai", "id": "title", "x": "6", "y": "5", "text": "AI assistant", "size": "14", "font": "display", "color": "#A99CFF" } },
+  { "id": "gear", "type": "ui.button", "x": 540, "y": 220, "params": { "window": "ai", "id": "gear", "x": "232", "y": "4", "w": "24", "h": "22", "text": "gear", "icon": "true", "color": "#241F33", "textColor": "#C9C0E0", "radius": "7" } },
+  { "id": "out",  "type": "ui.input", "x": 720, "y": 220, "params": { "window": "ai", "id": "out", "x": "2", "y": "32", "w": "256", "h": "392", "text": "{chat}", "color": "#222734", "font": "sans", "size": "13", "multiline": "true" } },
+  { "id": "cmd",  "type": "ui.input", "x": 900, "y": 220, "params": { "window": "ai", "id": "cmd", "x": "2", "y": "430", "w": "256", "h": "30", "text": "", "color": "#2A2F3A", "font": "sans", "size": "13", "multiline": "false" } },
+
+  { "id": "og",  "type": "ui.on", "x": 0, "y": 440, "params": { "window": "ai", "event": "click", "id": "gear" } },
+  { "id": "opn", "type": "app.opensettings", "x": 200, "y": 440, "params": {} },
+
+  { "id": "os",    "type": "ui.on", "x": 0, "y": 620, "params": { "window": "ai", "event": "submit", "id": "cmd" } },
+  { "id": "echo",  "type": "data.setvar", "x": 180, "y": 620, "params": { "name": "chat", "mode": "set", "value": "{chat}You: {ui_value}\n\n" } },
+  { "id": "ref1",  "type": "ui.input", "x": 360, "y": 620, "params": { "window": "ai", "id": "out", "x": "2", "y": "32", "w": "256", "h": "392", "text": "{chat}", "color": "#222734", "font": "sans", "size": "13", "multiline": "true" } },
+  { "id": "clr",   "type": "ui.input", "x": 540, "y": 620, "params": { "window": "ai", "id": "cmd", "x": "2", "y": "430", "w": "256", "h": "30", "text": "", "color": "#2A2F3A", "font": "sans", "size": "13", "multiline": "false" } },
+  { "id": "memu",  "type": "ai.memory", "x": 720, "y": 620, "params": { "session": "ai", "mode": "remember", "role": "user", "text": "{ui_value}", "max": "16" } },
+  { "id": "recall","type": "ai.memory", "x": 900, "y": 620, "params": { "session": "ai", "mode": "recall", "max": "16" } },
+  { "id": "ai",    "type": "ai.reply", "x": 1080, "y": 620, "params": { "baseUrl": "{ai_baseurl}", "model": "{ai_model}", "apiKey": "{ai_key}", "system": "You are a helpful assistant embedded in ircuitry, a visual node-graph bot builder. When the user asks about or wants to change their workflows (bots), use your tools to read and edit them. Keep replies short and friendly.", "prompt": "{ui_value}", "maxTokens": "700", "timeout": "60" } },
+  { "id": "editor","type": "ai.editor", "x": 1080, "y": 800, "params": { "bot": "", "mode": "edit" } },
+  { "id": "svr",   "type": "data.setvar", "x": 1260, "y": 620, "params": { "name": "reply_var", "mode": "set" } },
+  { "id": "mema",  "type": "ai.memory", "x": 1440, "y": 620, "params": { "session": "ai", "mode": "remember", "role": "assistant", "max": "16" } },
+  { "id": "show",  "type": "data.setvar", "x": 1620, "y": 620, "params": { "name": "chat", "mode": "set", "value": "{chat}AI: {reply_var}\n\n" } },
+  { "id": "ref2",  "type": "ui.input", "x": 1800, "y": 620, "params": { "window": "ai", "id": "out", "x": "2", "y": "32", "w": "256", "h": "392", "text": "{chat}", "color": "#222734", "font": "sans", "size": "13", "multiline": "true" } }
+ ],
+ "connections": [
+  { "from": "s",   "fromPin": 0, "to": "pn",  "toPin": 0 },
+  { "from": "pn",  "fromPin": 0, "to": "sf1", "toPin": 0 },
+  { "from": "sf1", "fromPin": 0, "to": "sf2", "toPin": 0 },
+  { "from": "sf2", "fromPin": 0, "to": "sf3", "toPin": 0 },
+  { "from": "sf3", "fromPin": 0, "to": "dv1", "toPin": 0 },
+  { "from": "dv1", "fromPin": 0, "to": "dv2", "toPin": 0 },
+  { "from": "dv2", "fromPin": 0, "to": "dv3", "toPin": 0 },
+
+  { "from": "ob",   "fromPin": 0, "to": "w",     "toPin": 0 },
+  { "from": "w",    "fromPin": 0, "to": "title", "toPin": 0 },
+  { "from": "title","fromPin": 0, "to": "gear",  "toPin": 0 },
+  { "from": "gear", "fromPin": 0, "to": "out",   "toPin": 0 },
+  { "from": "out",  "fromPin": 0, "to": "cmd",   "toPin": 0 },
+
+  { "from": "og",  "fromPin": 0, "to": "opn", "toPin": 0 },
+
+  { "from": "os",     "fromPin": 0, "to": "echo",   "toPin": 0 },
+  { "from": "echo",   "fromPin": 0, "to": "ref1",   "toPin": 0 },
+  { "from": "ref1",   "fromPin": 0, "to": "clr",    "toPin": 0 },
+  { "from": "clr",    "fromPin": 0, "to": "memu",   "toPin": 0 },
+  { "from": "memu",   "fromPin": 0, "to": "recall", "toPin": 0 },
+  { "from": "recall", "fromPin": 0, "to": "ai",     "toPin": 0 },
+  { "from": "recall", "fromPin": 1, "to": "ai",     "toPin": 1 },
+  { "from": "editor", "fromPin": 0, "to": "ai",     "toPin": 2 },
+  { "from": "ai",     "fromPin": 0, "to": "svr",    "toPin": 0 },
+  { "from": "ai",     "fromPin": 1, "to": "svr",    "toPin": 1 },
+  { "from": "svr",    "fromPin": 0, "to": "mema",   "toPin": 0 },
+  { "from": "ai",     "fromPin": 1, "to": "mema",   "toPin": 1 },
+  { "from": "mema",   "fromPin": 0, "to": "show",   "toPin": 0 },
+  { "from": "show",   "fromPin": 0, "to": "ref2",   "toPin": 0 }
+ ]
+}

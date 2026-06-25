@@ -443,6 +443,8 @@ public static class GraphExecutor
         public void AppConfirm(string title, string message, string okLabel, string cancelLabel)
             => _run.Sink.AppConfirm(_node, new Dictionary<string, string>(_run.Vars), title, message, okLabel, cancelLabel);
         public string AppGraph(string op, string a1, string a2, string a3, string a4) => _run.Sink.AppGraph(op, a1, a2, a3, a4);
+        public void AppSettingsField(string key, string label, string type, string placeholder) => _run.Sink.AppSettingsField(key, label, type, placeholder);
+        public void AppOpenSettings() => _run.Sink.AppOpenSettings();
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

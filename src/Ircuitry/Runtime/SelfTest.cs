@@ -302,6 +302,7 @@ public static class SelfTest
         fails += PluginTerminalTest();
         fails += PluginThreadTest();
         fails += PluginTrustTest();
+        fails += PluginSettingsTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3748,6 +3749,8 @@ public static class SelfTest
             GraphOps.Add(op + ":" + a1 + ":" + a2 + ":" + a3);
             return op == "add" ? "gnode" + (++_gid) : op == "wire" ? "1" : a1;
         }
+        public readonly List<string> SettingsOpened = new();
+        public void OpenSettings(string pluginId) => SettingsOpened.Add(pluginId);
     }
 
     /// <summary>The plugin MANAGER loop end-to-end: enabling a plugin registers its menu contribution, activating
@@ -4049,6 +4052,51 @@ public static class SelfTest
             var p3 = m3.Plugins.FirstOrDefault(p => p.Name == "Dropped");
             fails += Expect("plugin-trust-disabled", p3 != null && !p3.Pending && !p3.Enabled && m3.Contributions("menu").Count == 0,
                 $"a disabled plugin stays off across restart ({p3?.Pending}/{p3?.Enabled})");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", prev);
+            try { System.IO.Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
+    }
+
+    /// <summary>Plugin settings: app.settings declares a form field; the saved value is exposed as a {token} the
+    /// plugin's flows resolve; app.opensettings opens the modal; and the saved config persists across a reload.</summary>
+    private static int PluginSettingsTest()
+    {
+        int fails = 0;
+        string? prev = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-selftest-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            var g = new NodeGraph();
+            var st = N(g, "app.start", 0, 0);
+            var sf = N(g, "app.settings", 1, 0); sf.SetParam("key", "ai_model"); sf.SetParam("label", "Model"); sf.SetParam("type", "text");
+            g.Connect(st.Id, 0, sf.Id, 0);
+            var on = N(g, "app.on", 0, 1); on.SetParam("event", "command");
+            var toast = N(g, "app.toast", 1, 1); toast.SetParam("message", "model={ai_model}");
+            var open = N(g, "app.opensettings", 2, 1);
+            g.Connect(on.Id, 0, toast.Id, 0); g.Connect(toast.Id, 0, open.Id, 0);
+            string json = Ircuitry.App.PluginBundle.Save("P", "1.0.0", "puzzle-piece", "", g);
+
+            var app = new FakeApp();
+            var mgr = new Ircuitry.App.PluginManager(app);
+            mgr.Install(json);                                         // installs + approves + enables
+            fails += Expect("plugin-settings-schema", mgr.SettingsSchema("P").Any(f => f.Key == "ai_model" && f.Label == "Model"), "app.settings declares a form field");
+            mgr.SetConfig("P", "ai_model", "gpt-4o");
+            mgr.Activate("P", "command", "go");
+            fails += Expect("plugin-settings-token", app.Toasts.Any(t => t.Contains("model=gpt-4o")), $"a saved setting resolves as {{token}} ({string.Join("|", app.Toasts)})");
+            fails += Expect("plugin-settings-open", app.SettingsOpened.Contains("P"), "app.opensettings opens the modal");
+            fails += Expect("plugin-settings-perm", Ircuitry.App.PluginBundle.PermissionsFor(g).Contains("settings"), "settings nodes derive the settings permission");
+
+            // reload from disk: the saved config seeds the plugin's tokens again
+            var app2 = new FakeApp();
+            var mgr2 = new Ircuitry.App.PluginManager(app2);
+            mgr2.LoadInstalled();
+            mgr2.Activate("P", "command", "go");
+            fails += Expect("plugin-settings-persist", app2.Toasts.Any(t => t.Contains("model=gpt-4o")), $"settings persist across reload ({string.Join("|", app2.Toasts)})");
         }
         finally
         {

@@ -294,6 +294,8 @@ public static class NodeCatalog
     }
 
     private static string? NullIf(string s) => string.IsNullOrEmpty(s) ? null : s;
+    // a ui.* label, optionally rendered as a Phosphor icon (the 'icon' param turns the text into its glyph)
+    private static string UiLabel(INodeContext c, string text) => c.ParamBool("icon") ? Ircuitry.Core.Icons.Glyph(text) : text;
     private static float ParseF(string s, float def = 0f) => float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : def;
 
     private static string CodeRoot(INodeContext c) => c.Resolve(c.Param("root"));
@@ -1496,13 +1498,15 @@ public static class NodeCatalog
                         }
                     }
 
-                    // baseUrl/model are Resolve()d (not apiKey - that carries {{secret}} handled downstream) so a
-                    // composite can expose them as {tokens}; e.g. the SuperAI recipe sets model = "{model}".
+                    // baseUrl/model/apiKey are Resolve()d so a composite (or a plugin's settings) can expose them as
+                    // {tokens}; e.g. the SuperAI recipe sets model = "{model}". apiKey resolves {var} -> a
+                    // {{secret.NAME}} reference -> the key, so a settings panel can store the chosen secret in a var.
                     int aiTimeout = Math.Clamp(c.ParamInt("timeout", 120), 5, 1800);
+                    string apiKey = Ircuitry.Core.Secrets.Expand(c.Resolve(c.Node.GetParam("apiKey")));
                     if (defs.Count == 0)
-                        reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err, aiTimeout, onUsage: c.RecordTokens);
+                        reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), apiKey, c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err, aiTimeout, onUsage: c.RecordTokens);
                     else
-                        reply = Ai.ChatWithTools(c.Resolve(c.Param("baseUrl")), c.Param("apiKey"), c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
+                        reply = Ai.ChatWithTools(c.Resolve(c.Param("baseUrl")), apiKey, c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
                             (name, args) =>
                             {
                                 if (mcpRoute.TryGetValue(name, out var mc))     // an external MCP server's tool
@@ -4001,9 +4005,10 @@ public static class NodeCatalog
                     P("size", "Font size", ParamType.Int, "18", ""),
                     P("font", "Font", ParamType.Choice, "sans", "", new[] { "sans", "bold", "mono", "monobold", "display" }),
                     P("color", "Colour", ParamType.Text, "#F2EEF7", "#rrggbb"),
+                    P("icon", "Icon", ParamType.Bool, "false", "render the text as a Phosphor icon name (e.g. gear)"),
                 },
                 SummaryParam = "text",
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Text, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), Text = c.InOr(1, c.Resolve(c.Param("text"))), FontSize = c.ParamInt("size", 18), Font = c.Param("font"), Color = UiColor(c.Resolve(c.Param("color")), 0xF2EEF7FF) }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Text, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), Text = UiLabel(c, c.InOr(1, c.Resolve(c.Param("text")))), FontSize = c.ParamInt("size", 18), Font = c.Param("font"), Color = UiColor(c.Resolve(c.Param("color")), 0xF2EEF7FF) }); c.Pulse(0); },
             },
             new()
             {
@@ -4068,9 +4073,10 @@ public static class NodeCatalog
                     P("color", "Colour", ParamType.Text, "#6C5CE7", "#rrggbb"),
                     P("textColor", "Text colour", ParamType.Text, "#FFFFFF", "#rrggbb"),
                     P("radius", "Corner radius", ParamType.Int, "14", ""),
+                    P("icon", "Icon", ParamType.Bool, "false", "render the label as a Phosphor icon name (e.g. gear)"),
                 },
                 SummaryParam = "text",
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Button, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 160), H = c.ParamInt("h", 48), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x6C5CE7FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xFFFFFFFF), Radius = c.ParamInt("radius", 14) }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Button, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 160), H = c.ParamInt("h", 48), Text = UiLabel(c, c.Resolve(c.Param("text"))), Color = UiColor(c.Resolve(c.Param("color")), 0x6C5CE7FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xFFFFFFFF), Radius = c.ParamInt("radius", 14) }); c.Pulse(0); },
             },
             new()
             {
@@ -4333,6 +4339,29 @@ public static class NodeCatalog
                 },
                 SummaryParam = "title",
                 Exec = c => { c.AppContribute("panel", c.Resolve(c.Param("id")), c.Resolve(c.Param("title")), c.Param("icon"), c.Param("dock")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.settings", Icon = "faders", Title = "Settings Field", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Declare one field of this plugin's settings form. The user's value is saved and exposed as a {key} token your flows can use. Type 'secret' shows a key picker and stores a {{secret.NAME}} reference (use it for API keys). Chain several, then open the form with Open Settings.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("key", "Key", ParamType.Text, "setting", "the {token} name your flow reads"),
+                    P("label", "Label", ParamType.Text, "Setting", ""),
+                    P("type", "Type", ParamType.Choice, "text", "", new[] { "text", "password", "secret" }),
+                    P("placeholder", "Placeholder", ParamType.Text, "", ""),
+                },
+                SummaryParam = "label",
+                Exec = c => { c.AppSettingsField(c.Resolve(c.Param("key")), c.Resolve(c.Param("label")), c.Param("type"), c.Resolve(c.Param("placeholder"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.opensettings", Icon = "gear", Title = "Open Settings", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Open this plugin's settings modal (the fields declared with Settings Field). Wire a gear button's On UI Event into this.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                SummaryParam = "",
+                Exec = c => { c.AppOpenSettings(); c.Pulse(0); },
             },
             new()
             {

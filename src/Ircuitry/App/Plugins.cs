@@ -24,6 +24,14 @@ public interface IAppHost
     void Dialog(string title, string message, string okLabel);                                           // OK message box
     void Confirm(string pluginId, string nodeId, string title, string message, string okLabel, string cancelLabel);   // yes/no -> resumes the plugin
     string GraphEdit(string op, string a1, string a2, string a3, string a4);                             // edit the active bot's graph
+    void OpenSettings(string pluginId);                                                                  // open a plugin's settings modal
+}
+
+/// <summary>One field of a plugin's settings form. <see cref="Type"/>: text | password | secret (secret uses the
+/// key picker and stores a <c>{{secret.NAME}}</c> reference). The value is saved as persisted config + a state var.</summary>
+public sealed class SettingsField
+{
+    public string Key = "", Label = "", Type = "text", Placeholder = "";
 }
 
 /// <summary>A piece of chrome a plugin contributed: a menu item, toolbar button, command, context item or panel.
@@ -71,6 +79,8 @@ public sealed class AppSink : IRuntimeSink
     public void AppConfirm(Ircuitry.Graph.Node node, Dictionary<string, string> vars, string title, string message, string okLabel, string cancelLabel)
         => _host.BeginConfirm(node, vars, title, message, okLabel, cancelLabel);
     public string AppGraph(string op, string a1, string a2, string a3, string a4) => _host.Manager.App.GraphEdit(op, a1, a2, a3, a4);
+    public void AppSettingsField(string key, string label, string type, string placeholder) => _host.AddSettingsField(key, label, type, placeholder);
+    public void AppOpenSettings() => _host.Manager.App.OpenSettings(_host.Id);
 
     // ---- in-app panel scene building (the plugin's ui.* nodes draw into a dock panel, not an OS window) ----
     public void UiWindow(string id, string title, int width, int height, uint bg) => _host.UiWindow(id, title, width, height, bg);
@@ -110,6 +120,14 @@ public sealed class PluginHost
     public readonly Dictionary<string, string> State = new();
     public readonly PluginManager Manager;
     private readonly AppSink _sink;
+
+    /// <summary>The settings form this plugin declared via app.settings (in order). Read by the settings modal.</summary>
+    public readonly List<SettingsField> SettingsFields = new();
+    public void AddSettingsField(string key, string label, string type, string placeholder)
+    { lock (SettingsFields) if (!SettingsFields.Any(f => f.Key == key)) SettingsFields.Add(new SettingsField { Key = key, Label = label, Type = type, Placeholder = placeholder }); }
+    /// <summary>Apply a configured setting value: persisted by the manager, and set as a state var (on the worker, so
+    /// it's serialised with the plugin's flows) so {tokens} pick it up.</summary>
+    public void ApplyConfig(string key, string value) => Schedule(() => State[key] = value);
 
     // A plugin's flows run on its OWN single worker thread (so a blocking node - container.exec, net.http, a delay -
     // never freezes the editor UI). One thread per plugin serialises that plugin's flows, so its State/Scenes are
@@ -273,6 +291,36 @@ public sealed class PluginManager
     private void SaveRegistry()
     { try { Directory.CreateDirectory(Dir); File.WriteAllText(RegistryPath, JsonSerializer.Serialize(_registry, new JsonSerializerOptions { WriteIndented = true })); } catch { /* best effort */ } }
 
+    // persisted plugin settings: pluginName -> (settingKey -> value). Loaded into each host's state on enable so a
+    // plugin's {tokens} resolve to what the user configured in its settings modal.
+    private Dictionary<string, Dictionary<string, string>> _configs = new();
+    private static string ConfigPath => Path.Combine(Dir, "config.json");
+    private void LoadConfigs()
+    { try { if (File.Exists(ConfigPath)) _configs = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(File.ReadAllText(ConfigPath)) ?? new(); } catch { _configs = new(); } }
+    private void SaveConfigs()
+    { try { Directory.CreateDirectory(Dir); File.WriteAllText(ConfigPath, JsonSerializer.Serialize(_configs, new JsonSerializerOptions { WriteIndented = true })); } catch { /* best effort */ } }
+
+    /// <summary>The settings form a plugin declared (empty if none / disabled).</summary>
+    public IReadOnlyList<SettingsField> SettingsSchema(string pluginId)
+    {
+        PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
+        if (h == null) return new List<SettingsField>();
+        lock (h.SettingsFields) return h.SettingsFields.ToList();
+    }
+
+    /// <summary>The current saved value of one of a plugin's settings ("" if unset).</summary>
+    public string GetConfig(string pluginId, string key)
+    { lock (_gate) return _configs.TryGetValue(pluginId, out var d) && d.TryGetValue(key, out var v) ? v : ""; }
+
+    /// <summary>Save one of a plugin's settings: persist it + push it into the running plugin's state.</summary>
+    public void SetConfig(string pluginId, string key, string value)
+    {
+        lock (_gate) { if (!_configs.TryGetValue(pluginId, out var d)) { d = new(); _configs[pluginId] = d; } d[key] = value; }
+        SaveConfigs();
+        PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
+        h?.ApplyConfig(key, value);
+    }
+
     /// <summary><paramref name="threaded"/> runs each plugin's flows on its own worker thread (the app); tests pass
     /// false to keep flows synchronous + inline.</summary>
     public PluginManager(IAppHost app, bool threaded = false) { App = app; _threaded = threaded; }
@@ -350,6 +398,9 @@ public sealed class PluginManager
         lock (_gate) _hosts[p.Name] = host;
         p.Enabled = true; p.Pending = false;
         if (persist) { _registry[p.Name] = new RegEntry { Enabled = true, Permissions = p.Permissions.ToList() }; SaveRegistry(); }
+        // seed saved settings into the plugin's state so its {tokens} resolve to what the user configured, before it runs
+        Dictionary<string, string>? cfg; lock (_gate) _configs.TryGetValue(p.Name, out cfg);
+        if (cfg != null) foreach (var kv in cfg) host.ApplyConfig(kv.Key, kv.Value);
         host.Start();   // register contributions
     }
 
@@ -373,6 +424,7 @@ public sealed class PluginManager
         lock (_gate) { old = _hosts.Values.ToList(); _plugins.Clear(); _hosts.Clear(); _contribs.Clear(); }
         foreach (var h in old) h.Dispose();
         LoadRegistry();
+        LoadConfigs();
         string dir = Dir;
         if (!Directory.Exists(dir)) return;
         foreach (var f in Directory.GetFiles(dir, "*.ircplugin"))
@@ -487,10 +539,12 @@ public static class PluginBundle
                 case "app.bot": perms.Add("control-bots"); break;
                 case "app.nav": perms.Add("navigate"); break;
                 case "app.info": perms.Add("app-state"); break;
+                case "app.settings": case "app.opensettings": perms.Add("settings"); break;
+                case "ai.editor": perms.Add("edit-graph"); break;   // gives the AI the workflow-editing tools
                 default:
                     if (n.TypeId.StartsWith("app.graph", StringComparison.Ordinal)) perms.Add("edit-graph");
                     else if (n.TypeId.StartsWith("container.", StringComparison.Ordinal) || n.TypeId == "code.run") perms.Add("run-commands");
-                    else if (n.TypeId == "net.http" || n.TypeId.StartsWith("socket.", StringComparison.Ordinal)) perms.Add("network");
+                    else if (n.TypeId == "net.http" || n.TypeId.StartsWith("socket.", StringComparison.Ordinal) || n.TypeId == "ai.reply" || n.TypeId == "ai.programmer" || n.TypeId == "ai.mcp") perms.Add("network");
                     break;
             }
         }

@@ -223,6 +223,12 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private Ircuitry.App.PluginMeta? _pluginInstallMeta;
     private bool _pluginReviewChecked;   // prompted once this session about any plugins awaiting review
 
+    // a plugin's settings modal (its app.settings fields; secret fields use the key picker)
+    private bool _pluginSettingsOpen, _pluginSettingsJustOpened;
+    private string _pluginSettingsId = "";
+    private List<Ircuitry.App.SettingsField> _pluginSettingsFields = new();
+    private Dictionary<string, string> _pluginSettingsDraft = new();
+
     // try-before-install: run a community item in a throwaway Test Bench without adding it to the workspace
     private NodeGraph? _testEphemeral;
     private string _testEphemeralName = "", _testEphemeralType = "";
@@ -264,7 +270,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _pluginDialog != null || _pluginInstallOpen || _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _timelineOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
+    private bool Modal => _pluginDialog != null || _pluginInstallOpen || _pluginSettingsOpen || _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _timelineOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -483,6 +489,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         "edit-graph" => ("flow-arrow", "Add and change nodes in the open bot"),
         "run-commands" => ("terminal-window", "Run sandboxed shell commands"),
         "network" => ("globe", "Make network requests"),
+        "settings" => ("faders", "Has its own settings"),
         _ => ("puzzle-piece", perm),
     };
 
@@ -526,6 +533,84 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         }
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_pluginInstallJustOpened) _pluginInstallOpen = false;
         _pluginInstallJustOpened = false;
+    }
+
+    void Ircuitry.App.IAppHost.OpenSettings(string pluginId) => RunOnUi(() => OpenPluginSettings(pluginId));
+
+    private void OpenPluginSettings(string pluginId)
+    {
+        var fields = _plugins.SettingsSchema(pluginId);
+        if (fields.Count == 0) { PushToast(Ircuitry.Core.Icons.Glyph("info") + " this plugin has no settings"); return; }
+        _pluginSettingsId = pluginId;
+        _pluginSettingsFields = fields.ToList();
+        _pluginSettingsDraft = new Dictionary<string, string>();
+        foreach (var f in fields) _pluginSettingsDraft[f.Key] = _plugins.GetConfig(pluginId, f.Key);
+        _pluginSettingsOpen = true; _pluginSettingsJustOpened = true;
+    }
+
+    // pull "NAME" out of a "{{secret.NAME}}" reference (so the picker button can show which key is chosen)
+    private static string SecretName(string v)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(v ?? "", @"\{\{\s*secret\.([^}]+?)\s*\}\}");
+        return m.Success ? m.Groups[1].Value.Trim() : "";
+    }
+
+    public void DebugOpenPluginSettings()
+    {
+        _l = DockLayout();
+        _pluginSettingsId = "AI Helper";
+        _pluginSettingsFields = new()
+        {
+            new() { Key = "ai_baseurl", Label = "API base URL", Type = "text", Placeholder = "https://api.openai.com/v1" },
+            new() { Key = "ai_model", Label = "Model", Type = "text", Placeholder = "gpt-4o-mini" },
+            new() { Key = "ai_key", Label = "API key", Type = "secret", Placeholder = "" },
+        };
+        _pluginSettingsDraft = new() { ["ai_baseurl"] = "https://api.openai.com/v1", ["ai_model"] = "gpt-4o-mini", ["ai_key"] = "{{secret.openai}}" };
+        _pluginSettingsOpen = true; _pluginSettingsJustOpened = true;
+    }
+
+    private void DrawPluginSettingsModal(Renderer r)
+    {
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
+        var accent = Theme.Category(Ircuitry.Core.NodeCategory.App);
+        int n = System.Math.Max(1, _pluginSettingsFields.Count);
+        float pw = 520, rowH = 60;
+        float ph = Hud.HeaderH + 14 + n * rowH + 14 + 50;
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, _pluginSettingsId + " settings", accent);
+
+        float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 14;
+        var lf = r.Fonts.Get(FontKind.SansBold, 12);
+        foreach (var f in _pluginSettingsFields)
+        {
+            r.Text(lf, f.Label, new Vector2(x, y), Theme.TextDim); y += 20;
+            var fr = new RectF(x, y, w, 32);
+            if (f.Type == "secret")
+            {
+                string cur = _pluginSettingsDraft.TryGetValue(f.Key, out var cv) ? cv : "";
+                string name = SecretName(cur);
+                string fkey = f.Key;
+                if (_ui.Button("pset." + fkey, fr, Ircuitry.Core.Icons.Glyph("key") + "  " + (name.Length > 0 ? name : "Choose a key…"), Theme.Idle))
+                    OpenSecretPicker(cur, f.Label, v => _pluginSettingsDraft[fkey] = v);
+            }
+            else
+            {
+                _pluginSettingsDraft[f.Key] = _ui.TextField("pset." + f.Key, fr, _pluginSettingsDraft.TryGetValue(f.Key, out var tv) ? tv : "", f.Placeholder, password: f.Type == "password");
+            }
+            y += 32 + 8;
+        }
+
+        var saveR = new RectF(panel.Right - 22 - 120, panel.Bottom - 50, 120, 34);
+        var cancelR = new RectF(saveR.X - 10 - 96, panel.Bottom - 50, 96, 34);
+        if (_ui.Button("pset.cancel", cancelR, "CANCEL", Theme.Idle)) _pluginSettingsOpen = false;
+        if (_ui.Button("pset.save", saveR, "SAVE", accent, primary: true))
+        {
+            foreach (var f in _pluginSettingsFields) _plugins.SetConfig(_pluginSettingsId, f.Key, _pluginSettingsDraft.TryGetValue(f.Key, out var sv) ? sv : "");
+            _pluginSettingsOpen = false; PushToast(Ircuitry.Core.Icons.Glyph("check") + " settings saved");
+        }
+        // click-outside closes - but not while the key picker is layered on top
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_pluginSettingsJustOpened && !_secretPickOpen) _pluginSettingsOpen = false;
+        _pluginSettingsJustOpened = false;
     }
 
     private string DockFile => System.IO.Path.Combine(AppModel.WorkspaceDir, "dock-layout.txt");
@@ -1318,6 +1403,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             if (input.KeyPressed(Keys.Escape))
             {
                 if (_pluginDialog != null) ResolvePluginDialog(false);   // Esc = cancel (resumes a confirm's cancelled branch)
+                else if (_pluginSettingsOpen && !_secretPickOpen) _pluginSettingsOpen = false;   // (the key picker, if up, closes first)
                 else if (_appearanceOpen) CloseAppearance();
                 else if (_themeInstallOpen) CancelThemeInstall();
                 else { _pluginInstallOpen = false; _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; _timelineOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
@@ -1589,10 +1675,17 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             _ui.Enabled = true;
             DrawUpdatePrompt(r);
         }
-        else if (_secretPickOpen)
+        else if (_secretPickOpen)   // the key picker layers ON TOP of the settings modal, so it's checked first
         {
             _ui.Enabled = true;
             DrawSecretPicker(r);
+        }
+        else if (_pluginSettingsOpen)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawPluginSettingsModal(r);
+            r.End();
         }
         else if (_serversOpen)
         {

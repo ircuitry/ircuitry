@@ -151,6 +151,11 @@ public interface IRuntimeSink
     /// <summary>Read or mutate the ACTIVE bot's editor graph (op: add | param | wire). Returns the new node id for
     /// add, else "". No-op (returns "") off an AppSink.</summary>
     string AppGraph(string op, string a1, string a2, string a3, string a4) => "";
+    /// <summary>Declare one field of this plugin's settings form (type: text | password | secret). Persisted config;
+    /// the value is also a state var under <paramref name="key"/>. No-op off an AppSink.</summary>
+    void AppSettingsField(string key, string label, string type, string placeholder) { }
+    /// <summary>Open this plugin's settings modal. No-op off an AppSink.</summary>
+    void AppOpenSettings() { }
 
     // persistent per-bot variable store
     string GetState(string key);
