@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using Ircuitry.Core;
 using Ircuitry.Graph;
 using Ircuitry.Runtime;
@@ -108,17 +110,49 @@ public sealed class PluginHost
     public readonly PluginManager Manager;
     private readonly AppSink _sink;
 
-    // in-app panel scenes the plugin's ui.* nodes build (keyed by window/panel id). Rendered by MainScreen into a
-    // dock panel rect. In-process (no child window): mutated + read on the UI thread, so no locking is needed.
-    public readonly Dictionary<string, UiKit.UiScene> Scenes = new();
-    public UiKit.UiScene? SceneFor(string id) => Scenes.TryGetValue(id.Length == 0 ? "main" : id, out var s) ? s : null;
+    // A plugin's flows run on its OWN single worker thread (so a blocking node - container.exec, net.http, a delay -
+    // never freezes the editor UI). One thread per plugin serialises that plugin's flows, so its State/Scenes are
+    // never touched by two flows at once. App-facing effects marshal to the UI thread inside MainScreen's IAppHost;
+    // scene reads/writes are guarded by Manager.SceneGate (held by MainScreen while it renders the panel).
+    private readonly BlockingCollection<Action>? _queue;
+    private volatile int _busy;       // queued + running jobs (for WaitIdle in tests)
 
-    public PluginHost(PluginManager mgr, string id, NodeGraph graph)
+    // in-app panel scenes the plugin's ui.* nodes build (keyed by window/panel id). Mutated on the worker, read by
+    // MainScreen while rendering - all under Manager.SceneGate.
+    public readonly Dictionary<string, UiKit.UiScene> Scenes = new();
+    public UiKit.UiScene? SceneFor(string id)
+    { lock (Manager.SceneGate) return Scenes.TryGetValue(id.Length == 0 ? "main" : id, out var s) ? s : null; }
+
+    public PluginHost(PluginManager mgr, string id, NodeGraph graph, bool threaded)
     {
         Manager = mgr; Id = id; Graph = graph; _sink = new AppSink(this);
+        if (threaded)
+        {
+            _queue = new BlockingCollection<Action>();
+            new Thread(() => { foreach (var job in _queue.GetConsumingEnumerable()) { try { job(); } catch { } } })
+            { IsBackground = true, Name = "plugin:" + id }.Start();
+        }
     }
 
-    private UiKit.UiScene EnsureScene(string id)
+    // run a flow body: on the worker when threaded, inline otherwise (tests). Inline keeps the selftest synchronous.
+    private void Schedule(Action body)
+    {
+        if (_queue == null) { body(); return; }
+        Interlocked.Increment(ref _busy);
+        _queue.Add(() => { try { body(); } finally { Interlocked.Decrement(ref _busy); } });
+    }
+
+    /// <summary>Block until this plugin's worker has drained (tests only; returns false on timeout).</summary>
+    public bool WaitIdle(int ms)
+    {
+        for (int waited = 0; _busy > 0 && waited < ms; waited += 5) Thread.Sleep(5);
+        return _busy == 0;
+    }
+
+    /// <summary>Stop the worker thread (on disable/uninstall).</summary>
+    public void Dispose() => _queue?.CompleteAdding();
+
+    private UiKit.UiScene EnsureScene(string id)   // caller holds SceneGate
     {
         if (id.Length == 0) id = "main";
         if (!Scenes.TryGetValue(id, out var s)) { s = new(); Scenes[id] = s; }
@@ -127,44 +161,55 @@ public sealed class PluginHost
 
     // ---- ui.* scene building (mirrors ServerConn's handlers, minus the child-window streaming) ----
     public void UiWindow(string id, string title, int w, int h, uint bg)
-    { var s = EnsureScene(id); if (title.Length > 0) s.Title = title; if (w > 0) s.Width = w; if (h > 0) s.Height = h; s.Bg = bg; }
+    { lock (Manager.SceneGate) { var s = EnsureScene(id); if (title.Length > 0) s.Title = title; if (w > 0) s.Width = w; if (h > 0) s.Height = h; s.Bg = bg; } }
     public void UiUpsert(string id, UiKit.UiElement e)
     {
         if (e.Id.Length == 0) return;
-        var s = EnsureScene(id);
-        int i = s.Elements.FindIndex(x => x.Id == e.Id);
-        if (i >= 0) { if (e.Tweens.Count == 0) e.Tweens = s.Elements[i].Tweens; s.Elements[i] = e; }   // keep running tweens on update
-        else s.Elements.Add(e);
+        lock (Manager.SceneGate)
+        {
+            var s = EnsureScene(id);
+            int i = s.Elements.FindIndex(x => x.Id == e.Id);
+            if (i >= 0) { if (e.Tweens.Count == 0) e.Tweens = s.Elements[i].Tweens; s.Elements[i] = e; }   // keep running tweens on update
+            else s.Elements.Add(e);
+        }
     }
     public void UiAnimate(string id, string elementId, UiKit.Tween t)
-    { var e = EnsureScene(id).Find(elementId); if (e != null) e.Tweens.Add(t); }
+    { lock (Manager.SceneGate) { var e = EnsureScene(id).Find(elementId); if (e != null) e.Tweens.Add(t); } }
     public void UiRemove(string id, string elementId)
     {
-        if (!Scenes.TryGetValue(id.Length == 0 ? "main" : id, out var s)) return;
-        if (elementId.Length == 0) s.Elements.Clear(); else s.Elements.RemoveAll(x => x.Id == elementId);
+        lock (Manager.SceneGate)
+        {
+            if (!Scenes.TryGetValue(id.Length == 0 ? "main" : id, out var s)) return;
+            if (elementId.Length == 0) s.Elements.Clear(); else s.Elements.RemoveAll(x => x.Id == elementId);
+        }
     }
-    public void UiClose(string id) => Scenes.Remove(id.Length == 0 ? "main" : id);
+    public void UiClose(string id) { lock (Manager.SceneGate) Scenes.Remove(id.Length == 0 ? "main" : id); }
 
-    // pending app.confirm gates: nodeId -> the captured vars to resume with when the user answers
+    // pending app.confirm gates: nodeId -> the captured vars to resume with when the user answers. Written on the
+    // worker (BeginConfirm), read/removed from the UI thread (ResolveConfirm) -> guarded.
     private readonly Dictionary<string, Dictionary<string, string>> _pendingConfirms = new();
 
     /// <summary>Show a yes/no modal and remember the asking node + its vars; <see cref="ResolveConfirm"/> resumes
     /// the right branch when the user answers.</summary>
     public void BeginConfirm(Node node, Dictionary<string, string> vars, string title, string message, string ok, string cancel)
     {
-        _pendingConfirms[node.Id] = vars;
+        lock (_pendingConfirms) _pendingConfirms[node.Id] = vars;
         Manager.App.Confirm(Id, node.Id, title, message, ok, cancel);
     }
 
-    /// <summary>The user answered an app.confirm: resume its confirmed (yes) / cancelled (no) exec output.</summary>
+    /// <summary>The user answered an app.confirm: resume its confirmed (yes) / cancelled (no) exec output (on the
+    /// worker, so the resumed branch can block too).</summary>
     public void ResolveConfirm(string nodeId, bool yes)
     {
-        if (!_pendingConfirms.TryGetValue(nodeId, out var vars)) return;
-        _pendingConfirms.Remove(nodeId);
+        Dictionary<string, string>? vars;
+        lock (_pendingConfirms) { if (!_pendingConfirms.Remove(nodeId, out vars)) return; }
         var node = Graph.Find(nodeId);
         if (node == null) return;
-        try { GraphExecutor.FireFrom(Graph, _sink, node, yes ? 0 : 1, vars); }
-        catch (Exception ex) { Manager.App.Log("[" + Id + "] plugin error: " + ex.Message, LogLevel.Error); }
+        Schedule(() =>
+        {
+            try { GraphExecutor.FireFrom(Graph, _sink, node, yes ? 0 : 1, vars); }
+            catch (Exception ex) { Manager.App.Log("[" + Id + "] plugin error: " + ex.Message, LogLevel.Error); }
+        });
     }
 
     /// <summary>A panel interaction (button click / slider change / input submit) -> fire the plugin's ui.on flows,
@@ -192,7 +237,7 @@ public sealed class PluginHost
         FireFamily("app", v);
     }
 
-    private void FireFamily(string family, Dictionary<string, string> vars)
+    private void FireFamily(string family, Dictionary<string, string> vars) => Schedule(() =>
     {
         // run every trigger node of this family (each filters itself), like ServerConn.FireFamily
         foreach (var n in Graph.Nodes.Where(n => n.Def.TriggerEvent == family).ToList())
@@ -200,7 +245,7 @@ public sealed class PluginHost
             try { GraphExecutor.Fire(Graph, _sink, n, new Dictionary<string, string>(vars)); }
             catch (Exception ex) { Manager.App.Log("[" + Id + "] plugin error: " + ex.Message, LogLevel.Error); }
         }
-    }
+    });
 }
 
 /// <summary>Owns installed plugins, their live <see cref="PluginHost"/>s, and the contribution registry the
@@ -212,8 +257,14 @@ public sealed class PluginManager
     private readonly Dictionary<string, PluginHost> _hosts = new();
     private readonly List<PluginContribution> _contribs = new();
     private readonly object _gate = new();
+    private readonly bool _threaded;
 
-    public PluginManager(IAppHost app) { App = app; }
+    /// <summary>Guards every plugin scene (read by the UI while rendering, written by plugin workers). Held briefly.</summary>
+    public readonly object SceneGate = new();
+
+    /// <summary><paramref name="threaded"/> runs each plugin's flows on its own worker thread (the app); tests pass
+    /// false to keep flows synchronous + inline.</summary>
+    public PluginManager(IAppHost app, bool threaded = false) { App = app; _threaded = threaded; }
 
     public static string Dir => Path.Combine(AppModel.WorkspaceDir, "plugins");
 
@@ -262,10 +313,17 @@ public sealed class PluginManager
         h?.ResolveConfirm(nodeId, yes);
     }
 
+    /// <summary>Block until a plugin's worker has drained (tests only).</summary>
+    public bool WaitIdle(string pluginId, int ms)
+    {
+        PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
+        return h?.WaitIdle(ms) ?? true;
+    }
+
     public void Enable(PluginMeta p)
     {
         lock (_gate) { if (_hosts.ContainsKey(p.Name)) return; }
-        var host = new PluginHost(this, p.Name, p.Graph);
+        var host = new PluginHost(this, p.Name, p.Graph, _threaded);
         lock (_gate) _hosts[p.Name] = host;
         p.Enabled = true;
         host.Start();   // register contributions
@@ -273,7 +331,9 @@ public sealed class PluginManager
 
     public void Disable(PluginMeta p)
     {
-        lock (_gate) { _hosts.Remove(p.Name); _contribs.RemoveAll(c => c.PluginId == p.Name); }
+        PluginHost? h;
+        lock (_gate) { _hosts.Remove(p.Name, out h); _contribs.RemoveAll(c => c.PluginId == p.Name); }
+        h?.Dispose();   // stop its worker thread
         p.Enabled = false;
     }
 

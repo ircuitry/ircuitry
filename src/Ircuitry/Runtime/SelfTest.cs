@@ -300,6 +300,7 @@ public static class SelfTest
         fails += PluginDialogTest();
         fails += PluginGraphEditTest();
         fails += PluginTerminalTest();
+        fails += PluginThreadTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3975,6 +3976,28 @@ public static class SelfTest
 
         var perms = Ircuitry.App.PluginBundle.PermissionsFor(g);
         fails += Expect("plugin-terminal-perms", perms.Contains("run-commands"), $"container nodes derive run-commands ({string.Join(",", perms)})");
+        return fails;
+    }
+
+    /// <summary>Threaded mode: a plugin's flows run on its own worker thread (not the caller's), so a blocking node
+    /// can't freeze the UI. Activating a contribution returns immediately; WaitIdle drains the worker, after which
+    /// the effect is visible. Proves the off-thread scheduler + drain work.</summary>
+    private static int PluginThreadTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var on = N(g, "app.on", 0, 0); on.SetParam("event", "command");
+        var toast = N(g, "app.toast", 1, 0); toast.SetParam("message", "threaded!");
+        g.Connect(on.Id, 0, toast.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app, threaded: true);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "T", Graph = g });
+        mgr.WaitIdle("T", 1000);                 // let the (empty) On Plugin Start flow drain
+        mgr.Activate("T", "command", "go");       // enqueues on the worker, returns immediately
+        bool drained = mgr.WaitIdle("T", 2000);
+        fails += Expect("plugin-threaded", drained && app.Toasts.Any(t => t.Contains("threaded!")),
+            $"a threaded plugin flow runs off-thread + drains ({drained}; {string.Join("|", app.Toasts)})");
         return fails;
     }
 
