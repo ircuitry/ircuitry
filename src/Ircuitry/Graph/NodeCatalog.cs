@@ -1505,12 +1505,14 @@ public static class NodeCatalog
                     // {{secret.NAME}} reference -> the key, so a settings panel can store the chosen secret in a var.
                     int aiTimeout = Math.Clamp(c.ParamInt("timeout", 120), 5, 1800);
                     string apiKey = Ircuitry.Core.Secrets.Expand(c.Resolve(c.Node.GetParam("apiKey")));
+                    var toolsUsed = new List<string>();   // recorded into {ai_tools_used} so a UI can show what it did
                     if (defs.Count == 0)
                         reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), apiKey, c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err, aiTimeout, onUsage: c.RecordTokens);
                     else
                         reply = Ai.ChatWithTools(c.Resolve(c.Param("baseUrl")), apiKey, c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), defs,
                             (name, args) =>
                             {
+                                if (!toolsUsed.Contains(name)) toolsUsed.Add(name);
                                 if (mcpRoute.TryGetValue(name, out var mc))     // an external MCP server's tool
                                     return mc.Call(name, args, 60000);
                                 if (editorBot.TryGetValue(name, out var db))    // inward MCP edit against the workspace
@@ -1526,6 +1528,8 @@ public static class NodeCatalog
                                 return c.Var("__tool_result");
                             }, out err, timeoutSeconds: aiTimeout, onUsage: c.RecordTokens, shouldStop: () => c.AiOverBudget);
 
+                    // expose the tools the model called this turn as a ready-to-show var (e.g. for a chat panel)
+                    c.SetState("ai_tools_used", toolsUsed.Count > 0 ? "(used " + string.Join(", ", toolsUsed) + ")\n" : "");
                     if (err.Length > 0) c.Log("AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);
                     c.Pulse(0);
@@ -4093,13 +4097,14 @@ public static class NodeCatalog
                     P("x", "X", ParamType.Int, "20", ""), P("y", "Y", ParamType.Int, "20", ""),
                     P("w", "Width", ParamType.Int, "260", ""), P("h", "Height", ParamType.Int, "44", ""),
                     P("color", "Colour", ParamType.Text, "#554F66", "#rrggbb"),
+                    P("textColor", "Text colour", ParamType.Text, "#F2EEF7", "#rrggbb"),
                     P("font", "Font", ParamType.Choice, "sans", "", new[] { "sans", "bold", "mono", "monobold", "display" }),
                     P("size", "Font size", ParamType.Int, "16", ""),
                     P("multiline", "Multi-line", ParamType.Bool, "false", "wraps text + Enter inserts a newline (great for a long prompt)"),
                     P("readonly", "Read-only", ParamType.Bool, "false", "display only - can't be focused or typed into (e.g. a transcript)"),
                     P("placeholder", "Placeholder", ParamType.Text, "", "dim hint shown while empty"),
                 },
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = Px(c, "x", 0), Y = Px(c, "y", 0), W = Px(c, "w", 260), H = Px(c, "h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF), Font = c.Param("font"), FontSize = c.ParamInt("size", 16), Multiline = c.ParamBool("multiline"), ReadOnly = c.ParamBool("readonly"), Placeholder = c.Resolve(c.Param("placeholder")) }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = Px(c, "x", 0), Y = Px(c, "y", 0), W = Px(c, "w", 260), H = Px(c, "h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xF2EEF7FF), Font = c.Param("font"), FontSize = c.ParamInt("size", 16), Multiline = c.ParamBool("multiline"), ReadOnly = c.ParamBool("readonly"), Placeholder = c.Resolve(c.Param("placeholder")) }); c.Pulse(0); },
             },
             new()
             {

@@ -265,8 +265,11 @@ public sealed class UiWindowScreen : IScreen
             case UiKind.Input:
                 bool focused = e.Id == _focusId && !e.ReadOnly;
                 bool blink = focused && clock.Pulse(1f) > 0.5f;
-                r.RoundFill(rect, Rgba(0x000000FF, 0.25f * e.Alpha), 8f);
-                if (!e.ReadOnly) r.RoundOutline(rect, focused ? Rgba(0xFFFFFFFF, e.Alpha) : col, 8f);   // read-only = no editable chrome
+                if (!e.ReadOnly)   // read-only = no editable chrome: just the text, sitting on the panel
+                {
+                    r.RoundFill(rect, Rgba(0x000000FF, 0.25f * e.Alpha), 8f);
+                    r.RoundOutline(rect, focused ? Rgba(0xFFFFFFFF, e.Alpha) : col, 8f);
+                }
                 if (e.Multiline) { DrawMultiline(r, e, rect, blink); break; }
                 var font = r.Fonts.Get(FK(e.Font), e.FontSize);
                 float tx = rect.X + 8f, ty = rect.Y + (rect.H - e.FontSize) / 2f;
