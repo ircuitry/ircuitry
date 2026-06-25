@@ -144,7 +144,8 @@ public sealed class UiWindowScreen : IScreen
             for (int i = s.Elements.Count - 1; i >= 0; i--)
             {
                 var e = s.Elements[i];
-                if (e.Visible && (e.Kind == UiKind.Button || e.Kind == UiKind.Input || e.Kind == UiKind.Slider) && Hit(Bounds(s, e), m)) { over = e.Id; break; }
+                bool interactive = e.Kind == UiKind.Button || e.Kind == UiKind.Slider || (e.Kind == UiKind.Input && !e.ReadOnly);
+                if (e.Visible && interactive && Hit(Bounds(s, e), m)) { over = e.Id; break; }
             }
         _hoverId = over;
 
@@ -262,14 +263,18 @@ public sealed class UiWindowScreen : IScreen
                 break;
 
             case UiKind.Input:
-                bool focused = e.Id == _focusId;
+                bool focused = e.Id == _focusId && !e.ReadOnly;
                 bool blink = focused && clock.Pulse(1f) > 0.5f;
                 r.RoundFill(rect, Rgba(0x000000FF, 0.25f * e.Alpha), 8f);
-                r.RoundOutline(rect, focused ? Rgba(0xFFFFFFFF, e.Alpha) : col, 8f);
+                if (!e.ReadOnly) r.RoundOutline(rect, focused ? Rgba(0xFFFFFFFF, e.Alpha) : col, 8f);   // read-only = no editable chrome
                 if (e.Multiline) { DrawMultiline(r, e, rect, blink); break; }
                 var font = r.Fonts.Get(FK(e.Font), e.FontSize);
                 float tx = rect.X + 8f, ty = rect.Y + (rect.H - e.FontSize) / 2f;
-                r.Text(font, e.Text, new Vector2(tx, ty), Rgba(e.TextColor, e.Alpha));
+                bool empty = string.IsNullOrEmpty(e.Text);
+                if (empty && !focused && e.Placeholder.Length > 0)
+                    r.Text(font, e.Placeholder, new Vector2(tx, ty), Rgba(e.TextColor, 0.4f * e.Alpha));   // dim hint
+                else
+                    r.Text(font, e.Text, new Vector2(tx, ty), Rgba(e.TextColor, e.Alpha));
                 if (blink)   // blinking caret
                 {
                     float cx = tx + font.MeasureString(e.Text).X + 1f;

@@ -351,6 +351,14 @@ public sealed class PluginManager
         h?.Activate("panel", panelId);
     }
 
+    /// <summary>(Re)build a panel, passing its current content size so the plugin can lay out responsively
+    /// (the build flow gets {app_panel_w} / {app_panel_h}).</summary>
+    public void BuildPanel(string pluginId, string panelId, int w, int h)
+    {
+        PluginHost? host; lock (_gate) _hosts.TryGetValue(pluginId, out host);
+        host?.Activate("panel", panelId, new Dictionary<string, string> { ["app_panel_w"] = w.ToString(), ["app_panel_h"] = h.ToString() });
+    }
+
     /// <summary>The live scene a plugin built for one of its panels (null until built / if disabled).</summary>
     public Ircuitry.UiKit.UiScene? PanelScene(string pluginId, string windowId)
     {

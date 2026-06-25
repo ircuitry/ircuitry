@@ -297,6 +297,7 @@ public static class SelfTest
         fails += PluginHooksTest();
         fails += PluginPowersTest();
         fails += PluginPanelTest();
+        fails += PluginPanelResponsiveTest();
         fails += PluginDialogTest();
         fails += PluginGraphEditTest();
         fails += PluginTerminalTest();
@@ -3882,6 +3883,30 @@ public static class SelfTest
         mgr.PanelEvent("P", "settings", new Ircuitry.UiKit.UiEvent { Type = "click", Id = "save" });
         fails += Expect("plugin-panel-click", app.Toasts.Any(t => t.Contains("saved save")),
             $"a click inside the panel fires ui.on ({string.Join("|", app.Toasts)})");
+        return fails;
+    }
+
+    /// <summary>Responsive panels: BuildPanel passes {app_panel_w}/{app_panel_h}, ui.* size params resolve those
+    /// tokens (so a panel can fill its dock rect), and a ui.input can be read-only with a placeholder (a transcript).</summary>
+    private static int PluginPanelResponsiveTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var st = N(g, "app.start", 0, 0); var pnl = N(g, "app.panel", 1, 0); pnl.SetParam("id", "p");
+        g.Connect(st.Id, 0, pnl.Id, 0);
+        var on = N(g, "app.on", 0, 1); on.SetParam("event", "panel"); on.SetParam("id", "p");
+        var win = N(g, "ui.window", 1, 1); win.SetParam("window", "p");
+        var inp = N(g, "ui.input", 2, 1); inp.SetParam("window", "p"); inp.SetParam("id", "out");
+        inp.SetParam("h", "{app_panel_h}"); inp.SetParam("readonly", "true"); inp.SetParam("placeholder", "type...");
+        g.Connect(on.Id, 0, win.Id, 0); g.Connect(win.Id, 0, inp.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "P", Graph = g });
+        mgr.BuildPanel("P", "p", 300, 200);                       // passes app_panel_h = 200
+        var el = mgr.PanelScene("P", "p")?.Find("out");
+        fails += Expect("plugin-panel-responsive", el != null && (int)el.H == 200, $"ui.input h resolved {{app_panel_h}} ({el?.H})");
+        fails += Expect("plugin-panel-readonly", el != null && el.ReadOnly && el.Placeholder == "type...", $"read-only + placeholder set ({el?.ReadOnly}/{el?.Placeholder})");
         return fails;
     }
 

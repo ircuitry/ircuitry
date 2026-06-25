@@ -73,6 +73,8 @@ public sealed class UiElement : ITweenTarget
     public bool Filled = true;
     public bool Visible = true;
     public bool Multiline;                        // an Input that wraps + accepts newlines (Enter inserts \n, not submit)
+    public bool ReadOnly;                         // an Input that only DISPLAYS text (no focus, no typing) - e.g. a log/transcript
+    public string Placeholder = "";               // shown dimmed in an empty, unfocused Input
     public float Min, Max = 100f, Value, Step;    // Slider: a draggable value in [Min,Max], optionally snapped to Step
     public string Text = "";
     public int FontSize = 16;

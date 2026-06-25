@@ -40,7 +40,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     // GraphicsDevice from the first Draw). The plugin's ui.* nodes build each scene; we paint it into the dock rect.
     private Microsoft.Xna.Framework.Graphics.GraphicsDevice? _gd;
     private readonly Dictionary<string, Ircuitry.UiKit.UiWindowScreen> _panelScreens = new();
-    private readonly HashSet<string> _panelBuilt = new();
+    private readonly Dictionary<string, (int w, int h)> _panelBuiltSize = new();   // last size each panel was built at (rebuild on resize)
     // plugin flows run on worker threads; their app-facing effects (toast/nav/dialog/graph edits) marshal here and
     // run on the UI thread, drained once per frame.
     private readonly System.Collections.Concurrent.ConcurrentQueue<System.Action> _uiJobs = new();
@@ -790,10 +790,27 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 var edge = c.At switch { "left" => DockManager.Edge.Left, "bottom" => DockManager.Edge.Bottom, _ => DockManager.Edge.Right };
                 _dock.Add(new DockManager.Panel { Id = id, Dock = edge, Size = edge == DockManager.Edge.Bottom ? 240 : 288 });   // Size is height for bottom
             }
-            if (_panelBuilt.Add(id)) _plugins.BuildPanel(c.PluginId, c.Id);   // populate the scene the first time we see it
         }
         foreach (var p in _dock.Panels.Where(p => p.Id.StartsWith("plugin:", System.StringComparison.Ordinal)).ToList())
-            if (!wanted.Contains(p.Id)) { _dock.Remove(p.Id); _panelScreens.Remove(p.Id); _panelBuilt.Remove(p.Id); }
+            if (!wanted.Contains(p.Id)) { _dock.Remove(p.Id); _panelScreens.Remove(p.Id); _panelBuiltSize.Remove(p.Id); }
+    }
+
+    /// <summary>(Re)build each plugin panel's scene whenever its content size changes (and once on first appearance),
+    /// passing the size so the plugin can lay out responsively. Runs after the dock layout pass.</summary>
+    private void BuildResizedPanels()
+    {
+        foreach (var c in _plugins.Contributions("panel"))
+        {
+            string id = PanelKey(c);
+            var p = _dock.Get(id);
+            if (p == null || !p.Visible) continue;
+            var inner = PanelInner(p);
+            int w = (int)inner.W, h = (int)inner.H;
+            if (w <= 0 || h <= 0) continue;
+            if (_panelBuiltSize.TryGetValue(id, out var prev) && System.Math.Abs(prev.w - w) <= 2 && System.Math.Abs(prev.h - h) <= 2) continue;
+            _panelBuiltSize[id] = (w, h);
+            _plugins.BuildPanel(c.PluginId, c.Id, w, h);
+        }
     }
 
     // bind a panel's live scene + dock rect to its render surface (creating the surface lazily). Shared by update/draw.
@@ -1385,6 +1402,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             if (pend.Count > 0) ReviewPlugin(pend[0]);
         }
         _l = DockLayout();
+        BuildResizedPanels();   // (re)build plugin panels at their current size, so they lay out responsively
         ClipboardPoll(clock);
         AchievementsTick(clock);
         RemotePump();        // keep any remote-server session live (drains its callbacks/events)

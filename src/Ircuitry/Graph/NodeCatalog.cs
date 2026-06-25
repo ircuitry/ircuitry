@@ -296,6 +296,8 @@ public static class NodeCatalog
     private static string? NullIf(string s) => string.IsNullOrEmpty(s) ? null : s;
     // a ui.* label, optionally rendered as a Phosphor icon (the 'icon' param turns the text into its glyph)
     private static string UiLabel(INodeContext c, string text) => c.ParamBool("icon") ? Ircuitry.Core.Icons.Glyph(text) : text;
+    // a ui.* coordinate/size param that resolves {tokens} first (so a panel can size itself to {app_panel_h} etc.)
+    private static int Px(INodeContext c, string key, int def) => (int)MathF.Round(ParseF(c.Resolve(c.Param(key)), def));
     private static float ParseF(string s, float def = 0f) => float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : def;
 
     private static string CodeRoot(INodeContext c) => c.Resolve(c.Param("root"));
@@ -4008,7 +4010,7 @@ public static class NodeCatalog
                     P("icon", "Icon", ParamType.Bool, "false", "render the text as a Phosphor icon name (e.g. gear)"),
                 },
                 SummaryParam = "text",
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Text, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), Text = UiLabel(c, c.InOr(1, c.Resolve(c.Param("text")))), FontSize = c.ParamInt("size", 18), Font = c.Param("font"), Color = UiColor(c.Resolve(c.Param("color")), 0xF2EEF7FF) }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Text, Parent = NullIf(c.Resolve(c.Param("parent"))), X = Px(c, "x", 0), Y = Px(c, "y", 0), Text = UiLabel(c, c.InOr(1, c.Resolve(c.Param("text")))), FontSize = c.ParamInt("size", 18), Font = c.Param("font"), Color = UiColor(c.Resolve(c.Param("color")), 0xF2EEF7FF) }); c.Pulse(0); },
             },
             new()
             {
@@ -4076,7 +4078,7 @@ public static class NodeCatalog
                     P("icon", "Icon", ParamType.Bool, "false", "render the label as a Phosphor icon name (e.g. gear)"),
                 },
                 SummaryParam = "text",
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Button, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 160), H = c.ParamInt("h", 48), Text = UiLabel(c, c.Resolve(c.Param("text"))), Color = UiColor(c.Resolve(c.Param("color")), 0x6C5CE7FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xFFFFFFFF), Radius = c.ParamInt("radius", 14) }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Button, Parent = NullIf(c.Resolve(c.Param("parent"))), X = Px(c, "x", 0), Y = Px(c, "y", 0), W = Px(c, "w", 160), H = Px(c, "h", 48), Text = UiLabel(c, c.Resolve(c.Param("text"))), Color = UiColor(c.Resolve(c.Param("color")), 0x6C5CE7FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xFFFFFFFF), Radius = c.ParamInt("radius", 14) }); c.Pulse(0); },
             },
             new()
             {
@@ -4094,8 +4096,10 @@ public static class NodeCatalog
                     P("font", "Font", ParamType.Choice, "sans", "", new[] { "sans", "bold", "mono", "monobold", "display" }),
                     P("size", "Font size", ParamType.Int, "16", ""),
                     P("multiline", "Multi-line", ParamType.Bool, "false", "wraps text + Enter inserts a newline (great for a long prompt)"),
+                    P("readonly", "Read-only", ParamType.Bool, "false", "display only - can't be focused or typed into (e.g. a transcript)"),
+                    P("placeholder", "Placeholder", ParamType.Text, "", "dim hint shown while empty"),
                 },
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 260), H = c.ParamInt("h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF), Font = c.Param("font"), FontSize = c.ParamInt("size", 16), Multiline = c.ParamBool("multiline") }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Input, Parent = NullIf(c.Resolve(c.Param("parent"))), X = Px(c, "x", 0), Y = Px(c, "y", 0), W = Px(c, "w", 260), H = Px(c, "h", 44), Text = c.Resolve(c.Param("text")), Color = UiColor(c.Resolve(c.Param("color")), 0x554F66FF), Font = c.Param("font"), FontSize = c.ParamInt("size", 16), Multiline = c.ParamBool("multiline"), ReadOnly = c.ParamBool("readonly"), Placeholder = c.Resolve(c.Param("placeholder")) }); c.Pulse(0); },
             },
             new()
             {
@@ -4115,7 +4119,7 @@ public static class NodeCatalog
                     P("fontSize", "Value size", ParamType.Int, "15", ""),
                 },
                 SummaryParam = "value",
-                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Slider, Parent = NullIf(c.Resolve(c.Param("parent"))), X = c.ParamInt("x", 0), Y = c.ParamInt("y", 0), W = c.ParamInt("w", 240), H = c.ParamInt("h", 28), Min = ParseF(c.Resolve(c.Param("min"))), Max = ParseF(c.Resolve(c.Param("max")), 100f), Value = ParseF(c.Resolve(c.Param("value"))), Step = ParseF(c.Resolve(c.Param("step"))), Color = UiColor(c.Resolve(c.Param("color")), 0x6C5CE7FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xC9C2D9FF), FontSize = c.ParamInt("fontSize", 15) }); c.Pulse(0); },
+                Exec = c => { c.UiUpsert(c.Resolve(c.Param("window")), new Ircuitry.UiKit.UiElement { Id = c.Resolve(c.Param("id")), Kind = Ircuitry.UiKit.UiKind.Slider, Parent = NullIf(c.Resolve(c.Param("parent"))), X = Px(c, "x", 0), Y = Px(c, "y", 0), W = Px(c, "w", 240), H = Px(c, "h", 28), Min = ParseF(c.Resolve(c.Param("min"))), Max = ParseF(c.Resolve(c.Param("max")), 100f), Value = ParseF(c.Resolve(c.Param("value"))), Step = ParseF(c.Resolve(c.Param("step"))), Color = UiColor(c.Resolve(c.Param("color")), 0x6C5CE7FF), TextColor = UiColor(c.Resolve(c.Param("textColor")), 0xC9C2D9FF), FontSize = c.ParamInt("fontSize", 15) }); c.Pulse(0); },
             },
             new()
             {
