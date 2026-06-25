@@ -293,6 +293,7 @@ public static class SelfTest
         fails += UiFormTest();
         fails += SetVarModeTest();
         fails += PluginLoopTest();
+        fails += PluginManagerTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3717,6 +3718,44 @@ public static class SelfTest
         var s3 = new FakeSink();
         GraphExecutor.Fire(g2, s3, on, new Dictionary<string, string> { ["app_event"] = "menu", ["app_id"] = "other" });
         fails += Expect("plugin-filter", s3.AppToasts.Count == 0, "On App Event ignores a different id");
+        return fails;
+    }
+
+    private sealed class FakeApp : Ircuitry.App.IAppHost
+    {
+        public readonly List<string> Toasts = new();
+        public void Toast(string m, string k) => Toasts.Add(k + ":" + m);
+        public void Log(string m, LogLevel l) { }
+    }
+
+    /// <summary>The plugin MANAGER loop end-to-end: enabling a plugin registers its menu contribution, activating
+    /// it fires the flow (a toast), disabling removes it - plus the .ircplugin bundle round-trips with derived
+    /// permissions. The runtime layer, verified with a fake app host (no GUI).</summary>
+    private static int PluginManagerTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var st = N(g, "app.start", 0, 0);
+        var menu = N(g, "app.menu", 1, 0); menu.SetParam("id", "hi"); menu.SetParam("label", "Say hi");
+        g.Connect(st.Id, 0, menu.Id, 0);
+        var on = N(g, "app.on", 0, 1); on.SetParam("event", "menu"); on.SetParam("id", "hi");
+        var toast = N(g, "app.toast", 1, 1); toast.SetParam("message", "clicked {app_id}"); toast.SetParam("kind", "ok");
+        g.Connect(on.Id, 0, toast.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        var meta = new Ircuitry.App.PluginMeta { Name = "Greeter", Graph = g };
+        mgr.Enable(meta);
+        fails += Expect("plugin-mgr-register", mgr.Contributions("menu").Any(c => c.Id == "hi" && c.PluginId == "Greeter"), $"enable registers the menu item ({mgr.Contributions("menu").Count})");
+        mgr.Activate("Greeter", "menu", "hi");
+        fails += Expect("plugin-mgr-activate", app.Toasts.Any(t => t.Contains("clicked hi")), $"activating fires the flow ({string.Join(",", app.Toasts)})");
+        mgr.Disable(meta);
+        fails += Expect("plugin-mgr-disable", mgr.Contributions("menu").Count == 0, "disable removes contributions");
+
+        var json = Ircuitry.App.PluginBundle.Save("Greeter", "1.2.0", "hand-waving", "says hi", g);
+        var loaded = Ircuitry.App.PluginBundle.Load(json);
+        fails += Expect("plugin-bundle", loaded.Name == "Greeter" && loaded.Version == "1.2.0" && loaded.Graph.Nodes.Count == g.Nodes.Count
+            && loaded.Permissions.Contains("menu") && loaded.Permissions.Contains("dialogs"), $"bundle round-trips ({string.Join(",", loaded.Permissions)})");
         return fails;
     }
 
