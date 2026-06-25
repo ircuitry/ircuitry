@@ -1,6 +1,6 @@
 # ircuitry Plugins - design
 
-Status: **draft for review** (no code yet). Author: design pass before build.
+Status: **SHIPPED** (phases 1-5 complete; see §12). This doc is the design of record.
 
 ## 1. What we're building
 
@@ -228,4 +228,8 @@ Each phase is shippable and testable headlessly (sink fakes + selftests, like th
 - **Cozy panels:** a plugin panel that didn't set a `bg` now gets a soft cozy dark (`#211B2E`) instead of stark UI-window black, so default `ui.*` colours read well on it.
 - **Tests:** `PluginDialogTest` (confirm pauses, yes/no resume the right branch, dialog continues) + `PluginGraphEditTest` (add → id → param chaining, edit-graph permission). Selftest green.
 
-**Next (polish, no new powers):** trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) + a richer manager (enable / disable, not just uninstall).
+**Phase 5: trust-card install + richer manager - COMPLETE.**
+- **Trust card:** opening a `.ircplugin` now stages a modal (`StagePluginInstall` -> `DrawPluginInstallModal`, debug `--showplugininstall`) showing the plugin's name / version / description and a friendly, icon-tagged list of what it can do (its derived permissions: panel, command, control-bots, edit-graph, ...), with Install / Cancel - instead of installing silently. Esc / click-outside cancels.
+- **Manager:** the **Plugins…** menu now lists each installed plugin with an enabled marker + per-plugin **Enable / Disable** (live - disabling drops its chrome + panels, enabling re-registers) and **Uninstall**, plus open-the-folder.
+
+**The plugin system is feature-complete:** all four hook surfaces, all four powers (dialogs/toasts, own panel, app state + navigation, act on the open bot), authoring by bundling a workflow, `.ircplugin` distribution with a trust card, and a manager. Future work is ecosystem (a community-plugins repo + in-app gallery), not core.

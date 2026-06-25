@@ -214,6 +214,11 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private int _wfInstallNodes;
     private List<Ircuitry.Graph.Capability> _wfInstallCaps = new();
 
+    // trust card before installing a plugin (it extends ircuitry itself, so show what it can do first)
+    private bool _pluginInstallOpen, _pluginInstallJustOpened;
+    private string _pluginInstallJson = "";
+    private Ircuitry.App.PluginMeta? _pluginInstallMeta;
+
     // try-before-install: run a community item in a throwaway Test Bench without adding it to the workspace
     private NodeGraph? _testEphemeral;
     private string _testEphemeralName = "", _testEphemeralType = "";
@@ -255,7 +260,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _pluginDialog != null || _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _timelineOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
+    private bool Modal => _pluginDialog != null || _pluginInstallOpen || _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _timelineOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -406,7 +411,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         catch (System.Exception ex) { PushToast(Ircuitry.Core.Icons.Glyph("warning") + " bundle failed: " + ex.Message); }
     }
 
-    /// <summary>A tiny plugin manager via the context-menu system: list installed plugins (uninstall each) + open the folder.</summary>
+    /// <summary>A tiny plugin manager via the context-menu system: each installed plugin gets enable/disable +
+    /// uninstall, plus open-the-folder.</summary>
     private void OpenPluginManager()
     {
         _ctxItems.Clear();
@@ -415,11 +421,86 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         else foreach (var p in ps)
             {
                 var pp = p;
-                _ctxItems.Add(new CtxItem { Icon = "trash", Label = "Uninstall " + pp.Name + " v" + pp.Version, Enabled = true, Do = () => { _plugins.Uninstall(pp); PushToast(Ircuitry.Core.Icons.Glyph("trash") + " removed " + pp.Name); } });
+                _ctxItems.Add(new CtxItem { Icon = pp.Enabled ? "check-circle" : "circle", Label = pp.Name + "  v" + pp.Version, Enabled = false });
+                _ctxItems.Add(new CtxItem { Icon = pp.Enabled ? "pause" : "play", Label = pp.Enabled ? "Disable" : "Enable", Enabled = true, Do = () =>
+                {
+                    if (pp.Enabled) { _plugins.Disable(pp); PushToast(Ircuitry.Core.Icons.Glyph("pause") + " disabled " + pp.Name); }
+                    else { _plugins.Enable(pp); PushToast(Ircuitry.Core.Icons.Glyph("play") + " enabled " + pp.Name); }
+                } });
+                _ctxItems.Add(new CtxItem { Icon = "trash", Label = "Uninstall", Enabled = true, Do = () => { _plugins.Uninstall(pp); PushToast(Ircuitry.Core.Icons.Glyph("trash") + " removed " + pp.Name); } });
+                _ctxItems.Add(new CtxItem { Sep = true });
             }
-        _ctxItems.Add(new CtxItem { Sep = true });
         _ctxItems.Add(new CtxItem { Icon = "folder-open", Label = "Open plugins folder", Enabled = true, Do = () => Ircuitry.App.DeepLink.OpenUrl("file://" + Ircuitry.App.PluginManager.Dir) });
         _ctxOpen = true; _ctxJustOpened = true;
+    }
+
+    /// <summary>A plugin extends ircuitry itself (every tab), so opening one shows a trust card with what it can do
+    /// (its derived permissions) before it's installed + enabled.</summary>
+    private void StagePluginInstall(string json)
+    {
+        Ircuitry.App.PluginMeta m;
+        try { m = Ircuitry.App.PluginBundle.Load(json); }
+        catch (System.Exception ex) { PushToast(Ircuitry.Core.Icons.Glyph("warning") + " invalid plugin: " + ex.Message); return; }
+        _pluginInstallJson = json; _pluginInstallMeta = m;
+        _pluginInstallOpen = true; _pluginInstallJustOpened = true;
+    }
+
+    // friendly (icon, sentence) for a derived plugin permission, shown on the trust card
+    private static (string icon, string text) PermissionInfo(string perm) => perm switch
+    {
+        "menu" => ("list", "Add items to the menu"),
+        "toolbar" => ("app-window", "Add a toolbar button"),
+        "context" => ("cursor-click", "Add right-click items"),
+        "command" => ("magnifying-glass", "Add Cmd+K commands"),
+        "panel" => ("sidebar", "Open its own side panel"),
+        "dialogs" => ("chat-circle-text", "Show toasts and popups"),
+        "app-state" => ("info", "Read which bot is open"),
+        "navigate" => ("arrow-line-right", "Switch between tabs"),
+        "control-bots" => ("play-circle", "Start and stop your bots"),
+        "edit-graph" => ("flow-arrow", "Add and change nodes in the open bot"),
+        _ => ("puzzle-piece", perm),
+    };
+
+    private void DrawPluginInstallModal(Renderer r)
+    {
+        var m = _pluginInstallMeta;
+        if (m == null) { _pluginInstallOpen = false; return; }
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
+        var accent = Theme.Category(Ircuitry.Core.NodeCategory.App);
+        float pw = 540, w = pw - 44;
+        var descLines = m.Description.Length > 0 ? Wrap(r.Fonts.Get(FontKind.Sans, 12), m.Description, w).Take(2).ToList() : new List<string>();
+        int rows = System.Math.Max(1, m.Permissions.Count);
+        float ph = Hud.HeaderH + 16 + 26 + 22 + descLines.Count * 16 + 10 + 24 + rows * 26 + 18 + 50;
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, "Install plugin?", accent);
+
+        float x = panel.X + 22, y = panel.Y + Hud.HeaderH + 16;
+        r.Text(r.Fonts.Get(FontKind.SansBold, 16), Ircuitry.Core.Icons.Glyph(m.Icon.Length > 0 ? m.Icon : "puzzle-piece") + "  " + m.Name, new Vector2(x, y), Theme.Text); y += 26;
+        r.Text(r.Fonts.Get(FontKind.Mono, 11), "v" + m.Version + "  -  a plugin extends ircuitry itself, on every tab", new Vector2(x, y), Theme.TextDim); y += 22;
+        foreach (var line in descLines) { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 16; }
+        y += 10;
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), Ircuitry.Core.Icons.Glyph("seal-check") + "  What it can do:", new Vector2(x, y), Theme.TextDim); y += 24;
+        var lf = r.Fonts.Get(FontKind.Sans, 13);
+        if (m.Permissions.Count == 0) r.Text(lf, "Nothing - it just runs its own flow.", new Vector2(x + 6, y), Theme.TextDim);
+        else foreach (var perm in m.Permissions)
+            {
+                var (icon, txt) = PermissionInfo(perm);
+                r.Text(r.Fonts.Get(FontKind.Sans, 14), Ircuitry.Core.Icons.Glyph(icon), new Vector2(x + 6, y), accent);
+                r.Text(lf, txt, new Vector2(x + 32, y), Theme.Text);
+                y += 26;
+            }
+
+        var goR = new RectF(panel.Right - 22 - 120, panel.Bottom - 50, 120, 34);
+        var cancelR = new RectF(goR.X - 10 - 96, panel.Bottom - 50, 96, 34);
+        if (_ui.Button("pluginstall.cancel", cancelR, "CANCEL", Theme.Idle)) _pluginInstallOpen = false;
+        if (_ui.Button("pluginstall.go", goR, "INSTALL", accent, primary: true))
+        {
+            try { var inst = _plugins.Install(_pluginInstallJson); PushToast(Ircuitry.Core.Icons.Glyph("puzzle-piece") + " installed " + inst.Name); }
+            catch (System.Exception ex) { PushToast(Ircuitry.Core.Icons.Glyph("warning") + " install failed: " + ex.Message); }
+            _pluginInstallOpen = false;
+        }
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_pluginInstallJustOpened) _pluginInstallOpen = false;
+        _pluginInstallJustOpened = false;
     }
 
     private string DockFile => System.IO.Path.Combine(AppModel.WorkspaceDir, "dock-layout.txt");
@@ -752,10 +833,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             string text = System.IO.File.ReadAllText(path);
             string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
             if (ext == ".ircplugin")
-            {
-                var m = _plugins.Install(text);   // a plugin -> installed + enabled (auto)
-                PushToast(Ircuitry.Core.Icons.Glyph("puzzle-piece") + " plugin installed: " + m.Name + (m.Permissions.Count > 0 ? " (" + string.Join(", ", m.Permissions) + ")" : ""));
-            }
+                StagePluginInstall(text);          // a plugin -> a trust card listing what it can do, then install
+
             else if (ext == ".ircnode") StageInstall(text, System.IO.Path.GetFileName(path));   // a community node
             else StageWorkflowInstall(text);                                                    // a .ircbot -> a new bot tab
         }
@@ -1008,6 +1087,23 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             "{\"id\":\"b\",\"type\":\"action.reply\",\"x\":200,\"y\":0,\"params\":{}}],\"wires\":[]}}", "demo");
     }
 
+    public void DebugStagePluginInstall()
+    {
+        _l = DockLayout();
+        StagePluginInstall(Ircuitry.App.PluginBundle.Save("AI Helper", "1.2.0", "robot",
+            "Adds an AI side panel, a Cmd+K command and a right-click action that summarises the selected node.",
+            BuildDemoPluginGraph()));
+    }
+
+    // a small plugin graph that exercises several powers, so the trust card lists a few permissions
+    private static NodeGraph BuildDemoPluginGraph()
+    {
+        var g = new NodeGraph();
+        foreach (var t in new[] { "app.start", "app.panel", "app.command", "app.context", "app.toast", "app.bot" })
+            if (NodeCatalog.TryGet(t, out var d)) g.Add(d, Vector2.Zero);
+        return g;
+    }
+
     public void DebugInstallClip() { _l = DockLayout(); InstallFromClipboard(); }
 
     public void DebugOpenUninstall()
@@ -1170,7 +1266,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 if (_pluginDialog != null) ResolvePluginDialog(false);   // Esc = cancel (resumes a confirm's cancelled branch)
                 else if (_appearanceOpen) CloseAppearance();
                 else if (_themeInstallOpen) CancelThemeInstall();
-                else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; _timelineOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+                else { _pluginInstallOpen = false; _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; _timelineOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
             }
         }
         else if (_renamingBot != null)
@@ -1316,6 +1412,13 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             _ui.Enabled = true;
             r.Begin();
             DrawPluginDialog(r);
+            r.End();
+        }
+        else if (_pluginInstallOpen)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawPluginInstallModal(r);
             r.End();
         }
         // install confirms take priority so a deep-link install overlays whatever modal is already open
