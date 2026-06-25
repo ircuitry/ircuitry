@@ -273,14 +273,19 @@ public sealed class UiWindowScreen : IScreen
                 if (e.Multiline) { DrawMultiline(r, e, rect, blink); break; }
                 var font = r.Fonts.Get(FK(e.Font), e.FontSize);
                 float tx = rect.X + 8f, ty = rect.Y + (rect.H - e.FontSize) / 2f;
-                bool empty = string.IsNullOrEmpty(e.Text);
-                if (empty && !focused && e.Placeholder.Length > 0)
+                if (string.IsNullOrEmpty(e.Text) && !focused && e.Placeholder.Length > 0)
+                {
                     r.Text(font, e.Placeholder, new Vector2(tx, ty), Rgba(e.TextColor, 0.4f * e.Alpha));   // dim hint
-                else
-                    r.Text(font, e.Text, new Vector2(tx, ty), Rgba(e.TextColor, e.Alpha));
+                    break;
+                }
+                // a single line scrolls so its END (the caret) stays visible instead of running off the box
+                float avail = MathF.Max(8f, rect.W - 16f);
+                string vis = e.Text;
+                while (vis.Length > 1 && font.MeasureString(vis).X > avail) vis = vis[1..];
+                r.Text(font, vis, new Vector2(tx, ty), Rgba(e.TextColor, e.Alpha));
                 if (blink)   // blinking caret
                 {
-                    float cx = tx + font.MeasureString(e.Text).X + 1f;
+                    float cx = tx + font.MeasureString(vis).X + 1f;
                     r.VLine(cx, ty + 1f, ty + e.FontSize, Rgba(0xFFFFFFFF, e.Alpha));
                 }
                 break;

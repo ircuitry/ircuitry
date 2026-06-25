@@ -147,6 +147,16 @@ public sealed class ServerConn : IRuntimeSink
         }
     }
 
+    public void UiSetText(string id, string elementId, string text)
+    {
+        if (id.Length == 0) id = "main";
+        lock (_uiGate)
+        {
+            if (!_uiScenes.TryGetValue(id, out var s) || s.Find(elementId) is not { } e) return;
+            e.Text = text; UiStream(id, s);
+        }
+    }
+
     public void UiAnimate(string id, string elementId, Ircuitry.UiKit.Tween t)
     {
         if (id.Length == 0) id = "main";

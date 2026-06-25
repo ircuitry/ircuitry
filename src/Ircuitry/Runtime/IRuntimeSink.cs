@@ -112,6 +112,9 @@ public interface IRuntimeSink
     void UiWindow(string windowId, string title, int width, int height, uint bg) { }
     /// <summary>Add or replace an element (by its id) in a window's scene, then push the scene to the window.</summary>
     void UiUpsert(string windowId, Ircuitry.UiKit.UiElement element) { }
+    /// <summary>Update just the text of an existing element (cheap live update, e.g. a status line streamed during a
+    /// slow node). No-op if the element/window doesn't exist.</summary>
+    void UiSetText(string windowId, string elementId, string text) { }
     /// <summary>Attach a tween to an element in a window's scene.</summary>
     void UiAnimate(string windowId, string elementId, Ircuitry.UiKit.Tween tween) { }
     /// <summary>Remove an element by id (empty id clears the whole window).</summary>

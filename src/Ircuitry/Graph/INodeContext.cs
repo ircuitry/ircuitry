@@ -94,6 +94,7 @@ public interface INodeContext
     // ---- node-authored UI windows (UiKit) ----
     void UiWindow(string windowId, string title, int width, int height, uint bg);
     void UiUpsert(string windowId, Ircuitry.UiKit.UiElement element);
+    void UiSetText(string windowId, string elementId, string text);
     void UiAnimate(string windowId, string elementId, Ircuitry.UiKit.Tween tween);
     void UiRemove(string windowId, string elementId);
     void UiClose(string windowId);

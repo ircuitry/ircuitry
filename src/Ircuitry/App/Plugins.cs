@@ -85,6 +85,7 @@ public sealed class AppSink : IRuntimeSink
     // ---- in-app panel scene building (the plugin's ui.* nodes draw into a dock panel, not an OS window) ----
     public void UiWindow(string id, string title, int width, int height, uint bg) => _host.UiWindow(id, title, width, height, bg);
     public void UiUpsert(string id, Ircuitry.UiKit.UiElement element) => _host.UiUpsert(id, element);
+    public void UiSetText(string id, string elementId, string text) => _host.UiSetText(id, elementId, text);
     public void UiAnimate(string id, string elementId, Ircuitry.UiKit.Tween tween) => _host.UiAnimate(id, elementId, tween);
     public void UiRemove(string id, string elementId) => _host.UiRemove(id, elementId);
     public void UiClose(string id) => _host.UiClose(id);
@@ -203,6 +204,15 @@ public sealed class PluginHost
         }
     }
     public void UiClose(string id) { lock (Manager.SceneGate) Scenes.Remove(id.Length == 0 ? "main" : id); }
+    /// <summary>Cheap live update of one element's text (e.g. a status line streamed by a slow node mid-run). The
+    /// panel re-renders every frame, so this shows up immediately.</summary>
+    public void UiSetText(string id, string elementId, string text)
+    {
+        lock (Manager.SceneGate)
+        {
+            if (Scenes.TryGetValue(id.Length == 0 ? "main" : id, out var s) && s.Find(elementId) is { } e) e.Text = text;
+        }
+    }
 
     // pending app.confirm gates: nodeId -> the captured vars to resume with when the user answers. Written on the
     // worker (BeginConfirm), read/removed from the UI thread (ResolveConfirm) -> guarded.

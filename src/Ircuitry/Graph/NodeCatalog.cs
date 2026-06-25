@@ -1408,6 +1408,10 @@ public static class NodeCatalog
                     // that agent can call - agents all the way down. These only matter when used that way.
                     P("name", "Tool name (as sub-agent)", ParamType.Text, "", "e.g. researcher - only used when wired as another AI's tool"),
                     P("toolDescription", "Tool description (as sub-agent)", ParamType.Text, "", "what this agent does, shown to the calling AI"),
+                    P("maxSteps", "Max tool steps", ParamType.Int, "12", "how many tool rounds before giving up (raise for big edit tasks)"),
+                    // optional live status: update this element's text as the model thinks / calls each tool (e.g. a chat panel's status line)
+                    P("statusWindow", "Status window", ParamType.Text, "", "(optional) a ui window id to stream progress into"),
+                    P("statusElement", "Status element", ParamType.Text, "", "(optional) the element id to update with 'Thinking…' / 'Using <tool>…'"),
                 },
                 SummaryParam = "model",
                 Exec = c =>
@@ -1506,6 +1510,10 @@ public static class NodeCatalog
                     int aiTimeout = Math.Clamp(c.ParamInt("timeout", 120), 5, 1800);
                     string apiKey = Ircuitry.Core.Secrets.Expand(c.Resolve(c.Node.GetParam("apiKey")));
                     var toolsUsed = new List<string>();   // recorded into {ai_tools_used} so a UI can show what it did
+                    // optional live status streaming (e.g. into a chat panel's status line)
+                    string statusWin = c.Resolve(c.Param("statusWindow")), statusEl = c.Resolve(c.Param("statusElement"));
+                    void Status(string t) { if (statusEl.Length > 0) c.UiSetText(statusWin, statusEl, t); }
+                    Status("Thinking...");
                     if (defs.Count == 0)
                         reply = Ai.Chat(c.Resolve(c.Param("baseUrl")), apiKey, c.Resolve(c.Param("model")), c.Resolve(c.Param("system")), prompt, c.ParamInt("maxTokens", 300), out err, aiTimeout, onUsage: c.RecordTokens);
                     else
@@ -1513,6 +1521,7 @@ public static class NodeCatalog
                             (name, args) =>
                             {
                                 if (!toolsUsed.Contains(name)) toolsUsed.Add(name);
+                                Status("Using " + name + "...");
                                 if (mcpRoute.TryGetValue(name, out var mc))     // an external MCP server's tool
                                     return mc.Call(name, args, 60000);
                                 if (editorBot.TryGetValue(name, out var db))    // inward MCP edit against the workspace
@@ -1526,10 +1535,13 @@ public static class NodeCatalog
                                 c.SetVar("__tool_result", "");
                                 c.RunNode(tn);          // runs the tool's sub-flow synchronously
                                 return c.Var("__tool_result");
-                            }, out err, timeoutSeconds: aiTimeout, onUsage: c.RecordTokens, shouldStop: () => c.AiOverBudget);
+                            }, out err, maxRounds: c.ParamInt("maxSteps", 12), timeoutSeconds: aiTimeout, onUsage: c.RecordTokens, shouldStop: () => c.AiOverBudget);
 
+                    Status("");   // clear the live status when done
                     // expose the tools the model called this turn as a ready-to-show var (e.g. for a chat panel)
                     c.SetState("ai_tools_used", toolsUsed.Count > 0 ? "(used " + string.Join(", ", toolsUsed) + ")\n" : "");
+                    // expose a ready-to-show note when there's no usable reply, so a UI never just shows a blank turn
+                    c.SetState("ai_error", err.Length > 0 ? "(error: " + err + ")" : reply.Trim().Length == 0 ? "(empty reply - try rephrasing, raising Max tool steps, or another model)" : "");
                     if (err.Length > 0) c.Log("AI error: " + err, LogLevel.Error);
                     else c.SetOut(1, reply);
                     c.Pulse(0);
