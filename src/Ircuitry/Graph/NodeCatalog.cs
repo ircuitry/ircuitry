@@ -299,7 +299,19 @@ public static class NodeCatalog
     // a ui.* coordinate/size param that resolves {tokens} first (so a panel can size itself to {app_panel_h} etc.)
     private static int Px(INodeContext c, string key, int def) => (int)MathF.Round(ParseF(c.Resolve(c.Param(key)), def));
 
-    // ---- web builder: turn a wired tree of web.element nodes into the Web-IR (read structurally, never executed) ----
+    // ---- web builder: gather the wired page (state nodes + root element tree) into the Web-IR ----
+    private static Ircuitry.WebBuild.WebApp WebGatherApp(INodeContext c, int statesPin, int rootPin, string name)
+    {
+        var app = new Ircuitry.WebBuild.WebApp { Name = name };
+        foreach (var sn in c.SourcesInto(statesPin))
+            if (sn.TypeId == "web.state")
+                app.States.Add(new Ircuitry.WebBuild.WebState { Name = sn.GetParam("name"), Init = sn.GetParam("initial"), Kind = sn.GetParam("kind") });
+        var roots = c.SourcesInto(rootPin);
+        if (roots.Count > 0) app.Root = WebBuildEl(c, roots[0], 0);
+        return app;
+    }
+
+    // turn a wired tree of web.element nodes into the Web-IR (read structurally, never executed)
     private static Ircuitry.WebBuild.WebEl WebBuildEl(INodeContext c, Node node, int depth)
     {
         string tag = node.GetParam("tag");
@@ -4605,13 +4617,42 @@ public static class NodeCatalog
                 SummaryParam = "title",
                 Exec = c =>
                 {
-                    var app = new Ircuitry.WebBuild.WebApp { Name = c.Resolve(c.Param("title")) };
-                    foreach (var sn in c.SourcesInto(2))
-                        if (sn.TypeId == "web.state")
-                            app.States.Add(new Ircuitry.WebBuild.WebState { Name = sn.GetParam("name"), Init = sn.GetParam("initial"), Kind = sn.GetParam("kind") });
-                    var roots = c.SourcesInto(1);
-                    if (roots.Count > 0) app.Root = WebBuildEl(c, roots[0], 0);
+                    var app = WebGatherApp(c, 2, 1, c.Resolve(c.Param("title")));
                     c.UiWeb(c.Resolve(c.Param("window")), "", Ircuitry.WebBuild.WebCodegen.Vanilla(app), c.ParamInt("width", 440), c.ParamInt("height", 560), c.Resolve(c.Param("title")));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "web.eject", Icon = "export", Title = "Web Eject (React)", Subtitle = "web", Category = NodeCategory.Web,
+                Description = "Write the wired page out as a real, clean React + Vite project (idiomatic useState / handlers / bindings). Wire the same root element + states as Web Preview. Outputs the folder; then `npm install && npm run dev` (or build it in a Container node). No lock-in - it's your repo.",
+                Inputs = new[] { Ex(), Tx("root"), new PinDef("states", PinKind.Text, true), Tx("dir") },
+                Outputs = new[] { Ex("then"), Tx("dir") },
+                Params = new[]
+                {
+                    P("name", "App name", ParamType.Text, "App", "the component + project name"),
+                    P("dir", "Folder", ParamType.Text, "~/ircuitry-web/my-app", "where to write the Vite project", file: true),
+                },
+                SummaryParam = "name",
+                Exec = c =>
+                {
+                    var app = WebGatherApp(c, 2, 1, c.Resolve(c.Param("name")));
+                    string raw = c.InOr(3, c.Resolve(c.Param("dir")));
+                    if (raw.Trim().Length == 0) raw = "~/ircuitry-web/app";
+                    string dir = HostDir(raw);
+                    try
+                    {
+                        var files = Ircuitry.WebBuild.WebCodegen.ReactProject(app);
+                        foreach (var kv in files)
+                        {
+                            var path = System.IO.Path.Combine(dir, kv.Key);
+                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+                            System.IO.File.WriteAllText(path, kv.Value);
+                        }
+                        c.Log("ejected " + files.Count + " files to " + dir + "  (cd there, then: npm install && npm run dev)", LogLevel.System);
+                        c.SetOut(1, dir);
+                    }
+                    catch (Exception ex) { c.Log("Web Eject failed: " + ex.Message, LogLevel.Error); }
                     c.Pulse(0);
                 },
             },

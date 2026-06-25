@@ -307,6 +307,7 @@ public static class SelfTest
         fails += UnknownNodePreserveTest();
         fails += WebCounterTest();
         fails += WebNodesCounterTest();
+        fails += WebEjectTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
         return fails;
@@ -4202,6 +4203,41 @@ public static class SelfTest
         fails += Expect("web-nodes-actions", html.Contains("data-on-click=\"count:inc:\"") && html.Contains("data-on-click=\"count:dec:\""), "both button actions made it into the page");
         fails += Expect("web-nodes-bind", html.Contains("data-b=\"count\""), "the h1 binding made it in");
         fails += Expect("web-nodes-order", html.IndexOf(">+1<") < html.IndexOf(">-1<") && html.IndexOf(">-1<") < html.IndexOf("data-b=\"count\""), "children kept wire order (+1, -1, h1)");
+        return fails;
+    }
+
+    /// <summary>web.eject writes the wired page out as a real React + Vite project on disk (idiomatic source +
+    /// buildable scaffold). Verifies the eject end-to-end without needing a container/npm.</summary>
+    private static int WebEjectTest()
+    {
+        int fails = 0;
+        string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-eject-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var g = new NodeGraph();
+            var count = N(g, "web.state", 0, 0); count.SetParam("name", "count"); count.SetParam("initial", "0"); count.SetParam("kind", "number");
+            var plus = N(g, "web.element", 1, 0); plus.SetParam("tag", "button"); plus.SetParam("text", "+1"); plus.SetParam("event", "click"); plus.SetParam("action", "count.inc");
+            var label = N(g, "web.element", 1, 1); label.SetParam("tag", "h1"); label.SetParam("bind", "count");
+            var root = N(g, "web.element", 2, 0); root.SetParam("tag", "div");
+            var eject = N(g, "web.eject", 3, 0); eject.SetParam("name", "Counter"); eject.SetParam("dir", tmp);
+            g.Connect(plus.Id, 0, root.Id, 0); g.Connect(label.Id, 0, root.Id, 0);
+            g.Connect(root.Id, 0, eject.Id, 1); g.Connect(count.Id, 0, eject.Id, 2);
+
+            GraphExecutor.Fire(g, new FakeSink(), eject, new Dictionary<string, string>());
+
+            string pkg = System.IO.Path.Combine(tmp, "package.json");
+            string jsx = System.IO.Path.Combine(tmp, "src", "Counter.jsx");
+            fails += Expect("web-eject-scaffold", System.IO.File.Exists(pkg) && System.IO.File.Exists(jsx)
+                && System.IO.File.Exists(System.IO.Path.Combine(tmp, "src", "main.jsx")) && System.IO.File.Exists(System.IO.Path.Combine(tmp, "index.html")),
+                $"Vite project written to disk ({(System.IO.Directory.Exists(tmp) ? string.Join(",", System.IO.Directory.GetFiles(tmp)) : "none")})");
+            if (System.IO.File.Exists(pkg)) fails += Expect("web-eject-deps", System.IO.File.ReadAllText(pkg).Contains("\"react\"") && System.IO.File.ReadAllText(pkg).Contains("\"vite\""), "package.json has react + vite");
+            if (System.IO.File.Exists(jsx))
+            {
+                string src = System.IO.File.ReadAllText(jsx);
+                fails += Expect("web-eject-react", src.Contains("const [count, setCount] = useState(0)") && src.Contains("onClick={() => setCount(v => v + 1)}") && src.Contains("{count}"), $"idiomatic React emitted ({src.Length} chars)");
+            }
+        }
+        finally { try { System.IO.Directory.Delete(tmp, true); } catch { } }
         return fails;
     }
 
