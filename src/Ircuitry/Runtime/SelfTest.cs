@@ -301,6 +301,7 @@ public static class SelfTest
         fails += PluginGraphEditTest();
         fails += PluginTerminalTest();
         fails += PluginThreadTest();
+        fails += PluginTrustTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3998,6 +3999,62 @@ public static class SelfTest
         bool drained = mgr.WaitIdle("T", 2000);
         fails += Expect("plugin-threaded", drained && app.Toasts.Any(t => t.Contains("threaded!")),
             $"a threaded plugin flow runs off-thread + drains ({drained}; {string.Join("|", app.Toasts)})");
+        return fails;
+    }
+
+    /// <summary>Trust + persistence: a plugin dropped into the folder loads INERT (Pending) until approved - no
+    /// auto-run; approving (the trust card's Install) records consent so it auto-loads next launch; disabling it
+    /// persists across restarts; and a file that gains a new permission is held for re-review. Uses a throwaway
+    /// IRCUITRY_HOME so the real workspace is untouched.</summary>
+    private static int PluginTrustTest()
+    {
+        int fails = 0;
+        // permission-escalation predicate (pure)
+        fails += Expect("plugin-perms-same", Ircuitry.App.PluginManager.PermsApproved(new[] { "menu" }, new[] { "menu" }), "same perms approved");
+        fails += Expect("plugin-perms-subset", Ircuitry.App.PluginManager.PermsApproved(new[] { "menu" }, new[] { "menu", "dialogs" }), "fewer perms approved");
+        fails += Expect("plugin-perms-escalate", !Ircuitry.App.PluginManager.PermsApproved(new[] { "menu", "dialogs" }, new[] { "menu" }), "a new permission is NOT auto-approved");
+
+        string? prev = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-selftest-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+            string pdir = System.IO.Path.Combine(tmp, "plugins");
+            System.IO.Directory.CreateDirectory(pdir);
+            var g = new NodeGraph();
+            var st = N(g, "app.start", 0, 0); var menu = N(g, "app.menu", 1, 0); menu.SetParam("id", "x"); menu.SetParam("label", "X");
+            g.Connect(st.Id, 0, menu.Id, 0);
+            string json = Ircuitry.App.PluginBundle.Save("Dropped", "1.0.0", "puzzle-piece", "", g);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(pdir, "Dropped.ircplugin"), json);   // SafeName, so Install overwrites the same file
+
+            // 1) present but never approved -> Pending, inert
+            var m1 = new Ircuitry.App.PluginManager(new FakeApp());
+            m1.LoadInstalled();
+            var p1 = m1.Plugins.FirstOrDefault(p => p.Name == "Dropped");
+            fails += Expect("plugin-trust-pending", p1 != null && p1.Pending && !p1.Enabled && m1.Contributions("menu").Count == 0,
+                $"a dropped-in plugin loads inert ({p1?.Pending}/{p1?.Enabled}/{m1.Contributions("menu").Count})");
+
+            // 2) approve via Install -> next launch auto-enables it
+            m1.Install(json);
+            var m2 = new Ircuitry.App.PluginManager(new FakeApp());
+            m2.LoadInstalled();
+            var p2 = m2.Plugins.FirstOrDefault(p => p.Name == "Dropped");
+            fails += Expect("plugin-trust-approved", p2 != null && !p2.Pending && p2.Enabled && m2.Contributions("menu").Any(c => c.Id == "x"),
+                $"an approved plugin auto-loads ({p2?.Pending}/{p2?.Enabled})");
+
+            // 3) disable -> stays off across restart
+            m2.Disable(p2!);
+            var m3 = new Ircuitry.App.PluginManager(new FakeApp());
+            m3.LoadInstalled();
+            var p3 = m3.Plugins.FirstOrDefault(p => p.Name == "Dropped");
+            fails += Expect("plugin-trust-disabled", p3 != null && !p3.Pending && !p3.Enabled && m3.Contributions("menu").Count == 0,
+                $"a disabled plugin stays off across restart ({p3?.Pending}/{p3?.Enabled})");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", prev);
+            try { System.IO.Directory.Delete(tmp, true); } catch { }
+        }
         return fails;
     }
 

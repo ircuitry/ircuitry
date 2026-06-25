@@ -49,6 +49,7 @@ public sealed class PluginMeta
     public List<string> Permissions = new();
     public string Path = "";        // the .ircplugin file on disk
     public bool Enabled;
+    public bool Pending;            // present on disk but never approved (or its permissions changed) -> needs review, doesn't run
     public NodeGraph Graph = new();
 }
 
@@ -262,6 +263,16 @@ public sealed class PluginManager
     /// <summary>Guards every plugin scene (read by the UI while rendering, written by plugin workers). Held briefly.</summary>
     public readonly object SceneGate = new();
 
+    /// <summary>Persisted record of which plugins the user approved (and at what permissions) + their on/off state.
+    /// A plugin only auto-loads if it's here with matching permissions - dropping a file into the dir doesn't run it.</summary>
+    public sealed class RegEntry { public bool Enabled { get; set; } = true; public List<string> Permissions { get; set; } = new(); }
+    private Dictionary<string, RegEntry> _registry = new();
+    private static string RegistryPath => Path.Combine(Dir, "registry.json");
+    private void LoadRegistry()
+    { try { if (File.Exists(RegistryPath)) _registry = JsonSerializer.Deserialize<Dictionary<string, RegEntry>>(File.ReadAllText(RegistryPath)) ?? new(); } catch { _registry = new(); } }
+    private void SaveRegistry()
+    { try { Directory.CreateDirectory(Dir); File.WriteAllText(RegistryPath, JsonSerializer.Serialize(_registry, new JsonSerializerOptions { WriteIndented = true })); } catch { /* best effort */ } }
+
     /// <summary><paramref name="threaded"/> runs each plugin's flows on its own worker thread (the app); tests pass
     /// false to keep flows synchronous + inline.</summary>
     public PluginManager(IAppHost app, bool threaded = false) { App = app; _threaded = threaded; }
@@ -320,12 +331,25 @@ public sealed class PluginManager
         return h?.WaitIdle(ms) ?? true;
     }
 
-    public void Enable(PluginMeta p)
+    /// <summary>Installed plugins that are present but not approved (or whose permissions changed) - they don't run
+    /// until the user reviews + approves them.</summary>
+    public IReadOnlyList<PluginMeta> PendingPlugins { get { lock (_gate) return _plugins.Where(p => p.Pending).ToList(); } }
+
+    /// <summary>A plugin is approval-compatible only if it asks for nothing beyond what was approved (asking for the
+    /// same or fewer permissions is fine; any new one means re-review).</summary>
+    public static bool PermsApproved(IEnumerable<string> wanted, IEnumerable<string> approved)
+        => !wanted.Except(approved, StringComparer.Ordinal).Any();
+
+    /// <summary>Start a plugin (register its chrome). <paramref name="persist"/> records approval at the plugin's
+    /// current permissions - the consent that lets it auto-load next time. Loading already-approved plugins passes
+    /// false (the registry already has them).</summary>
+    public void Enable(PluginMeta p, bool persist = true)
     {
         lock (_gate) { if (_hosts.ContainsKey(p.Name)) return; }
         var host = new PluginHost(this, p.Name, p.Graph, _threaded);
         lock (_gate) _hosts[p.Name] = host;
-        p.Enabled = true;
+        p.Enabled = true; p.Pending = false;
+        if (persist) { _registry[p.Name] = new RegEntry { Enabled = true, Permissions = p.Permissions.ToList() }; SaveRegistry(); }
         host.Start();   // register contributions
     }
 
@@ -335,12 +359,20 @@ public sealed class PluginManager
         lock (_gate) { _hosts.Remove(p.Name, out h); _contribs.RemoveAll(c => c.PluginId == p.Name); }
         h?.Dispose();   // stop its worker thread
         p.Enabled = false;
+        // persist the off state, keeping the approved permissions so it stays approved-but-off across restarts
+        var perms = _registry.TryGetValue(p.Name, out var e) ? e.Permissions : p.Permissions.ToList();
+        _registry[p.Name] = new RegEntry { Enabled = false, Permissions = perms };
+        SaveRegistry();
     }
 
-    /// <summary>Load + enable every installed plugin (called at app start). Best-effort per file.</summary>
+    /// <summary>Load installed plugins (called at app start). Only plugins recorded as approved (with no new
+    /// permissions since approval) auto-enable; anything else loads as Pending - present but inert until reviewed.</summary>
     public void LoadInstalled()
     {
-        lock (_gate) { _plugins.Clear(); _hosts.Clear(); _contribs.Clear(); }
+        List<PluginHost> old;
+        lock (_gate) { old = _hosts.Values.ToList(); _plugins.Clear(); _hosts.Clear(); _contribs.Clear(); }
+        foreach (var h in old) h.Dispose();
+        LoadRegistry();
         string dir = Dir;
         if (!Directory.Exists(dir)) return;
         foreach (var f in Directory.GetFiles(dir, "*.ircplugin"))
@@ -349,14 +381,19 @@ public sealed class PluginManager
             {
                 var m = PluginBundle.Load(File.ReadAllText(f));
                 m.Path = f;
+                // approved only if recorded AND it asks for nothing beyond what was approved (a swapped-in file that
+                // wants more permissions is treated as untrusted and held for review).
+                bool approved = _registry.TryGetValue(m.Name, out var e) && PermsApproved(m.Permissions, e.Permissions);
+                m.Pending = !approved;
                 lock (_gate) _plugins.Add(m);
-                Enable(m);
+                if (approved && e!.Enabled) Enable(m, persist: false);   // trusted + on -> run it
             }
             catch (Exception ex) { App.Log("plugin load failed (" + Path.GetFileName(f) + "): " + ex.Message, LogLevel.Error); }
         }
     }
 
-    /// <summary>Install a plugin from its bundle JSON: write it to the plugins dir and enable it.</summary>
+    /// <summary>Install/approve a plugin from its bundle JSON: write it to the plugins dir, record approval, enable it.
+    /// This is the consent step (reached only from the trust card).</summary>
     public PluginMeta Install(string json)
     {
         var m = PluginBundle.Load(json);
@@ -364,8 +401,10 @@ public sealed class PluginManager
         m.Path = Path.Combine(Dir, SafeName(m.Name) + ".ircplugin");
         File.WriteAllText(m.Path, json);
         lock (_gate) { _plugins.RemoveAll(x => x.Name == m.Name); _plugins.Add(m); }
-        Disable(m);   // clear any stale host/contribs for a same-named reinstall
-        Enable(m);
+        PluginHost? stale; lock (_gate) _hosts.Remove(m.Name, out stale);
+        stale?.Dispose();                            // clear any stale host/contribs for a same-named reinstall
+        lock (_gate) _contribs.RemoveAll(c => c.PluginId == m.Name);
+        Enable(m);                                   // records approval at the current permissions
         return m;
     }
 
@@ -374,6 +413,7 @@ public sealed class PluginManager
         Disable(p);
         try { if (File.Exists(p.Path)) File.Delete(p.Path); } catch { /* best effort */ }
         lock (_gate) _plugins.RemoveAll(x => x.Name == p.Name);
+        _registry.Remove(p.Name); SaveRegistry();    // forget the approval too
     }
 
     private static string SafeName(string s)

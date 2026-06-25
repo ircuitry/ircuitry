@@ -221,6 +221,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private bool _pluginInstallOpen, _pluginInstallJustOpened;
     private string _pluginInstallJson = "";
     private Ircuitry.App.PluginMeta? _pluginInstallMeta;
+    private bool _pluginReviewChecked;   // prompted once this session about any plugins awaiting review
 
     // try-before-install: run a community item in a throwaway Test Bench without adding it to the workspace
     private NodeGraph? _testEphemeral;
@@ -426,12 +427,20 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         else foreach (var p in ps)
             {
                 var pp = p;
-                _ctxItems.Add(new CtxItem { Icon = pp.Enabled ? "check-circle" : "circle", Label = pp.Name + "  v" + pp.Version, Enabled = false });
-                _ctxItems.Add(new CtxItem { Icon = pp.Enabled ? "pause" : "play", Label = pp.Enabled ? "Disable" : "Enable", Enabled = true, Do = () =>
+                if (pp.Pending)
                 {
-                    if (pp.Enabled) { _plugins.Disable(pp); PushToast(Ircuitry.Core.Icons.Glyph("pause") + " disabled " + pp.Name); }
-                    else { _plugins.Enable(pp); PushToast(Ircuitry.Core.Icons.Glyph("play") + " enabled " + pp.Name); }
-                } });
+                    _ctxItems.Add(new CtxItem { Icon = "warning", Label = pp.Name + "  v" + pp.Version + "  - needs review", Enabled = false });
+                    _ctxItems.Add(new CtxItem { Icon = "seal-check", Label = "Review & enable", Enabled = true, Do = () => ReviewPlugin(pp) });
+                }
+                else
+                {
+                    _ctxItems.Add(new CtxItem { Icon = pp.Enabled ? "check-circle" : "circle", Label = pp.Name + "  v" + pp.Version, Enabled = false });
+                    _ctxItems.Add(new CtxItem { Icon = pp.Enabled ? "pause" : "play", Label = pp.Enabled ? "Disable" : "Enable", Enabled = true, Do = () =>
+                    {
+                        if (pp.Enabled) { _plugins.Disable(pp); PushToast(Ircuitry.Core.Icons.Glyph("pause") + " disabled " + pp.Name); }
+                        else { _plugins.Enable(pp); PushToast(Ircuitry.Core.Icons.Glyph("play") + " enabled " + pp.Name); }
+                    } });
+                }
                 _ctxItems.Add(new CtxItem { Icon = "trash", Label = "Uninstall", Enabled = true, Do = () => { _plugins.Uninstall(pp); PushToast(Ircuitry.Core.Icons.Glyph("trash") + " removed " + pp.Name); } });
                 _ctxItems.Add(new CtxItem { Sep = true });
             }
@@ -448,6 +457,15 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         catch (System.Exception ex) { PushToast(Ircuitry.Core.Icons.Glyph("warning") + " invalid plugin: " + ex.Message); return; }
         _pluginInstallJson = json; _pluginInstallMeta = m;
         _pluginInstallOpen = true; _pluginInstallJustOpened = true;
+    }
+
+    // a plugin that was dropped into the folder (or whose permissions changed) loaded as Pending - review it via the
+    // same trust card; approving (Install) records consent + enables it.
+    private void ReviewPlugin(Ircuitry.App.PluginMeta p)
+    {
+        _ctxOpen = false;
+        try { StagePluginInstall(System.IO.File.ReadAllText(p.Path)); }
+        catch (System.Exception ex) { PushToast(Ircuitry.Core.Icons.Glyph("warning") + " can't read plugin: " + ex.Message); }
     }
 
     // friendly (icon, sentence) for a derived plugin permission, shown on the trust card
@@ -1273,6 +1291,14 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         _editor.Graph = Bot.Graph;
         DrainUiJobs();              // run any app effects plugin workers posted since last frame
         EnsurePluginDockPanels();   // add/drop dock panels for plugin contributions before the layout pass
+        // plugins that appeared in the folder without going through the trust card load inert (Pending); once the
+        // startup chrome is clear, surface the first one for review (the Plugins... manager covers any others)
+        if (!_pluginReviewChecked && _gd != null && !Modal && !_tut.Active)
+        {
+            _pluginReviewChecked = true;
+            var pend = _plugins.PendingPlugins;
+            if (pend.Count > 0) ReviewPlugin(pend[0]);
+        }
         _l = DockLayout();
         ClipboardPoll(clock);
         AchievementsTick(clock);
