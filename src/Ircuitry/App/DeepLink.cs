@@ -30,7 +30,8 @@ public static class DeepLink
     {
         var p = FilePath(arg);
         return p.EndsWith(".ircbot", StringComparison.OrdinalIgnoreCase)
-            || p.EndsWith(".ircnode", StringComparison.OrdinalIgnoreCase);
+            || p.EndsWith(".ircnode", StringComparison.OrdinalIgnoreCase)
+            || p.EndsWith(".ircplugin", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The local path for a file arg, decoding a <c>file://</c> URL if that is how the OS passed it.</summary>
@@ -199,7 +200,7 @@ public static class DeepLink
                 "Terminal=false\n" +
                 "NoDisplay=true\n" +
                 "MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;x-scheme-handler/irc;x-scheme-handler/ircs;" +
-                "application/x-ircuitry-bot;application/x-ircuitry-node;\n";
+                "application/x-ircuitry-bot;application/x-ircuitry-node;application/x-ircuitry-plugin;\n";
             if (!File.Exists(desktop) || File.ReadAllText(desktop) != content)
                 File.WriteAllText(desktop, content);
 
@@ -213,6 +214,7 @@ public static class DeepLink
                 "<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n" +
                 "  <mime-type type=\"application/x-ircuitry-bot\">\n    <comment>ircuitry workflow</comment>\n    <glob pattern=\"*.ircbot\"/>\n    <icon name=\"ircuitry\"/>\n  </mime-type>\n" +
                 "  <mime-type type=\"application/x-ircuitry-node\">\n    <comment>ircuitry node</comment>\n    <glob pattern=\"*.ircnode\"/>\n    <icon name=\"ircuitry\"/>\n  </mime-type>\n" +
+                "  <mime-type type=\"application/x-ircuitry-plugin\">\n    <comment>ircuitry plugin</comment>\n    <glob pattern=\"*.ircplugin\"/>\n    <icon name=\"ircuitry\"/>\n  </mime-type>\n" +
                 "</mime-info>\n";
             if (!File.Exists(mimeXml) || File.ReadAllText(mimeXml) != xml)
             {
@@ -223,7 +225,7 @@ public static class DeepLink
             foreach (var mime in new[]
             {
                 "x-scheme-handler/ircuitry", "x-scheme-handler/ircbot", "x-scheme-handler/irc", "x-scheme-handler/ircs",
-                "application/x-ircuitry-bot", "application/x-ircuitry-node",
+                "application/x-ircuitry-bot", "application/x-ircuitry-node", "application/x-ircuitry-plugin",
             })
                 RunQuiet("xdg-mime", "default ircuitry-url.desktop " + mime);
             RunQuiet("update-desktop-database", appsDir);
@@ -245,7 +247,7 @@ public static class DeepLink
             Reg("add", key + @"\shell\open\command", "/ve", "/d", "\"" + exe + "\" \"%1\"", "/f");
         }
         // file types: .ircbot / .ircnode -> a ProgID -> open with this exe (per-user, no admin)
-        foreach (var (ext, progId, desc) in new[] { (".ircbot", "ircuitry.bot", "ircuitry workflow"), (".ircnode", "ircuitry.node", "ircuitry node") })
+        foreach (var (ext, progId, desc) in new[] { (".ircbot", "ircuitry.bot", "ircuitry workflow"), (".ircnode", "ircuitry.node", "ircuitry node"), (".ircplugin", "ircuitry.plugin", "ircuitry plugin") })
         {
             Reg("add", @"HKCU\Software\Classes\" + ext, "/ve", "/d", progId, "/f");
             Reg("add", @"HKCU\Software\Classes\" + progId, "/ve", "/d", desc, "/f");

@@ -35,7 +35,7 @@ Exec=$APPID %U
 Icon=$APPID
 Terminal=false
 Categories=Development;Network;
-MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;application/x-ircuitry-bot;application/x-ircuitry-node;
+MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;application/x-ircuitry-bot;application/x-ircuitry-node;application/x-ircuitry-plugin;
 EOF
 
 # MIME glob: *.ircbot / *.ircnode -> our types (dpkg's shared-mime-info trigger runs update-mime-database on install)
@@ -45,6 +45,7 @@ cat > "$DEB/usr/share/mime/packages/$APPID.xml" <<EOF
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-ircuitry-bot"><comment>ircuitry workflow</comment><glob pattern="*.ircbot"/><icon name="$APPID"/></mime-type>
   <mime-type type="application/x-ircuitry-node"><comment>ircuitry node</comment><glob pattern="*.ircnode"/><icon name="$APPID"/></mime-type>
+  <mime-type type="application/x-ircuitry-plugin"><comment>ircuitry plugin</comment><glob pattern="*.ircplugin"/><icon name="$APPID"/></mime-type>
 </mime-info>
 EOF
 
@@ -80,7 +81,7 @@ Exec=Ircuitry %U
 Icon=$APPID
 Terminal=false
 Categories=Development;Network;
-MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;application/x-ircuitry-bot;application/x-ircuitry-node;
+MimeType=x-scheme-handler/ircuitry;x-scheme-handler/ircbot;application/x-ircuitry-bot;application/x-ircuitry-node;application/x-ircuitry-plugin;
 EOF
 cp "$APPDIR/$APPID.desktop" "$APPDIR/usr/share/applications/$APPID.desktop"
 install -d "$APPDIR/usr/share/mime/packages"
@@ -89,6 +90,7 @@ cat > "$APPDIR/usr/share/mime/packages/$APPID.xml" <<EOF
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-ircuitry-bot"><comment>ircuitry workflow</comment><glob pattern="*.ircbot"/><icon name="$APPID"/></mime-type>
   <mime-type type="application/x-ircuitry-node"><comment>ircuitry node</comment><glob pattern="*.ircnode"/><icon name="$APPID"/></mime-type>
+  <mime-type type="application/x-ircuitry-plugin"><comment>ircuitry plugin</comment><glob pattern="*.ircplugin"/><icon name="$APPID"/></mime-type>
 </mime-info>
 EOF
 cat > "$APPDIR/AppRun" <<'EOF'

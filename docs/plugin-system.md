@@ -203,5 +203,12 @@ Each phase is shippable and testable headlessly (sink fakes + selftests, like th
 
 ## 12. Status
 
-- **Phase 1 core (built + tested):** the `App` category; the four nodes `app.start`, `app.menu`, `app.on`, `app.toast`; the `IRuntimeSink`/`INodeContext` extension (`AppToast`, `AppContribute`); the register→fire loop. Covered by `PluginLoopTest` (register a menu item, fire its activation, toast - with a fake AppSink). Full selftest green.
-- **Next (rest of Phase 1):** `PluginHost` (the real per-plugin runtime) + a real `AppSink` wired to `MainScreen` (contributions → the menu/`PushToast`; activation → fire the owning host); render registered items in the More menu + Cmd+K; the `.ircplugin` format + **Bundle as Plugin** + a minimal Plugins manager + install via the trust card. Then Phases 2-5 per §10.
+**Phase 1: COMPLETE** - a real, end-to-end loop (author → bundle → install → menu item appears → click runs your flow).
+
+- **Nodes + category:** `App / Plugins` category; `app.start`, `app.menu`, `app.on`, `app.toast`.
+- **Runtime:** `PluginHost` (a plugin graph run under an `AppSink : IRuntimeSink`) + `PluginManager` (installed plugins, live hosts, the contribution registry) + the `.ircplugin` bundle format (`PluginBundle`, permissions derived from the `app.*` nodes used).
+- **Chrome:** `MainScreen` is the `IAppHost` (toasts via `PushToast`); the More menu merges plugin menu items + **Bundle this as a plugin…** + a **Plugins…** manager (list / uninstall); installed plugins auto-load + enable on app start.
+- **Distribution:** `.ircplugin` joins the file-association machinery (double-click installs; `OpenFile` routes it) on Linux/Windows/macOS + the `.deb`/AppImage/`.app` packaging.
+- **Tests:** `PluginLoopTest` (node-level register→fire) + `PluginManagerTest` (manager enable→activate→disable + `.ircplugin` round-trip with derived permissions). Full selftest green. Sample: `~/greeter.ircplugin`.
+
+**Next (Phase 2+):** toolbar + right-click + command-palette hooks; in-app panels & dialogs (the `ui.*`-into-a-dock-rect renderer); act-on-active-bot + nav + state; trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) and a richer manager.

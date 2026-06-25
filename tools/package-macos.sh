@@ -57,6 +57,12 @@ cat > "$APP/Contents/Info.plist" <<EOF
       <key>CFBundleTypeRole</key><string>Editor</string>
       <key>LSHandlerRank</key><string>Owner</string>
     </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>ircuitry plugin</string>
+      <key>CFBundleTypeExtensions</key><array><string>ircplugin</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+    </dict>
   </array>
   $ICNS
 </dict></plist>

@@ -17,9 +17,10 @@ using Ircuitry.Runtime;
 namespace Ircuitry.Screens;
 
 /// <summary>Root screen - composes the command-console dock around the live graph editor.</summary>
-public sealed partial class MainScreen : IScreen
+public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 {
     private readonly AppModel _app;
+    private readonly Ircuitry.App.PluginManager _plugins;
     private readonly GraphEditor _editor;
     private readonly Ui _ui = new();
     private int _testRunSeq;   // bumped each RunTest() - the tutorial watches it
@@ -260,6 +261,48 @@ public sealed partial class MainScreen : IScreen
         _dock.Add(new DockManager.Panel { Id = "inspector", Dock = DockManager.Edge.Right, Size = Layout.InspectorW });
         _dock.Add(new DockManager.Panel { Id = "console", Dock = DockManager.Edge.Bottom, Size = Layout.ConsoleH, Visible = false });
         LoadDockLayout();
+        _plugins = new Ircuitry.App.PluginManager(this);
+        _plugins.LoadInstalled();   // enable installed plugins (registers their menu items etc.)
+    }
+
+    // ===================================================================
+    // Plugins: the app-host surface + the bundle/manage actions (see docs/plugin-system.md)
+    // ===================================================================
+    void Ircuitry.App.IAppHost.Toast(string message, string kind)
+        => PushToast(Ircuitry.Core.Icons.Glyph(kind switch { "ok" => "check-circle", "warn" => "warning", _ => "info" }) + " " + message);
+    void Ircuitry.App.IAppHost.Log(string message, LogLevel level) => Bot.Log.Add(level, message);
+
+    /// <summary>Export the open bot's graph as a portable .ircplugin (to the home folder); double-click it to install.</summary>
+    private void BundleActivePlugin()
+    {
+        var g = Bot.Graph;
+        if (!Ircuitry.App.PluginBundle.LooksLikePlugin(g))
+        { PushToast(Ircuitry.Core.Icons.Glyph("warning") + " add an On Plugin Start + an app.* node first"); return; }
+        try
+        {
+            string json = Ircuitry.App.PluginBundle.Save(Bot.Name, "1.0.0", "puzzle-piece", "", g);
+            string file = new string((Bot.Name.Length == 0 ? "plugin" : Bot.Name).Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray());
+            string path = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), file + ".ircplugin");
+            System.IO.File.WriteAllText(path, json);
+            PushToast(Ircuitry.Core.Icons.Glyph("package") + " bundled to " + path);
+        }
+        catch (System.Exception ex) { PushToast(Ircuitry.Core.Icons.Glyph("warning") + " bundle failed: " + ex.Message); }
+    }
+
+    /// <summary>A tiny plugin manager via the context-menu system: list installed plugins (uninstall each) + open the folder.</summary>
+    private void OpenPluginManager()
+    {
+        _ctxItems.Clear();
+        var ps = _plugins.Plugins;
+        if (ps.Count == 0) _ctxItems.Add(new CtxItem { Icon = "puzzle-piece", Label = "No plugins installed", Enabled = false });
+        else foreach (var p in ps)
+            {
+                var pp = p;
+                _ctxItems.Add(new CtxItem { Icon = "trash", Label = "Uninstall " + pp.Name + " v" + pp.Version, Enabled = true, Do = () => { _plugins.Uninstall(pp); PushToast(Ircuitry.Core.Icons.Glyph("trash") + " removed " + pp.Name); } });
+            }
+        _ctxItems.Add(new CtxItem { Sep = true });
+        _ctxItems.Add(new CtxItem { Icon = "folder-open", Label = "Open plugins folder", Enabled = true, Do = () => Ircuitry.App.DeepLink.OpenUrl("file://" + Ircuitry.App.PluginManager.Dir) });
+        _ctxOpen = true; _ctxJustOpened = true;
     }
 
     private string DockFile => System.IO.Path.Combine(AppModel.WorkspaceDir, "dock-layout.txt");
@@ -506,10 +549,14 @@ public sealed partial class MainScreen : IScreen
         {
             if (!System.IO.File.Exists(path)) { Bot.Log.Add(LogLevel.Error, "file not found: " + path); return; }
             string text = System.IO.File.ReadAllText(path);
-            if (System.IO.Path.GetExtension(path).Equals(".ircnode", System.StringComparison.OrdinalIgnoreCase))
-                StageInstall(text, System.IO.Path.GetFileName(path));   // a community node
-            else
-                StageWorkflowInstall(text);                              // a .ircbot -> a new bot tab
+            string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+            if (ext == ".ircplugin")
+            {
+                var m = _plugins.Install(text);   // a plugin -> installed + enabled (auto)
+                PushToast(Ircuitry.Core.Icons.Glyph("puzzle-piece") + " plugin installed: " + m.Name + (m.Permissions.Count > 0 ? " (" + string.Join(", ", m.Permissions) + ")" : ""));
+            }
+            else if (ext == ".ircnode") StageInstall(text, System.IO.Path.GetFileName(path));   // a community node
+            else StageWorkflowInstall(text);                                                    // a .ircbot -> a new bot tab
         }
         catch (System.Exception ex) { Bot.Log.Add(LogLevel.Error, "could not open " + System.IO.Path.GetFileName(path) + ": " + ex.Message); }
     }
@@ -1596,6 +1643,14 @@ public sealed partial class MainScreen : IScreen
         Sep();
         Item("graduation-cap", "Tutorial", "", true, ForceStartTutorial);
         Item("book-open", "Documentation", "F1", true, () => Ircuitry.App.DeepLink.OpenUrl(DocsUrl));
+        Sep();
+        foreach (var c in _plugins.Contributions("menu"))   // plugin-contributed menu items
+        {
+            var cap = c;
+            Item(string.IsNullOrEmpty(cap.Icon) ? "puzzle-piece" : cap.Icon, cap.Label, "", true, () => _plugins.Activate(cap.PluginId, "menu", cap.Id));
+        }
+        Item("package", "Bundle this as a plugin…", "", Ircuitry.App.PluginBundle.LooksLikePlugin(Bot.Graph), BundleActivePlugin);
+        Item("puzzle-piece", "Plugins…", "", true, OpenPluginManager);
         _ctxOpen = true; _ctxJustOpened = true;
     }
 
