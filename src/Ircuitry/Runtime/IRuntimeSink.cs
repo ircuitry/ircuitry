@@ -136,6 +136,12 @@ public interface IRuntimeSink
     /// command | panel. <paramref name="at"/> is a placement hint (menu: more|file; context: node|canvas).
     /// The app routes the contribution's activation back as the "app" trigger family ({app_event}/{app_id}).</summary>
     void AppContribute(string kind, string id, string label, string icon, string at) { }
+    /// <summary>Read app / active-bot state (bot-name, running, tab-count, active-index, bots, version). "" if none.</summary>
+    string AppInfo(string what) => "";
+    /// <summary>Navigate the app: next-tab | prev-tab | open-bot (arg = bot name). No-op off an AppSink.</summary>
+    void AppNav(string action, string arg) { }
+    /// <summary>Run / stop / restart a bot (blank = the active bot). No-op off an AppSink.</summary>
+    void AppBot(string action, string bot) { }
 
     // persistent per-bot variable store
     string GetState(string key);

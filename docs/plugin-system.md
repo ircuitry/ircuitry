@@ -211,4 +211,9 @@ Each phase is shippable and testable headlessly (sink fakes + selftests, like th
 - **Distribution:** `.ircplugin` joins the file-association machinery (double-click installs; `OpenFile` routes it) on Linux/Windows/macOS + the `.deb`/AppImage/`.app` packaging.
 - **Tests:** `PluginLoopTest` + `PluginManagerTest` + `PluginHooksTest` (toolbar/context/command register + activate, `{app_node}` flows, `.ircplugin` round-trip). Full selftest green. Sample: `~/greeter.ircplugin`.
 
-**Next (Phase 3+):** in-app **panels & dialogs** (render `ui.*` scenes into a dock rect / modal - the big one); **act-on-active-bot** + nav + app state; trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) + a richer manager.
+**Phase 3a: app state, navigation & bot control - COMPLETE.**
+- **Nodes:** `app.info` (pure: `bot-name`, `running`, `tab-count`, `active-index`, `bots`, `version`), `app.nav` (`next-tab` / `prev-tab` / `open-bot`), `app.bot` (`run` / `stop` / `restart` a named or the active bot).
+- **Plumbing:** `IRuntimeSink.AppInfo/AppNav/AppBot` (default no-ops; only an `AppSink` fulfils them) → `INodeContext` → `GraphExecutor.NodeCtx` → `AppSink` → `IAppHost.Info/Nav/BotCmd`, implemented on `MainScreen` against `AppModel` (tab switch via `_app.Active`, run/stop via `Bot.Runtime`). New `app-state` permission for `app.info`; `navigate` / `control-bots` already covered nav / bot.
+- **Test:** `PluginPowersTest` (app.info threads through a var into a toast; nav + bot reach the host; permissions derived). Selftest green.
+
+**Next (Phase 3b+):** in-app **panels & dialogs** (render `ui.*` scenes into a dock rect / modal - the big one); **act-on-active-bot graph edits** (`app.graph.*`); trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) + a richer manager.

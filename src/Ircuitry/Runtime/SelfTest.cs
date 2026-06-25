@@ -295,6 +295,7 @@ public static class SelfTest
         fails += PluginLoopTest();
         fails += PluginManagerTest();
         fails += PluginHooksTest();
+        fails += PluginPowersTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3725,8 +3726,12 @@ public static class SelfTest
     private sealed class FakeApp : Ircuitry.App.IAppHost
     {
         public readonly List<string> Toasts = new();
+        public readonly List<string> Calls = new();   // nav / bot control calls
         public void Toast(string m, string k) => Toasts.Add(k + ":" + m);
         public void Log(string m, LogLevel l) { }
+        public string Info(string what) => what == "bot-name" ? "Mita" : what == "tab-count" ? "3" : "";
+        public void Nav(string action, string arg) => Calls.Add("nav:" + action + ":" + arg);
+        public void BotCmd(string action, string bot) => Calls.Add("bot:" + action + ":" + bot);
     }
 
     /// <summary>The plugin MANAGER loop end-to-end: enabling a plugin registers its menu contribution, activating
@@ -3784,6 +3789,38 @@ public static class SelfTest
         mgr.Activate("P", "context", "cx", new Dictionary<string, string> { ["app_node"] = "n1" });
         fails += Expect("plugin-hooks-toolbar", app.Toasts.Any(t => t.Contains("toolbar/tb/")), $"toolbar activation ({string.Join("|", app.Toasts)})");
         fails += Expect("plugin-hooks-context", app.Toasts.Any(t => t.Contains("context/cx/n1")), "context activation carries {app_node}");
+        return fails;
+    }
+
+    /// <summary>The app state + navigation power: a plugin reads active-bot state via app.info (piped into a var the
+    /// toast resolves), switches tabs via app.nav and runs/stops a bot via app.bot - all routed through the fake app
+    /// host. Proves app.info/app.nav/app.bot reach the host and the data output threads through the var store.</summary>
+    private static int PluginPowersTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var on = N(g, "app.on", 0, 0); on.SetParam("event", "command");
+        var info = N(g, "app.info", 0, 1); info.SetParam("what", "bot-name");
+        var sv = N(g, "data.setvar", 1, 1); sv.SetParam("name", "who");
+        g.Connect(info.Id, 0, sv.Id, 1);                       // app.info value -> setvar's value input
+        var toast = N(g, "app.toast", 2, 0); toast.SetParam("message", "hi {who}");
+        var nav = N(g, "app.nav", 3, 0); nav.SetParam("action", "next-tab");
+        var bot = N(g, "app.bot", 4, 0); bot.SetParam("action", "stop"); bot.SetParam("bot", "Mita");
+        g.Connect(on.Id, 0, sv.Id, 0); g.Connect(sv.Id, 0, toast.Id, 0);
+        g.Connect(toast.Id, 0, nav.Id, 0); g.Connect(nav.Id, 0, bot.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "P", Graph = g });
+        mgr.Activate("P", "command", "go");
+        fails += Expect("plugin-powers-info", app.Toasts.Any(t => t.Contains("hi Mita")), $"app.info reads the active bot name ({string.Join("|", app.Toasts)})");
+        fails += Expect("plugin-powers-nav", app.Calls.Contains("nav:next-tab:"), $"app.nav navigates ({string.Join("|", app.Calls)})");
+        fails += Expect("plugin-powers-bot", app.Calls.Contains("bot:stop:Mita"), "app.bot controls a named bot");
+
+        // permissions are derived from the new power nodes too
+        var perms = Ircuitry.App.PluginBundle.PermissionsFor(g);
+        fails += Expect("plugin-powers-perms", perms.Contains("app-state") && perms.Contains("navigate") && perms.Contains("control-bots"),
+            $"power nodes derive permissions ({string.Join(",", perms)})");
         return fails;
     }
 

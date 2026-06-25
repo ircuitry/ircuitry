@@ -272,6 +272,40 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         => PushToast(Ircuitry.Core.Icons.Glyph(kind switch { "ok" => "check-circle", "warn" => "warning", _ => "info" }) + " " + message);
     void Ircuitry.App.IAppHost.Log(string message, LogLevel level) => Bot.Log.Add(level, message);
 
+    string Ircuitry.App.IAppHost.Info(string what) => what switch
+    {
+        "bot-name" => Bot.Name,
+        "running" => Bot.Runtime.Running ? "yes" : "no",
+        "tab-count" => _app.Bots.Count.ToString(),
+        "active-index" => _app.Active.ToString(),
+        "bots" => string.Join(",", _app.Bots.Select(b => b.Name)),
+        "version" => Ircuitry.App.AppInfo.Version,
+        _ => "",
+    };
+
+    void Ircuitry.App.IAppHost.Nav(string action, string arg)
+    {
+        int n = _app.Bots.Count; if (n == 0) return;
+        switch (action)
+        {
+            case "next-tab": _app.Active = (_app.Active + 1) % n; break;
+            case "prev-tab": _app.Active = (_app.Active - 1 + n) % n; break;
+            case "open-bot": { int i = _app.Bots.FindIndex(b => string.Equals(b.Name, arg, System.StringComparison.OrdinalIgnoreCase)); if (i >= 0) _app.Active = i; break; }
+        }
+    }
+
+    void Ircuitry.App.IAppHost.BotCmd(string action, string bot)
+    {
+        var b = bot.Length == 0 ? Bot : _app.Bots.FirstOrDefault(x => string.Equals(x.Name, bot, System.StringComparison.OrdinalIgnoreCase));
+        if (b == null || b.IsRemote) return;
+        switch (action)
+        {
+            case "run": if (!b.Runtime.Running) b.Runtime.Start(b.Graph, b.Servers); break;
+            case "stop": if (b.Runtime.Running) b.Runtime.Stop(); break;
+            case "restart": if (b.Runtime.Running) b.Runtime.Stop(); b.Runtime.Start(b.Graph, b.Servers); break;
+        }
+    }
+
     /// <summary>Export the open bot's graph as a portable .ircplugin (to the home folder); double-click it to install.</summary>
     private void BundleActivePlugin()
     {

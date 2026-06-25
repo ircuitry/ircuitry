@@ -436,6 +436,9 @@ public static class GraphExecutor
         public void UiWeb(string windowId, string url, string html, int width, int height, string title) => Out().UiWeb(windowId, url, html, width, height, title);
         public void AppToast(string message, string kind) => _run.Sink.AppToast(message, kind);
         public void AppContribute(string kind, string id, string label, string icon, string at) => _run.Sink.AppContribute(kind, id, label, icon, at);
+        public string AppInfo(string what) => _run.Sink.AppInfo(what);
+        public void AppNav(string action, string arg) => _run.Sink.AppNav(action, arg);
+        public void AppBot(string action, string bot) => _run.Sink.AppBot(action, bot);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

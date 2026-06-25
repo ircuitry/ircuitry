@@ -104,6 +104,9 @@ public interface INodeContext
     // ---- app / plugin surface (active under the app's AppSink; no-op for bot graphs) ----
     void AppToast(string message, string kind);
     void AppContribute(string kind, string id, string label, string icon, string at);
+    string AppInfo(string what);
+    void AppNav(string action, string arg);
+    void AppBot(string action, string bot);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

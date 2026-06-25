@@ -16,6 +16,9 @@ public interface IAppHost
 {
     void Toast(string message, string kind);
     void Log(string message, LogLevel level);
+    string Info(string what);                  // read app / active-bot state
+    void Nav(string action, string arg);       // switch tabs / navigate
+    void BotCmd(string action, string bot);    // run / stop / restart a bot
 }
 
 /// <summary>A piece of chrome a plugin contributed: a menu item, toolbar button, command, context item or panel.
@@ -55,6 +58,9 @@ public sealed class AppSink : IRuntimeSink
     public void AppToast(string message, string kind) => _host.Manager.App.Toast(message, kind);
     public void AppContribute(string kind, string id, string label, string icon, string at)
         => _host.Manager.Register(_host, kind, id, label, icon, at);
+    public string AppInfo(string what) => _host.Manager.App.Info(what);
+    public void AppNav(string action, string arg) => _host.Manager.App.Nav(action, arg);
+    public void AppBot(string action, string bot) => _host.Manager.App.BotCmd(action, bot);
 
     // ---- plugin's own persistent state (kept in the host) ----
     public string GetState(string key) => _host.State.TryGetValue(key, out var v) ? v : "";
@@ -272,6 +278,7 @@ public static class PluginBundle
                 case "app.toast": case "app.dialog": case "app.confirm": perms.Add("dialogs"); break;
                 case "app.bot": perms.Add("control-bots"); break;
                 case "app.nav": perms.Add("navigate"); break;
+                case "app.info": perms.Add("app-state"); break;
                 default:
                     if (n.TypeId.StartsWith("app.graph", StringComparison.Ordinal)) perms.Add("edit-graph");
                     break;

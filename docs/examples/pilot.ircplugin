@@ -1,0 +1,219 @@
+{
+ "format": "ircuitry.plugin.v1",
+ "name": "Pilot",
+ "version": "1.0.0",
+ "icon": "compass",
+ "description": "Fly between bots from anywhere: a toolbar Bot status readout, plus Cmd+K commands to jump to the next bot and restart the current one. Demonstrates the app-state, navigate and control-bots powers.",
+ "permissions": [
+  "app-state",
+  "command",
+  "control-bots",
+  "dialogs",
+  "navigate",
+  "toolbar"
+ ],
+ "nodes": [
+  {
+   "id": "s",
+   "type": "app.start",
+   "x": 0,
+   "y": 0,
+   "params": {}
+  },
+  {
+   "id": "c1",
+   "type": "app.command",
+   "x": 240,
+   "y": 0,
+   "params": {
+    "id": "pilot.next",
+    "label": "Pilot: next bot",
+    "icon": "arrow-line-right"
+   }
+  },
+  {
+   "id": "c2",
+   "type": "app.command",
+   "x": 480,
+   "y": 0,
+   "params": {
+    "id": "pilot.restart",
+    "label": "Pilot: restart this bot",
+    "icon": "arrow-clockwise"
+   }
+  },
+  {
+   "id": "t1",
+   "type": "app.toolbar",
+   "x": 720,
+   "y": 0,
+   "params": {
+    "id": "pilot.status",
+    "label": "Bot status",
+    "icon": "info"
+   }
+  },
+
+  {
+   "id": "on1",
+   "type": "app.on",
+   "x": 0,
+   "y": 200,
+   "params": {
+    "event": "command",
+    "id": "pilot.next"
+   }
+  },
+  {
+   "id": "nav1",
+   "type": "app.nav",
+   "x": 240,
+   "y": 200,
+   "params": {
+    "action": "next-tab",
+    "target": ""
+   }
+  },
+  {
+   "id": "i1",
+   "type": "app.info",
+   "x": 240,
+   "y": 340,
+   "params": {
+    "what": "bot-name"
+   }
+  },
+  {
+   "id": "sv1",
+   "type": "data.setvar",
+   "x": 480,
+   "y": 200,
+   "params": {
+    "name": "who",
+    "value": "",
+    "mode": "set"
+   }
+  },
+  {
+   "id": "ts1",
+   "type": "app.toast",
+   "x": 720,
+   "y": 200,
+   "params": {
+    "message": "Now flying {who}",
+    "kind": "info"
+   }
+  },
+
+  {
+   "id": "on2",
+   "type": "app.on",
+   "x": 0,
+   "y": 460,
+   "params": {
+    "event": "command",
+    "id": "pilot.restart"
+   }
+  },
+  {
+   "id": "ts2",
+   "type": "app.toast",
+   "x": 240,
+   "y": 460,
+   "params": {
+    "message": "Restarting this bot",
+    "kind": "info"
+   }
+  },
+  {
+   "id": "bot1",
+   "type": "app.bot",
+   "x": 480,
+   "y": 460,
+   "params": {
+    "action": "restart",
+    "bot": ""
+   }
+  },
+
+  {
+   "id": "on3",
+   "type": "app.on",
+   "x": 0,
+   "y": 620,
+   "params": {
+    "event": "toolbar",
+    "id": "pilot.status"
+   }
+  },
+  {
+   "id": "i2",
+   "type": "app.info",
+   "x": 240,
+   "y": 760,
+   "params": {
+    "what": "running"
+   }
+  },
+  {
+   "id": "sv2",
+   "type": "data.setvar",
+   "x": 240,
+   "y": 620,
+   "params": {
+    "name": "st",
+    "value": "",
+    "mode": "set"
+   }
+  },
+  {
+   "id": "i3",
+   "type": "app.info",
+   "x": 480,
+   "y": 760,
+   "params": {
+    "what": "tab-count"
+   }
+  },
+  {
+   "id": "sv3",
+   "type": "data.setvar",
+   "x": 480,
+   "y": 620,
+   "params": {
+    "name": "tc",
+    "value": "",
+    "mode": "set"
+   }
+  },
+  {
+   "id": "ts3",
+   "type": "app.toast",
+   "x": 720,
+   "y": 620,
+   "params": {
+    "message": "This bot is running={st} - {tc} bots open",
+    "kind": "info"
+   }
+  }
+ ],
+ "connections": [
+  { "from": "s",   "fromPin": 0, "to": "c1",   "toPin": 0 },
+  { "from": "c1",  "fromPin": 0, "to": "c2",   "toPin": 0 },
+  { "from": "c2",  "fromPin": 0, "to": "t1",   "toPin": 0 },
+
+  { "from": "on1", "fromPin": 0, "to": "nav1", "toPin": 0 },
+  { "from": "nav1","fromPin": 0, "to": "sv1",  "toPin": 0 },
+  { "from": "i1",  "fromPin": 0, "to": "sv1",  "toPin": 1 },
+  { "from": "sv1", "fromPin": 0, "to": "ts1",  "toPin": 0 },
+
+  { "from": "on2", "fromPin": 0, "to": "ts2",  "toPin": 0 },
+  { "from": "ts2", "fromPin": 0, "to": "bot1", "toPin": 0 },
+
+  { "from": "on3", "fromPin": 0, "to": "sv2",  "toPin": 0 },
+  { "from": "i2",  "fromPin": 0, "to": "sv2",  "toPin": 1 },
+  { "from": "sv2", "fromPin": 0, "to": "sv3",  "toPin": 0 },
+  { "from": "i3",  "fromPin": 0, "to": "sv3",  "toPin": 1 },
+  { "from": "sv3", "fromPin": 0, "to": "ts3",  "toPin": 0 }
+ ]
+}

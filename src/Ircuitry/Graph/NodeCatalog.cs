@@ -4351,6 +4351,44 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+            new()
+            {
+                TypeId = "app.info", Icon = "info", Title = "App Info", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Read live app / active-bot state: bot-name, running, tab-count, active-index, bots (comma list), version.",
+                Outputs = new[] { Tx("value") },
+                Params = new[]
+                {
+                    P("what", "What", ParamType.Choice, "bot-name", "", new[] { "bot-name", "running", "tab-count", "active-index", "bots", "version" }),
+                },
+                SummaryParam = "what",
+                Exec = c => { c.SetOut(0, c.AppInfo(c.Param("what"))); },
+            },
+            new()
+            {
+                TypeId = "app.nav", Icon = "arrow-line-right", Title = "Navigate", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Switch tabs in ircuitry: next-tab, prev-tab, or open-bot (Target = the bot's name).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("action", "Action", ParamType.Choice, "open-bot", "", new[] { "next-tab", "prev-tab", "open-bot" }),
+                    P("target", "Target", ParamType.Text, "", "bot name (for open-bot)"),
+                },
+                SummaryParam = "action",
+                Exec = c => { c.AppNav(c.Param("action"), c.Resolve(c.Param("target"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.bot", Icon = "play-circle", Title = "Control Bot", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Run, stop, or restart a bot. Bot = its name (blank = the active bot).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("action", "Action", ParamType.Choice, "run", "", new[] { "run", "stop", "restart" }),
+                    P("bot", "Bot", ParamType.Text, "", "(blank = active)"),
+                },
+                SummaryParam = "action",
+                Exec = c => { c.AppBot(c.Param("action"), c.Resolve(c.Param("bot"))); c.Pulse(0); },
+            },
         };
 
         // authoritative categorisation: one mapping is the source of truth for every node's family, so the
