@@ -101,6 +101,9 @@ public interface INodeContext
     void UiMesh(string windowId, Ircuitry.UiKit.Obj3D mesh);
     void UiControls(string windowId, string mode);
     void UiWeb(string windowId, string url, string html, int width, int height, string title);
+    // ---- app / plugin surface (active under the app's AppSink; no-op for bot graphs) ----
+    void AppToast(string message, string kind);
+    void AppContribute(string kind, string id, string label, string icon, string at);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

@@ -77,6 +77,7 @@ public static class Theme
         NodeCategory.Code => Blueberry,
         NodeCategory.Media => Active.C("gold", "amber"),
         NodeCategory.Ui => Active.C("mint", "teal"),
+        NodeCategory.App => Active.C("plugin", "violet"),
         NodeCategory.Action => Lime,
         _ => Idle,
     };
@@ -121,5 +122,6 @@ public enum NodeCategory
     Code,     // codebase / dev tools (read/write/edit/search/run/shell/containers)
     Media,    // offline knowledge (zim) + media download/transform
     Ui,       // node-authored UI: windows, panels, text, media, controls, animation
+    App,      // plugins: hook ircuitry's own chrome (menus, toolbar, panels, right-click) + app events
     Action,   // vestigial (former catch-all) - no node maps here after the taxonomy fix
 }

@@ -4249,6 +4249,65 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+
+            // ===================== APP / PLUGINS (a plugin graph extends ircuitry's own chrome) =====================
+            new()
+            {
+                TypeId = "app.start", Icon = "puzzle-piece", Title = "On Plugin Start", Subtitle = "plugin", Category = NodeCategory.App,
+                TriggerEvent = "app.start",
+                Description = "Fires once when the plugin is enabled (and on app start) - the place to register your menu items, toolbar buttons, panels and right-click entries.",
+                Outputs = new[] { Ex("then") },
+                Exec = c => { c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.menu", Icon = "list", Title = "Add Menu Item", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Add an item to ircuitry's menu (and the Cmd+K palette). Choosing it fires On App Event (event = menu, id = this item's id).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("id", "Item id", ParamType.Text, "do-thing", ""),
+                    P("label", "Label", ParamType.Text, "Do the thing", ""),
+                    P("icon", "Icon", ParamType.Text, "sparkle", "phosphor name"),
+                    P("at", "Menu", ParamType.Choice, "more", "", new[] { "more", "file" }),
+                },
+                SummaryParam = "label",
+                Exec = c => { c.AppContribute("menu", c.Resolve(c.Param("id")), c.Resolve(c.Param("label")), c.Param("icon"), c.Param("at")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.toast", Icon = "bell-ringing", Title = "Toast", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Show a toast notification in ircuitry.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("message", "Message", ParamType.Text, "Hello from my plugin", ""),
+                    P("kind", "Kind", ParamType.Choice, "info", "", new[] { "info", "ok", "warn" }),
+                },
+                SummaryParam = "message",
+                Exec = c => { c.AppToast(c.Resolve(c.Param("message")), c.Param("kind")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.on", Icon = "hand-pointing", Title = "On App Event", Subtitle = "trigger", Category = NodeCategory.App,
+                TriggerEvent = "app",
+                Description = "Fires when one of your plugin's contributions is used - a menu item, toolbar button, command or right-click entry. Filter by event type + id. Outputs the {app_id} and {app_event}.",
+                Outputs = new[] { Ex("then"), Tx("id"), Tx("event") },
+                Params = new[]
+                {
+                    P("event", "Event", ParamType.Choice, "any", "", new[] { "any", "menu", "toolbar", "command", "context" }),
+                    P("id", "Item id", ParamType.Text, "", "(any)"),
+                },
+                Exec = c =>
+                {
+                    string ev = c.Param("event");
+                    string id = c.Resolve(c.Param("id"));
+                    if (ev.Length > 0 && ev != "any" && ev != c.Var("app_event")) return;
+                    if (id.Length > 0 && id != c.Var("app_id")) return;
+                    c.SetOut(1, c.Var("app_id")); c.SetOut(2, c.Var("app_event"));
+                    c.Pulse(0);
+                },
+            },
         };
 
         // authoritative categorisation: one mapping is the source of truth for every node's family, so the
@@ -4344,6 +4403,7 @@ public static class NodeCatalog
             "code" or "container" => NodeCategory.Code,
             "zim" or "media" => NodeCategory.Media,
             "ui" => NodeCategory.Ui,
+            "app" => NodeCategory.App,
             "num" or "gen" or "data" => NodeCategory.Data,
             _ => NodeCategory.Action,   // vestigial; nothing should land here
         };

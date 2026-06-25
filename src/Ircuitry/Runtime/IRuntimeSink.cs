@@ -128,6 +128,15 @@ public interface IRuntimeSink
     /// arrive as "message" UI events. Re-opening the same id replaces it.</summary>
     void UiWeb(string windowId, string url, string html, int width, int height, string title) { }
 
+    // ---- app / plugin surface: a plugin graph runs under the app's AppSink and extends ircuitry's own chrome.
+    // No-ops on the per-bot ServerConn sink (a bot graph using app.* nodes simply does nothing). ----
+    /// <summary>Show a toast in the app. <paramref name="kind"/>: info | ok | warn.</summary>
+    void AppToast(string message, string kind) { }
+    /// <summary>Register a UI contribution from a plugin. <paramref name="kind"/>: menu | toolbar | context |
+    /// command | panel. <paramref name="at"/> is a placement hint (menu: more|file; context: node|canvas).
+    /// The app routes the contribution's activation back as the "app" trigger family ({app_event}/{app_id}).</summary>
+    void AppContribute(string kind, string id, string label, string icon, string at) { }
+
     // persistent per-bot variable store
     string GetState(string key);
     void SetState(string key, string value);

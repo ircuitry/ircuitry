@@ -65,6 +65,12 @@ public static class SelfTest
         public readonly List<(string id, string url, string html)> WebOpens = new();
         public void UiWeb(string id, string url, string html, int w, int h, string title) { WebOpens.Add((id, url, html)); }
         public void UiControls(string id, string mode) { US(id).Controls = mode; }
+
+        // app / plugin surface: capture chrome contributions + toasts instead of touching a real app
+        public readonly List<(string kind, string id, string label, string icon, string at)> AppContribs = new();
+        public readonly List<string> AppToasts = new();
+        public void AppContribute(string kind, string id, string label, string icon, string at) => AppContribs.Add((kind, id, label, icon, at));
+        public void AppToast(string message, string kind) => AppToasts.Add(kind + ":" + message);
     }
 
     private static Node N(NodeGraph g, string type, float x, float y)
@@ -286,6 +292,7 @@ public static class SelfTest
         fails += UiNodesTest();
         fails += UiFormTest();
         fails += SetVarModeTest();
+        fails += PluginLoopTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3679,6 +3686,37 @@ public static class SelfTest
         var s3 = new FakeSink(); s3.State["persona"] = "old";
         GraphExecutor.Fire(g2, s3, st2, Vars("", "a", "#t"));
         fails += Expect("setvar-set-overwrites", s3.State["persona"] == "FORCED", $"mode=set overwrites, got '{s3.State["persona"]}'");
+        return fails;
+    }
+
+    /// <summary>The plugin core loop: On Plugin Start registers a menu item (Add Menu Item -> AppContribute),
+    /// and On App Event catches that item's activation and runs the flow (a toast). Register-then-fire, the
+    /// architecture under every plugin - exercised with a fake AppSink (no real app needed).</summary>
+    private static int PluginLoopTest()
+    {
+        int fails = 0;
+        // register: app.start -> app.menu
+        var g = new NodeGraph();
+        var st = N(g, "app.start", 0, 0);
+        var menu = N(g, "app.menu", 200, 0); menu.SetParam("id", "hi"); menu.SetParam("label", "Say hi"); menu.SetParam("icon", "hand-waving");
+        g.Connect(st.Id, 0, menu.Id, 0);
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, st, Vars("", "a", "#t"));
+        fails += Expect("plugin-register", sink.AppContribs.Exists(x => x.kind == "menu" && x.id == "hi" && x.label == "Say hi"),
+            $"app.menu registers a contribution ({sink.AppContribs.Count})");
+
+        // fire: app.on(event=menu, id=hi) -> app.toast, with {app_id} resolving
+        var g2 = new NodeGraph();
+        var on = N(g2, "app.on", 0, 0); on.SetParam("event", "menu"); on.SetParam("id", "hi");
+        var toast = N(g2, "app.toast", 200, 0); toast.SetParam("message", "clicked {app_id}"); toast.SetParam("kind", "ok");
+        g2.Connect(on.Id, 0, toast.Id, 0);
+        var s2 = new FakeSink();
+        GraphExecutor.Fire(g2, s2, on, new Dictionary<string, string> { ["app_event"] = "menu", ["app_id"] = "hi" });
+        fails += Expect("plugin-fire", s2.AppToasts.Exists(t => t.Contains("clicked hi")), $"On App Event runs the flow + {{app_id}} resolves ({string.Join(",", s2.AppToasts)})");
+
+        var s3 = new FakeSink();
+        GraphExecutor.Fire(g2, s3, on, new Dictionary<string, string> { ["app_event"] = "menu", ["app_id"] = "other" });
+        fails += Expect("plugin-filter", s3.AppToasts.Count == 0, "On App Event ignores a different id");
         return fails;
     }
 
