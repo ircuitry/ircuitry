@@ -45,6 +45,14 @@ public static class UiWebProcess
             win.WaitForClose();
             return 0;
         }
-        catch (Exception e) { Console.Error.WriteLine("ui-web failed: " + e.Message); return 1; }
+        catch (Exception e)
+        {
+            // Photino wraps native faults as "Native code exception. Error # 0  See inner exception for details."
+            // and the real cause (a missing/too-new native dependency, e.g. a GLIBC version) lives in InnerException -
+            // surface it, otherwise the message is useless for diagnosing why the webview would not open.
+            Console.Error.WriteLine("ui-web failed: " + e.Message);
+            if (e.InnerException != null) Console.Error.WriteLine("  cause: " + e.InnerException.Message.Trim());
+            return 1;
+        }
     }
 }
