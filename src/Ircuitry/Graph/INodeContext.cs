@@ -107,6 +107,9 @@ public interface INodeContext
     string AppInfo(string what);
     void AppNav(string action, string arg);
     void AppBot(string action, string bot);
+    void AppDialog(string title, string message, string okLabel);
+    void AppConfirm(string title, string message, string okLabel, string cancelLabel);
+    string AppGraph(string op, string a1, string a2, string a3, string a4);
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

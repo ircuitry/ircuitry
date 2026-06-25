@@ -297,6 +297,8 @@ public static class SelfTest
         fails += PluginHooksTest();
         fails += PluginPowersTest();
         fails += PluginPanelTest();
+        fails += PluginDialogTest();
+        fails += PluginGraphEditTest();
         fails += UnknownNodePreserveTest();
 
         Console.WriteLine(fails == 0 ? "SELFTEST_OK all passed" : $"SELFTEST_FAIL {fails} failure(s)");
@@ -3727,12 +3729,22 @@ public static class SelfTest
     private sealed class FakeApp : Ircuitry.App.IAppHost
     {
         public readonly List<string> Toasts = new();
-        public readonly List<string> Calls = new();   // nav / bot control calls
+        public readonly List<string> Calls = new();      // nav / bot control calls
+        public readonly List<string> GraphOps = new();   // graph-edit calls
+        public string? ConfirmPlugin, ConfirmNode;       // the last app.confirm raised (so a test can answer it)
+        private int _gid;
         public void Toast(string m, string k) => Toasts.Add(k + ":" + m);
         public void Log(string m, LogLevel l) { }
         public string Info(string what) => what == "bot-name" ? "Mita" : what == "tab-count" ? "3" : "";
         public void Nav(string action, string arg) => Calls.Add("nav:" + action + ":" + arg);
         public void BotCmd(string action, string bot) => Calls.Add("bot:" + action + ":" + bot);
+        public void Dialog(string title, string message, string ok) => Toasts.Add("dialog:" + message);
+        public void Confirm(string pid, string nid, string title, string message, string ok, string cancel) { ConfirmPlugin = pid; ConfirmNode = nid; }
+        public string GraphEdit(string op, string a1, string a2, string a3, string a4)
+        {
+            GraphOps.Add(op + ":" + a1 + ":" + a2 + ":" + a3);
+            return op == "add" ? "gnode" + (++_gid) : op == "wire" ? "1" : a1;
+        }
     }
 
     /// <summary>The plugin MANAGER loop end-to-end: enabling a plugin registers its menu contribution, activating
@@ -3864,6 +3876,72 @@ public static class SelfTest
         mgr.PanelEvent("P", "settings", new Ircuitry.UiKit.UiEvent { Type = "click", Id = "save" });
         fails += Expect("plugin-panel-click", app.Toasts.Any(t => t.Contains("saved save")),
             $"a click inside the panel fires ui.on ({string.Join("|", app.Toasts)})");
+        return fails;
+    }
+
+    /// <summary>Modal dialogs: app.dialog pops a fire-and-forget message; app.confirm PAUSES the flow (no toast yet)
+    /// and, when the user answers, the runtime resumes the confirmed (yes) or cancelled (no) branch via FireFrom.</summary>
+    private static int PluginDialogTest()
+    {
+        int fails = 0;
+
+        // app.confirm: command -> confirm -> [confirmed: toast "yes!", cancelled: toast "no!"]
+        var g = new NodeGraph();
+        var on = N(g, "app.on", 0, 0); on.SetParam("event", "command");
+        var cf = N(g, "app.confirm", 1, 0); cf.SetParam("message", "sure?");
+        var yes = N(g, "app.toast", 2, 0); yes.SetParam("message", "yes!");
+        var no = N(g, "app.toast", 2, 1); no.SetParam("message", "no!");
+        g.Connect(on.Id, 0, cf.Id, 0); g.Connect(cf.Id, 0, yes.Id, 0); g.Connect(cf.Id, 1, no.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "P", Graph = g });
+        mgr.Activate("P", "command", "go");
+        fails += Expect("plugin-confirm-pauses", app.Toasts.Count == 0 && app.ConfirmNode == cf.Id, $"app.confirm pauses the flow ({app.ConfirmNode})");
+        mgr.ResolveConfirm("P", app.ConfirmNode!, true);
+        fails += Expect("plugin-confirm-yes", app.Toasts.Any(t => t.Contains("yes!")) && !app.Toasts.Any(t => t.Contains("no!")), $"confirmed resumes the yes branch ({string.Join("|", app.Toasts)})");
+
+        // answer the same gate "no" on a fresh activation -> cancelled branch
+        app.Toasts.Clear();
+        mgr.Activate("P", "command", "go");
+        mgr.ResolveConfirm("P", app.ConfirmNode!, false);
+        fails += Expect("plugin-confirm-no", app.Toasts.Any(t => t.Contains("no!")) && !app.Toasts.Any(t => t.Contains("yes!")), $"cancelled resumes the no branch ({string.Join("|", app.Toasts)})");
+
+        // app.dialog: fire-and-forget
+        var g2 = new NodeGraph();
+        var on2 = N(g2, "app.on", 0, 0); on2.SetParam("event", "command");
+        var dlg = N(g2, "app.dialog", 1, 0); dlg.SetParam("message", "all done");
+        var after = N(g2, "app.toast", 2, 0); after.SetParam("message", "continued");
+        g2.Connect(on2.Id, 0, dlg.Id, 0); g2.Connect(dlg.Id, 0, after.Id, 0);
+        var app2 = new FakeApp();
+        var mgr2 = new Ircuitry.App.PluginManager(app2);
+        mgr2.Enable(new Ircuitry.App.PluginMeta { Name = "Q", Graph = g2 });
+        mgr2.Activate("Q", "command", "go");
+        fails += Expect("plugin-dialog", app2.Toasts.Any(t => t.Contains("dialog:all done")) && app2.Toasts.Any(t => t.Contains("continued")), $"app.dialog shows + the flow continues ({string.Join("|", app2.Toasts)})");
+        return fails;
+    }
+
+    /// <summary>Act on the open bot: app.graph.add returns a new node id (on its node-id output), which app.graph.param
+    /// reads through its wired input to set a param on that node - the chaining a graph-building plugin relies on.</summary>
+    private static int PluginGraphEditTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var on = N(g, "app.on", 0, 0); on.SetParam("event", "command");
+        var add = N(g, "app.graph.add", 1, 0); add.SetParam("type", "action.say");
+        var par = N(g, "app.graph.param", 2, 0); par.SetParam("key", "text"); par.SetParam("value", "hi");
+        g.Connect(on.Id, 0, add.Id, 0); g.Connect(add.Id, 0, par.Id, 0);   // exec chain
+        g.Connect(add.Id, 1, par.Id, 1);                                   // add's node-id output -> param's node-id input
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "P", Graph = g });
+        mgr.Activate("P", "command", "go");
+        fails += Expect("plugin-graph-add", app.GraphOps.Any(o => o.StartsWith("add:action.say")), $"app.graph.add called ({string.Join("|", app.GraphOps)})");
+        fails += Expect("plugin-graph-param", app.GraphOps.Any(o => o.StartsWith("param:gnode1:text:hi")), $"app.graph.param uses the added node's id ({string.Join("|", app.GraphOps)})");
+
+        var perms = Ircuitry.App.PluginBundle.PermissionsFor(g);
+        fails += Expect("plugin-graph-perms", perms.Contains("edit-graph"), $"graph nodes derive edit-graph ({string.Join(",", perms)})");
         return fails;
     }
 

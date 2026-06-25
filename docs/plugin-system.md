@@ -222,4 +222,10 @@ Each phase is shippable and testable headlessly (sink fakes + selftests, like th
 - **Plumbing:** `IRuntimeSink.AppInfo/AppNav/AppBot` (default no-ops; only an `AppSink` fulfils them) → `INodeContext` → `GraphExecutor.NodeCtx` → `AppSink` → `IAppHost.Info/Nav/BotCmd`, implemented on `MainScreen` against `AppModel` (tab switch via `_app.Active`, run/stop via `Bot.Runtime`). New `app-state` permission for `app.info`; `navigate` / `control-bots` already covered nav / bot.
 - **Test:** `PluginPowersTest` (app.info threads through a var into a toast; nav + bot reach the host; permissions derived). Selftest green.
 
-**Next (Phase 4+):** **modal dialogs** (`app.dialog` / `app.confirm` - a yes/no that pauses + resumes a branch); **act-on-active-bot graph edits** (`app.graph.*`); trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) + a richer manager.
+**Phase 4: modal dialogs + act-on-the-open-bot graph edits - COMPLETE. All four powers now land.**
+- **Dialogs:** `app.dialog` (a fire-and-forget OK message box) + `app.confirm` (a yes/no modal that **pauses** the flow and resumes its `confirmed` / `cancelled` exec output when answered - via `GraphExecutor.FireFrom`, the same primitive the human-approval gate uses). `PluginHost` records the pending gate (node + captured vars); `MainScreen` raises a real app modal (violet App-card chrome, Esc / click-outside = cancel) and calls `PluginManager.ResolveConfirm` to resume.
+- **Graph edits:** `app.graph.add` (returns the new node id), `app.graph.param`, `app.graph.wire` mutate the **active** bot's editor graph through the same paths as the MCP tools (`NodeCatalog.TryGet` + `Graph.Add/SetParam/Connect`, `MarkDirty`). Gated by the `edit-graph` permission.
+- **Cozy panels:** a plugin panel that didn't set a `bg` now gets a soft cozy dark (`#211B2E`) instead of stark UI-window black, so default `ui.*` colours read well on it.
+- **Tests:** `PluginDialogTest` (confirm pauses, yes/no resume the right branch, dialog continues) + `PluginGraphEditTest` (add → id → param chaining, edit-graph permission). Selftest green.
+
+**Next (polish, no new powers):** trust-card install (`Capabilities.Scan` + the app-permissions, currently shown in a toast) + a richer manager (enable / disable, not just uninstall).

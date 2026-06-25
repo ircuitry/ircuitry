@@ -4347,6 +4347,36 @@ public static class NodeCatalog
             },
             new()
             {
+                TypeId = "app.dialog", Icon = "chat-circle-text", Title = "Dialog", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Pop a modal message box with one OK button. The flow continues immediately (fire and forget).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("title", "Title", ParamType.Text, "My Plugin", ""),
+                    P("message", "Message", ParamType.Text, "All done!", ""),
+                    P("ok", "OK label", ParamType.Text, "OK", ""),
+                },
+                SummaryParam = "message",
+                Exec = c => { c.AppDialog(c.Resolve(c.Param("title")), c.Resolve(c.Param("message")), c.Resolve(c.Param("ok"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.confirm", Icon = "question", Title = "Confirm", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Ask a yes/no question in a modal. The flow PAUSES until the user answers, then continues from 'confirmed' or 'cancelled'.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("confirmed"), Ex("cancelled") },
+                Params = new[]
+                {
+                    P("title", "Title", ParamType.Text, "Are you sure?", ""),
+                    P("message", "Message", ParamType.Text, "This can't be undone.", ""),
+                    P("ok", "Confirm label", ParamType.Text, "Yes", ""),
+                    P("cancel", "Cancel label", ParamType.Text, "Cancel", ""),
+                },
+                SummaryParam = "message",
+                // no Pulse: the modal pauses the flow; the runtime resumes confirmed/cancelled when the user answers
+                Exec = c => c.AppConfirm(c.Resolve(c.Param("title")), c.Resolve(c.Param("message")), c.Resolve(c.Param("ok")), c.Resolve(c.Param("cancel"))),
+            },
+            new()
+            {
                 TypeId = "app.on", Icon = "hand-pointing", Title = "On App Event", Subtitle = "trigger", Category = NodeCategory.App,
                 TriggerEvent = "app",
                 Description = "Fires when one of your plugin's contributions is used - a menu item, toolbar button, command or right-click entry. Filter by event type + id. Outputs the {app_id} and {app_event}.",
@@ -4403,6 +4433,45 @@ public static class NodeCatalog
                 },
                 SummaryParam = "action",
                 Exec = c => { c.AppBot(c.Param("action"), c.Resolve(c.Param("bot"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.graph.add", Icon = "plus-square", Title = "Add Node", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Add a node to the ACTIVE bot's graph and output its new id (wire it into Set Param / Wire). Type is a node type id like action.say or event.command.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then"), Tx("node id") },
+                Params = new[]
+                {
+                    P("type", "Node type", ParamType.Text, "action.say", "e.g. event.command"),
+                    P("x", "X", ParamType.Int, "0", ""), P("y", "Y", ParamType.Int, "0", ""),
+                },
+                SummaryParam = "type",
+                Exec = c => { c.SetOut(1, c.AppGraph("add", c.Resolve(c.Param("type")), c.Param("x"), c.Param("y"), "")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.graph.param", Icon = "sliders", Title = "Set Node Param", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Set one parameter on a node in the ACTIVE bot's graph (by its id - usually from Add Node).",
+                Inputs = new[] { Ex(), Tx("node id") }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("node", "Node id", ParamType.Text, "", ""),
+                    P("key", "Param", ParamType.Text, "text", ""),
+                    P("value", "Value", ParamType.Text, "", "{tokens} ok"),
+                },
+                SummaryParam = "key",
+                Exec = c => { c.AppGraph("param", c.InOr(1, c.Resolve(c.Param("node"))), c.Resolve(c.Param("key")), c.Resolve(c.Param("value")), ""); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.graph.wire", Icon = "flow-arrow", Title = "Wire Nodes", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Connect one node's output pin to another's input pin in the ACTIVE bot's graph (pin indices are 0-based).",
+                Inputs = new[] { Ex(), Tx("from id"), Tx("to id") }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("from", "From node", ParamType.Text, "", ""), P("fromPin", "From pin", ParamType.Int, "0", ""),
+                    P("to", "To node", ParamType.Text, "", ""), P("toPin", "To pin", ParamType.Int, "0", ""),
+                },
+                Exec = c => { c.AppGraph("wire", c.InOr(1, c.Resolve(c.Param("from"))) + "#" + c.Param("fromPin"), c.InOr(2, c.Resolve(c.Param("to"))) + "#" + c.Param("toPin"), "", ""); c.Pulse(0); },
             },
         };
 

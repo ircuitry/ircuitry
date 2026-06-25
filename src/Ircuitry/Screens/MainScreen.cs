@@ -63,6 +63,15 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private Bot? _confirmDeleteBot;
     private bool _confirmJustOpened;
 
+    // a plugin-raised modal (app.dialog = OK only; app.confirm = yes/no that resumes the plugin's flow)
+    private sealed class PluginDialog
+    {
+        public string Title = "", Message = "", Ok = "OK", Cancel = "";   // Cancel empty => OK-only dialog
+        public string? PluginId, NodeId;                                  // set for a confirm (the resume target)
+        public bool JustOpened = true;
+    }
+    private PluginDialog? _pluginDialog;
+
     // close prompt (window X -> exit / minimise)
     private bool _closePromptOpen, _closeJustOpened;
     public Action? OnExitRequested;
@@ -246,7 +255,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private float _lastClickTime;
     private Vector2 _lastClickPos;
 
-    private bool Modal => _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _timelineOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
+    private bool Modal => _pluginDialog != null || _importOpen || _confirmDeleteBot != null || _historyOpen || _quickOpen || _templateOpen || _closePromptOpen || _secretsOpen || _testOpen || _ctxOpen || _saveNodeOpen || _installOpen || _wfInstallOpen || _uninstallOpen || _nodeMgrOpen || _upPromptOpen || _secretPickOpen || _serversOpen || _networkOpen || _achOpen || _snapOpen || _serverLinkOpen || _cmdkOpen || _nbOpen || _ircWinOpen || _bakeryOpen || _appearanceOpen || _themeInstallOpen || _remoteOpen || _evalOpen || _fleetOpen || _timelineOpen || _staleRemote != null || _secretCopy.Count > 0 || BakeAnimActive
         || _upState == UpState.Downloading || _upState == UpState.Applying;
 
     public MainScreen(AppModel app)
@@ -309,6 +318,75 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             case "stop": if (b.Runtime.Running) b.Runtime.Stop(); break;
             case "restart": if (b.Runtime.Running) b.Runtime.Stop(); b.Runtime.Start(b.Graph, b.Servers); break;
         }
+    }
+
+    void Ircuitry.App.IAppHost.Dialog(string title, string message, string okLabel)
+        => _pluginDialog = new PluginDialog { Title = title, Message = message, Ok = okLabel.Length > 0 ? okLabel : "OK" };
+
+    void Ircuitry.App.IAppHost.Confirm(string pluginId, string nodeId, string title, string message, string okLabel, string cancelLabel)
+        => _pluginDialog = new PluginDialog { Title = title, Message = message, Ok = okLabel.Length > 0 ? okLabel : "Yes", Cancel = cancelLabel.Length > 0 ? cancelLabel : "Cancel", PluginId = pluginId, NodeId = nodeId };
+
+    string Ircuitry.App.IAppHost.GraphEdit(string op, string a1, string a2, string a3, string a4)
+    {
+        var g = Bot.Graph;
+        switch (op)
+        {
+            case "add":
+                if (!Ircuitry.Graph.NodeCatalog.TryGet(a1, out var def)) return "";
+                int.TryParse(a2, out var gx); int.TryParse(a3, out var gy);
+                var node = g.Add(def, new Vector2(gx, gy));
+                _app.MarkDirty();
+                return node.Id;
+            case "param":
+                var n = g.Find(a1); if (n == null) return "";
+                n.SetParam(a2, a3); _app.MarkDirty(); return n.Id;
+            case "wire":
+                var (fid, fp) = SplitPin(a1); var (tid, tp) = SplitPin(a2);
+                bool ok = g.Connect(fid, fp, tid, tp); if (ok) _app.MarkDirty();
+                return ok ? "1" : "";
+        }
+        return "";
+    }
+
+    private static (string id, int pin) SplitPin(string s)
+    {
+        int h = s.LastIndexOf('#');
+        if (h < 0) return (s, 0);
+        int.TryParse(s[(h + 1)..], out var pin);
+        return (s[..h], pin);
+    }
+
+    // resolve a plugin dialog/confirm: a confirm resumes the plugin's confirmed/cancelled branch
+    private void ResolvePluginDialog(bool ok)
+    {
+        var d = _pluginDialog; _pluginDialog = null;
+        if (d?.PluginId != null && d.NodeId != null) _plugins.ResolveConfirm(d.PluginId, d.NodeId, ok);
+    }
+
+    private void DrawPluginDialog(Renderer r)
+    {
+        var d = _pluginDialog; if (d == null) return;
+        r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
+        var accent = Theme.Category(Ircuitry.Core.NodeCategory.App);
+        var font = r.Fonts.Get(FontKind.Sans, 13);
+        float pw = 460;
+        var lines = Wrap(font, d.Message, pw - 44);
+        float ph = Hud.HeaderH + 18 + System.Math.Max(1, lines.Count) * 18 + 26 + 50;
+        var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
+        Hud.Panel(r, panel, d.Title.Length > 0 ? d.Title : "Plugin", accent);
+        float x = panel.X + 22, y = panel.Y + Hud.HeaderH + 18;
+        foreach (var line in lines) { r.Text(font, line, new Vector2(x, y), Theme.TextDim); y += 18; }
+
+        var okR = new RectF(panel.Right - 22 - 120, panel.Bottom - 50, 120, 34);
+        if (_ui.Button("plugdlg.ok", okR, d.Ok.ToUpperInvariant(), accent, primary: true)) ResolvePluginDialog(true);
+        if (d.Cancel.Length > 0)
+        {
+            var cR = new RectF(okR.X - 12 - 110, panel.Bottom - 50, 110, 34);
+            if (_ui.Button("plugdlg.cancel", cR, d.Cancel.ToUpperInvariant(), Theme.Idle)) ResolvePluginDialog(false);
+        }
+
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !d.JustOpened) ResolvePluginDialog(false);
+        d.JustOpened = false;
     }
 
     /// <summary>Export the open bot's graph as a portable .ircplugin (to the home folder); double-click it to install.</summary>
@@ -552,8 +630,12 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             Hud.Panel(r, p.Rect, c.Label, Theme.Category(Ircuitry.Core.NodeCategory.App));
             // the content area is a little embedded UI-window surface: paint the scene's own background (dark by
             // default) so the ui.* colour defaults - which are tuned for a window - read against it, instead of
-            // vanishing on the light cozy card (e.g. the default near-white label colour).
-            if (scene != null) r.RoundFill(PanelInner(p), Ircuitry.UiKit.UiWindowScreen.Rgba(scene.Bg), 10f);
+            // vanishing on the light cozy card. A plugin that didn't set a bg gets a soft cozy dark, not stark black.
+            if (scene != null)
+            {
+                uint bg = scene.Bg == 0x141018FFu ? 0x211B2EFFu : scene.Bg;   // 0x141018 is the UiScene default -> cozier
+                r.RoundFill(PanelInner(p), Ircuitry.UiKit.UiWindowScreen.Rgba(bg), 10f);
+            }
             r.End();
             BindPanel(c)?.Draw(r, clock);
         }
@@ -1085,7 +1167,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             if (input.KeyPressed(Keys.Escape))
             {
-                if (_appearanceOpen) CloseAppearance();
+                if (_pluginDialog != null) ResolvePluginDialog(false);   // Esc = cancel (resumes a confirm's cancelled branch)
+                else if (_appearanceOpen) CloseAppearance();
                 else if (_themeInstallOpen) CancelThemeInstall();
                 else { _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; _timelineOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
             }
@@ -1227,8 +1310,16 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         // ---------- modals (on top, capture input) ----------
         if (!_testOpen) EndEphemeralTry();   // closing the Test Bench discards any try-before-install harness
+        // a plugin-raised dialog/confirm overlays everything (it pauses the plugin's flow until answered)
+        if (_pluginDialog != null)
+        {
+            _ui.Enabled = true;
+            r.Begin();
+            DrawPluginDialog(r);
+            r.End();
+        }
         // install confirms take priority so a deep-link install overlays whatever modal is already open
-        if (_installOpen)
+        else if (_installOpen)
         {
             _ui.Enabled = true;
             r.Begin();

@@ -142,6 +142,15 @@ public interface IRuntimeSink
     void AppNav(string action, string arg) { }
     /// <summary>Run / stop / restart a bot (blank = the active bot). No-op off an AppSink.</summary>
     void AppBot(string action, string bot) { }
+    /// <summary>Pop a modal message box with one OK button (fire-and-forget). No-op off an AppSink.</summary>
+    void AppDialog(string title, string message, string okLabel) { }
+    /// <summary>Pop a yes/no modal. The flow PAUSES here; when the user answers, the runtime resumes
+    /// <paramref name="node"/>'s confirmed (0) / cancelled (1) exec output on a fresh scope seeded with
+    /// <paramref name="vars"/> - exactly like the human-approval gate. No-op off an AppSink.</summary>
+    void AppConfirm(Ircuitry.Graph.Node node, System.Collections.Generic.Dictionary<string, string> vars, string title, string message, string okLabel, string cancelLabel) { }
+    /// <summary>Read or mutate the ACTIVE bot's editor graph (op: add | param | wire). Returns the new node id for
+    /// add, else "". No-op (returns "") off an AppSink.</summary>
+    string AppGraph(string op, string a1, string a2, string a3, string a4) => "";
 
     // persistent per-bot variable store
     string GetState(string key);

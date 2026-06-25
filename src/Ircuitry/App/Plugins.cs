@@ -19,6 +19,9 @@ public interface IAppHost
     string Info(string what);                  // read app / active-bot state
     void Nav(string action, string arg);       // switch tabs / navigate
     void BotCmd(string action, string bot);    // run / stop / restart a bot
+    void Dialog(string title, string message, string okLabel);                                           // OK message box
+    void Confirm(string pluginId, string nodeId, string title, string message, string okLabel, string cancelLabel);   // yes/no -> resumes the plugin
+    string GraphEdit(string op, string a1, string a2, string a3, string a4);                             // edit the active bot's graph
 }
 
 /// <summary>A piece of chrome a plugin contributed: a menu item, toolbar button, command, context item or panel.
@@ -61,6 +64,10 @@ public sealed class AppSink : IRuntimeSink
     public string AppInfo(string what) => _host.Manager.App.Info(what);
     public void AppNav(string action, string arg) => _host.Manager.App.Nav(action, arg);
     public void AppBot(string action, string bot) => _host.Manager.App.BotCmd(action, bot);
+    public void AppDialog(string title, string message, string okLabel) => _host.Manager.App.Dialog(title, message, okLabel);
+    public void AppConfirm(Ircuitry.Graph.Node node, Dictionary<string, string> vars, string title, string message, string okLabel, string cancelLabel)
+        => _host.BeginConfirm(node, vars, title, message, okLabel, cancelLabel);
+    public string AppGraph(string op, string a1, string a2, string a3, string a4) => _host.Manager.App.GraphEdit(op, a1, a2, a3, a4);
 
     // ---- in-app panel scene building (the plugin's ui.* nodes draw into a dock panel, not an OS window) ----
     public void UiWindow(string id, string title, int width, int height, uint bg) => _host.UiWindow(id, title, width, height, bg);
@@ -137,6 +144,28 @@ public sealed class PluginHost
         if (elementId.Length == 0) s.Elements.Clear(); else s.Elements.RemoveAll(x => x.Id == elementId);
     }
     public void UiClose(string id) => Scenes.Remove(id.Length == 0 ? "main" : id);
+
+    // pending app.confirm gates: nodeId -> the captured vars to resume with when the user answers
+    private readonly Dictionary<string, Dictionary<string, string>> _pendingConfirms = new();
+
+    /// <summary>Show a yes/no modal and remember the asking node + its vars; <see cref="ResolveConfirm"/> resumes
+    /// the right branch when the user answers.</summary>
+    public void BeginConfirm(Node node, Dictionary<string, string> vars, string title, string message, string ok, string cancel)
+    {
+        _pendingConfirms[node.Id] = vars;
+        Manager.App.Confirm(Id, node.Id, title, message, ok, cancel);
+    }
+
+    /// <summary>The user answered an app.confirm: resume its confirmed (yes) / cancelled (no) exec output.</summary>
+    public void ResolveConfirm(string nodeId, bool yes)
+    {
+        if (!_pendingConfirms.TryGetValue(nodeId, out var vars)) return;
+        _pendingConfirms.Remove(nodeId);
+        var node = Graph.Find(nodeId);
+        if (node == null) return;
+        try { GraphExecutor.FireFrom(Graph, _sink, node, yes ? 0 : 1, vars); }
+        catch (Exception ex) { Manager.App.Log("[" + Id + "] plugin error: " + ex.Message, LogLevel.Error); }
+    }
 
     /// <summary>A panel interaction (button click / slider change / input submit) -> fire the plugin's ui.on flows,
     /// exactly like a node-authored UI window does via ServerConn.OnUiEvent.</summary>
@@ -224,6 +253,13 @@ public sealed class PluginManager
     {
         PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
         h?.DeliverUiEvent(windowId, ev);
+    }
+
+    /// <summary>The user answered a plugin's app.confirm modal: resume its confirmed/cancelled branch.</summary>
+    public void ResolveConfirm(string pluginId, string nodeId, bool yes)
+    {
+        PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
+        h?.ResolveConfirm(nodeId, yes);
     }
 
     public void Enable(PluginMeta p)
