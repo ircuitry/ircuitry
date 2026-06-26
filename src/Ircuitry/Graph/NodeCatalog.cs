@@ -4589,6 +4589,104 @@ public static class NodeCatalog
                 Exec = c => { c.AppGraph("wire", c.InOr(1, c.Resolve(c.Param("from"))) + "#" + c.Param("fromPin"), c.InOr(2, c.Resolve(c.Param("to"))) + "#" + c.Param("toPin"), "", ""); c.Pulse(0); },
             },
 
+            // ----- batch: storage, in-app event bus, editor selection, OS integrations -----
+            new()
+            {
+                TypeId = "app.store", Icon = "database", Title = "Plugin Storage", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "This plugin's own persistent key/value store - private to the plugin and kept across restarts. op: get (outputs the value) / set / delete / list (comma-joined keys) / clear.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then"), Tx("value") },
+                Params = new[]
+                {
+                    P("op", "Operation", ParamType.Choice, "get", "", new[] { "get", "set", "delete", "list", "clear" }),
+                    P("key", "Key", ParamType.Text, "", ""),
+                    P("value", "Value", ParamType.Text, "", "(for set; {tokens} ok)"),
+                },
+                SummaryParam = "op",
+                Exec = c => { c.SetOut(1, c.AppStore(c.Param("op"), c.Resolve(c.Param("key")), c.Resolve(c.Param("value")))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.bus", Icon = "broadcast", Title = "Emit Plugin Event", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Broadcast a named in-app event. Every On Plugin Event trigger listening on the same channel receives it with the payload - the decoupled way for plugins (and bots) to talk to each other.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("channel", "Channel", ParamType.Text, "my-event", "the event name"),
+                    P("payload", "Payload", ParamType.Text, "", "(optional) {tokens} ok"),
+                },
+                SummaryParam = "channel",
+                Exec = c => { c.AppBus(c.Resolve(c.Param("channel")), c.Resolve(c.Param("payload"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.onbus", Icon = "broadcast", Title = "On Plugin Event", Subtitle = "trigger", Category = NodeCategory.App,
+                TriggerEvent = "bus",
+                Description = "Fires when Emit Plugin Event broadcasts on the matching channel (blank = any). Outputs {bus_channel} and {bus_payload}.",
+                Outputs = new[] { Ex("then"), Tx("channel"), Tx("payload") },
+                Params = new[]
+                {
+                    P("channel", "Channel", ParamType.Text, "", "(blank = any)"),
+                },
+                SummaryParam = "channel",
+                Exec = c =>
+                {
+                    string want = c.Resolve(c.Param("channel"));
+                    if (want.Length > 0 && want != c.Var("bus_channel")) return;
+                    c.SetOut(1, c.Var("bus_channel")); c.SetOut(2, c.Var("bus_payload"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "app.selection", Icon = "selection", Title = "Canvas Selection", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Read what's selected on the active bot's canvas. what: count / ids (comma-joined) / types (comma-joined) / first-id / first-type. Pair with On App Event (event = selection) to react as the user clicks around.",
+                Outputs = new[] { Tx("value") },
+                Params = new[]
+                {
+                    P("what", "What", ParamType.Choice, "count", "", new[] { "count", "ids", "types", "first-id", "first-type" }),
+                },
+                SummaryParam = "what",
+                Exec = c => { c.SetOut(0, c.AppSelection(c.Param("what"))); },
+            },
+            new()
+            {
+                TypeId = "app.open", Icon = "arrow-square-out", Title = "Open External", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Open a URL, a file path, or an ircuitry:// deep-link in the operating system (the user's browser / file manager / handler).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("target", "Target", ParamType.Text, "https://", "url, file path, or ircuitry:// link"),
+                },
+                SummaryParam = "target",
+                Exec = c => { c.AppOpen(c.Resolve(c.Param("target"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.clipboard", Icon = "clipboard", Title = "Clipboard", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Read or write the system clipboard. op: read (outputs the current clipboard text) or write (copies Text).",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then"), Tx("text") },
+                Params = new[]
+                {
+                    P("op", "Operation", ParamType.Choice, "read", "", new[] { "read", "write" }),
+                    P("text", "Text", ParamType.Text, "", "(for write; {tokens} ok)"),
+                },
+                SummaryParam = "op",
+                Exec = c => { c.SetOut(1, c.AppClipboard(c.Param("op"), c.Resolve(c.Param("text")))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.notify", Icon = "bell", Title = "Desktop Notification", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Show a native OS desktop notification (appears even when ircuitry is in the background). Falls back to an in-app toast if the OS has no notifier.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("title", "Title", ParamType.Text, "ircuitry", ""),
+                    P("message", "Message", ParamType.Text, "", ""),
+                },
+                SummaryParam = "message",
+                Exec = c => { c.AppNotify(c.Resolve(c.Param("title")), c.Resolve(c.Param("message"))); c.Pulse(0); },
+            },
+
             // ===================== WEB (build websites with nodes - vanilla preview now, React eject next) =====================
             new()
             {

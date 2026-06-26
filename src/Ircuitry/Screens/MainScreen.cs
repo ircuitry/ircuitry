@@ -373,6 +373,40 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         return (s[..h], pin);
     }
 
+    string Ircuitry.App.IAppHost.Selection(string what) => InvokeOnUi(() =>
+    {
+        var ids = _editor.Selection.ToList();
+        return what switch
+        {
+            "count" => ids.Count.ToString(),
+            "ids" => string.Join(",", ids),
+            "types" => string.Join(",", ids.Select(id => Bot.Graph.Find(id)?.TypeId).Where(t => !string.IsNullOrEmpty(t))),
+            "first-id" => ids.FirstOrDefault() ?? "",
+            "first-type" => ids.Count > 0 ? Bot.Graph.Find(ids[0])?.TypeId ?? "" : "",
+            _ => "",
+        };
+    }, "");
+
+    void Ircuitry.App.IAppHost.OpenExternal(string target) { try { Ircuitry.App.DeepLink.OpenUrl(target); } catch { } }
+
+    string Ircuitry.App.IAppHost.Clipboard(string op, string text)
+    {
+        if (op == "write") { RunOnUi(() => { try { Ircuitry.Core.Clipboard.SetText(text); } catch { } }); return text; }
+        return InvokeOnUi(() => { try { return Ircuitry.Core.Clipboard.GetText() ?? ""; } catch { return ""; } }, "");
+    }
+
+    void Ircuitry.App.IAppHost.Notify(string title, string message)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("notify-send") { UseShellExecute = false };
+            psi.ArgumentList.Add(title.Length > 0 ? title : "ircuitry");
+            psi.ArgumentList.Add(message);
+            System.Diagnostics.Process.Start(psi);
+        }
+        catch { RunOnUi(() => PushToast(Ircuitry.Core.Icons.Glyph("bell") + " " + (title.Length > 0 ? title + ": " : "") + message)); }
+    }
+
     // resolve a plugin dialog/confirm: a confirm resumes the plugin's confirmed/cancelled branch
     private void ResolvePluginDialog(bool ok)
     {

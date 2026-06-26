@@ -159,6 +159,18 @@ public interface IRuntimeSink
     void AppSettingsField(string key, string label, string type, string placeholder) { }
     /// <summary>Open this plugin's settings modal. No-op off an AppSink.</summary>
     void AppOpenSettings() { }
+    /// <summary>Plugin-private persistent key/value store (op = get|set|delete|list|clear). Returns "" off an AppSink.</summary>
+    string AppStore(string op, string key, string value) => "";
+    /// <summary>Broadcast an in-app event to every plugin's On Plugin Event trigger. No-op off an AppSink.</summary>
+    void AppBus(string channel, string payload) { }
+    /// <summary>Read the node editor's selection (what = count|ids|types|first-id|first-type). Returns "" off an AppSink.</summary>
+    string AppSelection(string what) => "";
+    /// <summary>Open a URL / file / ircuitry:// link in the OS. No-op off an AppSink.</summary>
+    void AppOpen(string target) { }
+    /// <summary>Read/write the system clipboard (op = read|write). Returns the text (read) or "" off an AppSink.</summary>
+    string AppClipboard(string op, string text) => "";
+    /// <summary>Show a native OS desktop notification. No-op off an AppSink.</summary>
+    void AppNotify(string title, string message) { }
 
     // persistent per-bot variable store
     string GetState(string key);

@@ -447,6 +447,12 @@ public static class GraphExecutor
         public string AppGraph(string op, string a1, string a2, string a3, string a4) => _run.Sink.AppGraph(op, a1, a2, a3, a4);
         public void AppSettingsField(string key, string label, string type, string placeholder) => _run.Sink.AppSettingsField(key, label, type, placeholder);
         public void AppOpenSettings() => _run.Sink.AppOpenSettings();
+        public string AppStore(string op, string key, string value) => _run.Sink.AppStore(op, key, value);
+        public void AppBus(string channel, string payload) => _run.Sink.AppBus(channel, payload);
+        public string AppSelection(string what) => _run.Sink.AppSelection(what);
+        public void AppOpen(string target) => _run.Sink.AppOpen(target);
+        public string AppClipboard(string op, string text) => _run.Sink.AppClipboard(op, text);
+        public void AppNotify(string title, string message) => _run.Sink.AppNotify(title, message);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

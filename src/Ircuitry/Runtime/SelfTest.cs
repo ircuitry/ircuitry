@@ -296,6 +296,7 @@ public static class SelfTest
         fails += PluginManagerTest();
         fails += PluginHooksTest();
         fails += PluginPowersTest();
+        fails += AppBatchNodesTest();
         fails += PluginPanelTest();
         fails += PluginPanelResponsiveTest();
         fails += PluginDialogTest();
@@ -3757,6 +3758,14 @@ public static class SelfTest
         }
         public readonly List<string> SettingsOpened = new();
         public void OpenSettings(string pluginId) => SettingsOpened.Add(pluginId);
+        public readonly List<string> Opened = new();      // app.open targets
+        public readonly List<string> Notes = new();       // app.notify title:message
+        public string SelectionValue = "";                // what app.selection returns
+        public string ClipText = "";                      // the fake system clipboard
+        public string Selection(string what) => SelectionValue;
+        public void OpenExternal(string target) => Opened.Add(target);
+        public string Clipboard(string op, string text) { if (op == "write") { ClipText = text; return text; } return ClipText; }
+        public void Notify(string title, string message) => Notes.Add(title + ":" + message);
     }
 
     /// <summary>The plugin MANAGER loop end-to-end: enabling a plugin registers its menu contribution, activating
@@ -3846,6 +3855,83 @@ public static class SelfTest
         var perms = Ircuitry.App.PluginBundle.PermissionsFor(g);
         fails += Expect("plugin-powers-perms", perms.Contains("app-state") && perms.Contains("navigate") && perms.Contains("control-bots"),
             $"power nodes derive permissions ({string.Join(",", perms)})");
+        return fails;
+    }
+
+    /// <summary>Wave-A app nodes: app.store persists a value (and a fresh host reads it back from disk), the event
+    /// bus delivers app.bus -> On Plugin Event with its payload, app.selection/open/clipboard/notify reach the host,
+    /// and all six derive their permissions. Sandboxed to a temp IRCUITRY_HOME so nothing touches the workspace.</summary>
+    private static int AppBatchNodesTest()
+    {
+        int fails = 0;
+        var oldHome = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+        var tmp = Path.Combine(Path.GetTempPath(), "ircuitry-appbatch-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", tmp);
+
+            var g = new NodeGraph();
+            var st = N(g, "app.start", 0, 0);
+            var sset = N(g, "app.store", 1, 0); sset.SetParam("op", "set"); sset.SetParam("key", "k"); sset.SetParam("value", "v1");
+            g.Connect(st.Id, 0, sset.Id, 0);
+
+            var on = N(g, "app.on", 0, 1); on.SetParam("event", "command"); on.SetParam("id", "go");
+            var sget = N(g, "app.store", 1, 1); sget.SetParam("op", "get"); sget.SetParam("key", "k");
+            var svg = N(g, "data.setvar", 2, 1); svg.SetParam("name", "got");
+            var t1 = N(g, "app.toast", 3, 1); t1.SetParam("message", "got={got}");
+            var emit = N(g, "app.bus", 4, 1); emit.SetParam("channel", "ping"); emit.SetParam("payload", "hi");
+            var opn = N(g, "app.open", 5, 1); opn.SetParam("target", "https://ircuitry.dev");
+            var clip = N(g, "app.clipboard", 6, 1); clip.SetParam("op", "write"); clip.SetParam("text", "copied");
+            var ntf = N(g, "app.notify", 7, 1); ntf.SetParam("title", "Done"); ntf.SetParam("message", "ok");
+            var sel = N(g, "app.selection", 0, 2); sel.SetParam("what", "count");
+            var svs = N(g, "data.setvar", 1, 2); svs.SetParam("name", "selc");
+            var t2 = N(g, "app.toast", 2, 2); t2.SetParam("message", "sel={selc}");
+            g.Connect(on.Id, 0, sget.Id, 0);
+            g.Connect(sget.Id, 1, svg.Id, 1); g.Connect(sget.Id, 0, svg.Id, 0);
+            g.Connect(svg.Id, 0, t1.Id, 0); g.Connect(t1.Id, 0, emit.Id, 0); g.Connect(emit.Id, 0, opn.Id, 0);
+            g.Connect(opn.Id, 0, clip.Id, 0); g.Connect(clip.Id, 0, ntf.Id, 0); g.Connect(ntf.Id, 0, svs.Id, 0);
+            g.Connect(sel.Id, 0, svs.Id, 1); g.Connect(svs.Id, 0, t2.Id, 0);
+
+            var onbus = N(g, "app.onbus", 0, 3); onbus.SetParam("channel", "ping");
+            var tb = N(g, "app.toast", 1, 3); tb.SetParam("message", "bus={bus_payload}");
+            g.Connect(onbus.Id, 0, tb.Id, 0);
+
+            var app = new FakeApp { SelectionValue = "3" };
+            var mgr = new Ircuitry.App.PluginManager(app);
+            mgr.Enable(new Ircuitry.App.PluginMeta { Name = "AppBatch", Graph = g });   // fires app.start -> store set
+            mgr.Activate("AppBatch", "command", "go");
+
+            fails += Expect("app-store-get", app.Toasts.Any(t => t.Contains("got=v1")), $"store set on start, read on command ({string.Join("|", app.Toasts)})");
+            fails += Expect("app-bus", app.Toasts.Any(t => t.Contains("bus=hi")), $"emit delivers to On Plugin Event with payload ({string.Join("|", app.Toasts)})");
+            fails += Expect("app-selection", app.Toasts.Any(t => t.Contains("sel=3")), "app.selection reads the canvas selection");
+            fails += Expect("app-open", app.Opened.Contains("https://ircuitry.dev"), $"app.open reaches the host ({string.Join("|", app.Opened)})");
+            fails += Expect("app-clipboard", app.ClipText == "copied", "app.clipboard write reaches the host");
+            fails += Expect("app-notify", app.Notes.Contains("Done:ok"), $"app.notify reaches the host ({string.Join("|", app.Notes)})");
+
+            // a brand-new manager/host (same plugin name + IRCUITRY_HOME) reads the value back from disk
+            var g2 = new NodeGraph();
+            var on2 = N(g2, "app.on", 0, 0); on2.SetParam("event", "command"); on2.SetParam("id", "go");
+            var get2 = N(g2, "app.store", 1, 0); get2.SetParam("op", "get"); get2.SetParam("key", "k");
+            var sv2 = N(g2, "data.setvar", 2, 0); sv2.SetParam("name", "got");
+            var tt = N(g2, "app.toast", 3, 0); tt.SetParam("message", "persist={got}");
+            g2.Connect(on2.Id, 0, get2.Id, 0); g2.Connect(get2.Id, 1, sv2.Id, 1); g2.Connect(get2.Id, 0, sv2.Id, 0); g2.Connect(sv2.Id, 0, tt.Id, 0);
+            var app2 = new FakeApp();
+            var mgr2 = new Ircuitry.App.PluginManager(app2);
+            mgr2.Enable(new Ircuitry.App.PluginMeta { Name = "AppBatch", Graph = g2 });
+            mgr2.Activate("AppBatch", "command", "go");
+            fails += Expect("app-store-persist", app2.Toasts.Any(t => t.Contains("persist=v1")), $"store survives a fresh host (on disk) ({string.Join("|", app2.Toasts)})");
+
+            var perms = Ircuitry.App.PluginBundle.PermissionsFor(g);
+            fails += Expect("app-batch-perms",
+                perms.Contains("storage") && perms.Contains("events") && perms.Contains("editor")
+                && perms.Contains("open-external") && perms.Contains("clipboard") && perms.Contains("notify"),
+                $"the new nodes derive permissions ({string.Join(",", perms)})");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
+            try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
         return fails;
     }
 

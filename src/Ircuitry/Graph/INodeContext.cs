@@ -117,6 +117,12 @@ public interface INodeContext
     string AppGraph(string op, string a1, string a2, string a3, string a4);
     void AppSettingsField(string key, string label, string type, string placeholder);
     void AppOpenSettings();
+    string AppStore(string op, string key, string value);   // plugin-private persistent key/value store
+    void AppBus(string channel, string payload);            // broadcast an in-app event to On Plugin Event triggers
+    string AppSelection(string what);                       // read the node editor's current selection
+    void AppOpen(string target);                            // open a url / file / ircuitry:// link in the OS
+    string AppClipboard(string op, string text);            // read | write the system clipboard
+    void AppNotify(string title, string message);           // native OS desktop notification
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

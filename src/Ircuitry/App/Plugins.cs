@@ -25,6 +25,10 @@ public interface IAppHost
     void Confirm(string pluginId, string nodeId, string title, string message, string okLabel, string cancelLabel);   // yes/no -> resumes the plugin
     string GraphEdit(string op, string a1, string a2, string a3, string a4);                             // edit the active bot's graph
     void OpenSettings(string pluginId);                                                                  // open a plugin's settings modal
+    string Selection(string what);                                                                       // read the editor's current selection
+    void OpenExternal(string target);                                                                    // open a url / file / deep-link in the OS
+    string Clipboard(string op, string text);                                                            // read | write the system clipboard
+    void Notify(string title, string message);                                                           // native OS desktop notification
 }
 
 /// <summary>One field of a plugin's settings form. <see cref="Type"/>: text | password | secret (secret uses the
@@ -81,6 +85,12 @@ public sealed class AppSink : IRuntimeSink
     public string AppGraph(string op, string a1, string a2, string a3, string a4) => _host.Manager.App.GraphEdit(op, a1, a2, a3, a4);
     public void AppSettingsField(string key, string label, string type, string placeholder) => _host.AddSettingsField(key, label, type, placeholder);
     public void AppOpenSettings() => _host.Manager.App.OpenSettings(_host.Id);
+    public string AppStore(string op, string key, string value) => _host.Store(op, key, value);
+    public void AppBus(string channel, string payload) => _host.Manager.Emit(_host.Id, channel, payload);
+    public string AppSelection(string what) => _host.Manager.App.Selection(what);
+    public void AppOpen(string target) => _host.Manager.App.OpenExternal(target);
+    public string AppClipboard(string op, string text) => _host.Manager.App.Clipboard(op, text);
+    public void AppNotify(string title, string message) => _host.Manager.App.Notify(title, message);
 
     // ---- in-app panel scene building (the plugin's ui.* nodes draw into a dock panel, not an OS window) ----
     public void UiWindow(string id, string title, int width, int height, uint bg) => _host.UiWindow(id, title, width, height, bg);
@@ -266,6 +276,42 @@ public sealed class PluginHost
         FireFamily("app", v);
     }
 
+    /// <summary>An Emit Plugin Event reached this plugin: fire its On Plugin Event triggers with the channel + payload.</summary>
+    public void OnBus(string channel, string payload)
+    {
+        var v = BaseVars();
+        v["bus_channel"] = channel; v["bus_payload"] = payload;
+        FireFamily("bus", v);
+    }
+
+    // ---- the plugin's own persistent key/value store: a small JSON file under plugins/data, lazy-loaded ----
+    private Dictionary<string, string>? _store;
+    private string StoreFile => Path.Combine(PluginManager.Dir, "data", PluginManager.SafeName(Id) + ".json");
+    private Dictionary<string, string> StoreMap()
+    {
+        if (_store != null) return _store;
+        try { _store = File.Exists(StoreFile) ? JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(StoreFile)) ?? new() : new(); }
+        catch { _store = new(); }
+        return _store;
+    }
+    private void StoreSave()
+    { try { Directory.CreateDirectory(Path.GetDirectoryName(StoreFile)!); File.WriteAllText(StoreFile, JsonSerializer.Serialize(_store)); } catch { /* best effort */ } }
+
+    /// <summary>Plugin-private persistent store: get (the value) | set | delete | list (comma-joined keys) | clear.
+    /// Runs on the plugin's single worker thread, so no extra locking needed.</summary>
+    public string Store(string op, string key, string value)
+    {
+        var m = StoreMap();
+        switch (op)
+        {
+            case "set": m[key] = value; StoreSave(); return value;
+            case "delete": m.Remove(key); StoreSave(); return "";
+            case "clear": m.Clear(); StoreSave(); return "";
+            case "list": return string.Join(",", m.Keys);
+            default: return m.TryGetValue(key, out var v) ? v : "";   // get
+        }
+    }
+
     private void FireFamily(string family, Dictionary<string, string> vars) => Schedule(() =>
     {
         // run every trigger node of this family (each filters itself), like ServerConn.FireFamily
@@ -351,6 +397,14 @@ public sealed class PluginManager
     {
         PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
         h?.Activate(kind, id, extra);
+    }
+
+    /// <summary>Broadcast an in-app event (app.bus) to every running plugin's On Plugin Event trigger - sender
+    /// included, so a plugin can talk to its own other flows too.</summary>
+    public void Emit(string fromId, string channel, string payload)
+    {
+        List<PluginHost> hosts; lock (_gate) hosts = _hosts.Values.ToList();
+        foreach (var h in hosts) h.OnBus(channel, payload);
     }
 
     /// <summary>(Re)build a panel's contents: fire its On App Event (event=panel, id=panelId) so the plugin's ui.*
@@ -486,7 +540,7 @@ public sealed class PluginManager
         _registry.Remove(p.Name); SaveRegistry();    // forget the approval too
     }
 
-    private static string SafeName(string s)
+    internal static string SafeName(string s)
     {
         var clean = new string(s.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '-').ToArray());
         return clean.Trim('-', '.').Length == 0 ? "plugin" : clean.Trim('-', '.');
@@ -558,6 +612,12 @@ public static class PluginBundle
                 case "app.nav": perms.Add("navigate"); break;
                 case "app.info": perms.Add("app-state"); break;
                 case "app.settings": case "app.opensettings": perms.Add("settings"); break;
+                case "app.store": perms.Add("storage"); break;
+                case "app.bus": case "app.onbus": perms.Add("events"); break;
+                case "app.selection": perms.Add("editor"); break;
+                case "app.open": perms.Add("open-external"); break;
+                case "app.clipboard": perms.Add("clipboard"); break;
+                case "app.notify": perms.Add("notify"); break;
                 case "ai.editor": perms.Add("edit-graph"); break;   // gives the AI the workflow-editing tools
                 default:
                     if (n.TypeId.StartsWith("app.graph", StringComparison.Ordinal)) perms.Add("edit-graph");
