@@ -123,6 +123,10 @@ public interface INodeContext
     void AppOpen(string target);                            // open a url / file / ircuitry:// link in the OS
     string AppClipboard(string op, string text);            // read | write the system clipboard
     void AppNotify(string title, string message);           // native OS desktop notification
+    void AppPrompt(string title, string message, string def, string placeholder);   // ask for a line of text (pauses the flow)
+    void AppPick(string title, string options);             // choose from a list (pauses the flow)
+    void AppFile(string mode, string title, string def);    // native open/save/folder dialog (pauses the flow)
+    void AppStatus(string op, string id, string text, string icon, string tooltip); // set/clear a status-bar item
     void ReplyThreaded(string text);           // threaded reply to the triggering message (+draft/reply)
     void Send(string target, string text);     // PRIVMSG target :text
     void Notice(string target, string text);

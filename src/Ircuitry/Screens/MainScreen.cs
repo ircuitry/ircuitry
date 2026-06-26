@@ -69,11 +69,19 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     // a plugin-raised modal (app.dialog = OK only; app.confirm = yes/no that resumes the plugin's flow)
     private sealed class PluginDialog
     {
+        public string Kind = "confirm";                                  // confirm | prompt | pick
         public string Title = "", Message = "", Ok = "OK", Cancel = "";   // Cancel empty => OK-only dialog
-        public string? PluginId, NodeId;                                  // set for a confirm (the resume target)
+        public string? PluginId, NodeId;                                  // set for a confirm/prompt/pick (the resume target)
+        public string Input = "";                                        // prompt: the entered text
+        public string[] Options = System.Array.Empty<string>();          // pick: the choices
         public bool JustOpened = true;
     }
     private PluginDialog? _pluginDialog;
+
+    // app.status items (id -> a small clickable chip in the chrome), with the owning plugin for click routing
+    private sealed class StatusItem { public string PluginId = "", Text = "", Icon = "", Tooltip = ""; }
+    private readonly Dictionary<string, StatusItem> _statusItems = new();
+    private readonly List<string> _statusOrder = new();   // insertion order, for stable layout
 
     // close prompt (window X -> exit / minimise)
     private bool _closePromptOpen, _closeJustOpened;
@@ -407,6 +415,69 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         catch { RunOnUi(() => PushToast(Ircuitry.Core.Icons.Glyph("bell") + " " + (title.Length > 0 ? title + ": " : "") + message)); }
     }
 
+    void Ircuitry.App.IAppHost.Prompt(string pluginId, string nodeId, string title, string message, string def, string placeholder)
+        => RunOnUi(() => _pluginDialog = new PluginDialog { Kind = "prompt", Title = title, Message = message, Input = def, Ok = "OK", Cancel = "Cancel", PluginId = pluginId, NodeId = nodeId });
+
+    void Ircuitry.App.IAppHost.Pick(string pluginId, string nodeId, string title, string options)
+        => RunOnUi(() => _pluginDialog = new PluginDialog { Kind = "pick", Title = title, Message = "", Options = SplitOptions(options), PluginId = pluginId, NodeId = nodeId });
+
+    private static string[] SplitOptions(string s)
+        => s.Replace("\r", "").Split(s.Contains('\n') ? '\n' : ',').Select(o => o.Trim()).Where(o => o.Length > 0).ToArray();
+
+    void Ircuitry.App.IAppHost.FileDialog(string pluginId, string nodeId, string mode, string title, string def)
+        => new System.Threading.Thread(() =>   // zenity blocks; run it off-thread, then resume the plugin
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("zenity") { UseShellExecute = false, RedirectStandardOutput = true };
+                psi.ArgumentList.Add("--file-selection");
+                if (mode == "save") { psi.ArgumentList.Add("--save"); psi.ArgumentList.Add("--confirm-overwrite"); }
+                else if (mode == "folder") psi.ArgumentList.Add("--directory");
+                if (title.Length > 0) psi.ArgumentList.Add("--title=" + title);
+                if (def.Length > 0) psi.ArgumentList.Add("--filename=" + def);
+                var p = System.Diagnostics.Process.Start(psi)!;
+                string outp = p.StandardOutput.ReadToEnd().Trim();
+                p.WaitForExit();
+                _plugins.ResolveInput(pluginId, nodeId, p.ExitCode == 0 && outp.Length > 0, outp);
+            }
+            catch   // no zenity (or non-Linux): fall back to an in-app path prompt
+            {
+                RunOnUi(() => _pluginDialog = new PluginDialog { Kind = "prompt", Title = title.Length > 0 ? title : "File path",
+                    Message = "Type a " + (mode == "folder" ? "folder" : "file") + " path:", Input = def, Ok = "OK", Cancel = "Cancel", PluginId = pluginId, NodeId = nodeId });
+            }
+        }) { IsBackground = true, Name = "app-file-dialog" }.Start();
+
+    void Ircuitry.App.IAppHost.Status(string pluginId, string op, string id, string text, string icon, string tooltip) => RunOnUi(() =>
+    {
+        if (op == "clear") { _statusItems.Remove(id); _statusOrder.Remove(id); return; }
+        if (!_statusItems.ContainsKey(id)) _statusOrder.Add(id);
+        _statusItems[id] = new StatusItem { PluginId = pluginId, Text = text, Icon = icon, Tooltip = tooltip };
+    });
+
+    // app.status chips: a row of small clickable items along the bottom-left (clicking fires app.on event=status)
+    private void DrawStatusBar(Renderer r)
+    {
+        if (_statusItems.Count == 0) return;
+        var font = r.Fonts.Get(FontKind.Sans, 12);
+        var accent = Theme.Category(Ircuitry.Core.NodeCategory.App);
+        float h = 28, padX = 11, gap = 8, x = 14, y = _vh - h - 14;
+        foreach (var id in _statusOrder)
+        {
+            if (!_statusItems.TryGetValue(id, out var it)) continue;
+            float iconW = it.Icon.Length > 0 ? 18 : 0;
+            float w = padX + iconW + r.Measure(font, it.Text).X + padX;
+            var rect = new RectF(x, y, w, h);
+            bool hot = !Modal && rect.Contains(In.Mouse);
+            r.RoundFill(rect.Offset(0, 1), Theme.WithAlpha(Color.Black, 0.25f), 9f);
+            r.RoundFill(rect, hot ? accent : Theme.WithAlpha(Color.Black, 0.62f), 9f);
+            float tx = x + padX;
+            if (it.Icon.Length > 0) { r.Text(font, Ircuitry.Core.Icons.Glyph(it.Icon), new Vector2(tx, y + 8), Color.White); tx += iconW; }
+            r.Text(font, it.Text, new Vector2(tx, y + 8), Color.White);
+            if (hot && In.LeftPressed) _plugins.Activate(it.PluginId, "status", id);
+            x += w + gap;
+        }
+    }
+
     // resolve a plugin dialog/confirm: a confirm resumes the plugin's confirmed/cancelled branch
     private void ResolvePluginDialog(bool ok)
     {
@@ -422,22 +493,49 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         var font = r.Fonts.Get(FontKind.Sans, 13);
         float pw = 460;
         var lines = Wrap(font, d.Message, pw - 44);
-        float ph = Hud.HeaderH + 18 + System.Math.Max(1, lines.Count) * 18 + 26 + 50;
+        float bodyExtra = d.Kind == "prompt" ? 50 : d.Kind == "pick" ? d.Options.Length * 42 + 6 : 0;
+        float ph = Hud.HeaderH + 18 + System.Math.Max(1, lines.Count) * 18 + 14 + bodyExtra + 52;
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, d.Title.Length > 0 ? d.Title : "Plugin", accent);
         float x = panel.X + 22, y = panel.Y + Hud.HeaderH + 18;
         foreach (var line in lines) { r.Text(font, line, new Vector2(x, y), Theme.TextDim); y += 18; }
+        y += 8;
 
-        var okR = new RectF(panel.Right - 22 - 120, panel.Bottom - 50, 120, 34);
-        if (_ui.Button("plugdlg.ok", okR, d.Ok.ToUpperInvariant(), accent, primary: true)) ResolvePluginDialog(true);
-        if (d.Cancel.Length > 0)
+        if (d.Kind == "prompt")
         {
-            var cR = new RectF(okR.X - 12 - 110, panel.Bottom - 50, 110, 34);
-            if (_ui.Button("plugdlg.cancel", cR, d.Cancel.ToUpperInvariant(), Theme.Idle)) ResolvePluginDialog(false);
+            if (d.JustOpened) _ui.Focus = "plugdlg.input";
+            d.Input = _ui.TextField("plugdlg.input", new RectF(x, y, pw - 44, 38), d.Input, "");
+        }
+        else if (d.Kind == "pick")
+        {
+            for (int i = 0; i < d.Options.Length; i++)
+                if (_ui.Button("plugdlg.opt" + i, new RectF(x, y + i * 42, pw - 44, 36), d.Options[i], i == 0 ? accent : Theme.Idle, primary: i == 0))
+                    ResolvePluginInput(true, d.Options[i]);
         }
 
-        if (In.LeftPressed && !panel.Contains(In.Mouse) && !d.JustOpened) ResolvePluginDialog(false);
+        if (d.Kind == "pick")   // the choices are the confirm; only a Cancel here
+        {
+            if (_ui.Button("plugdlg.cancel", new RectF(panel.Right - 22 - 110, panel.Bottom - 48, 110, 34), "CANCEL", Theme.Idle)) ResolvePluginInput(false, "");
+        }
+        else
+        {
+            var okR = new RectF(panel.Right - 22 - 120, panel.Bottom - 48, 120, 34);
+            if (_ui.Button("plugdlg.ok", okR, d.Ok.ToUpperInvariant(), accent, primary: true))
+            { if (d.Kind == "prompt") ResolvePluginInput(true, d.Input); else ResolvePluginDialog(true); }
+            if (d.Cancel.Length > 0 && _ui.Button("plugdlg.cancel", new RectF(okR.X - 12 - 110, panel.Bottom - 48, 110, 34), d.Cancel.ToUpperInvariant(), Theme.Idle))
+            { if (d.Kind == "prompt") ResolvePluginInput(false, ""); else ResolvePluginDialog(false); }
+        }
+
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !d.JustOpened)
+        { if (d.Kind is "prompt" or "pick") ResolvePluginInput(false, ""); else ResolvePluginDialog(false); }
         d.JustOpened = false;
+    }
+
+    // resolve a value-returning gate (prompt/pick/file): resume the plugin's submitted/cancelled branch
+    private void ResolvePluginInput(bool ok, string value)
+    {
+        var d = _pluginDialog; _pluginDialog = null; _ui.Focus = null;
+        if (d?.PluginId != null && d.NodeId != null) _plugins.ResolveInput(d.PluginId, d.NodeId, ok, value);
     }
 
     /// <summary>Export the open bot's graph as a portable .ircplugin (to the home folder); double-click it to install.</summary>
@@ -1603,6 +1701,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         // ---------- modals (on top, capture input) ----------
         if (!_testOpen) EndEphemeralTry();   // closing the Test Bench discards any try-before-install harness
+        // plugin status chips sit on the chrome (under modals)
+        if (_statusItems.Count > 0) { r.Begin(); DrawStatusBar(r); r.End(); }
         // a plugin-raised dialog/confirm overlays everything (it pauses the plugin's flow until answered)
         if (_pluginDialog != null)
         {

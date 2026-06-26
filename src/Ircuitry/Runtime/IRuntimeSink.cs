@@ -171,6 +171,14 @@ public interface IRuntimeSink
     string AppClipboard(string op, string text) => "";
     /// <summary>Show a native OS desktop notification. No-op off an AppSink.</summary>
     void AppNotify(string title, string message) { }
+    /// <summary>Ask the user for a line of text; pauses the flow, resumes submitted(0)+value(1) / cancelled(2).</summary>
+    void AppPrompt(Ircuitry.Graph.Node node, System.Collections.Generic.Dictionary<string, string> vars, string title, string message, string def, string placeholder) { }
+    /// <summary>Let the user pick from a list; pauses the flow, resumes picked(0)+value(1) / cancelled(2).</summary>
+    void AppPick(Ircuitry.Graph.Node node, System.Collections.Generic.Dictionary<string, string> vars, string title, string options) { }
+    /// <summary>Native open/save/folder dialog; pauses the flow, resumes chosen(0)+path(1) / cancelled(2).</summary>
+    void AppFile(Ircuitry.Graph.Node node, System.Collections.Generic.Dictionary<string, string> vars, string mode, string title, string def) { }
+    /// <summary>Set or clear a status-bar item (op = set|clear). No-op off an AppSink.</summary>
+    void AppStatus(string op, string id, string text, string icon, string tooltip) { }
 
     // persistent per-bot variable store
     string GetState(string key);

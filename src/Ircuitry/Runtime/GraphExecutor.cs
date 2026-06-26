@@ -453,6 +453,10 @@ public static class GraphExecutor
         public void AppOpen(string target) => _run.Sink.AppOpen(target);
         public string AppClipboard(string op, string text) => _run.Sink.AppClipboard(op, text);
         public void AppNotify(string title, string message) => _run.Sink.AppNotify(title, message);
+        public void AppPrompt(string title, string message, string def, string placeholder) => _run.Sink.AppPrompt(_node, new Dictionary<string, string>(_run.Vars), title, message, def, placeholder);
+        public void AppPick(string title, string options) => _run.Sink.AppPick(_node, new Dictionary<string, string>(_run.Vars), title, options);
+        public void AppFile(string mode, string title, string def) => _run.Sink.AppFile(_node, new Dictionary<string, string>(_run.Vars), mode, title, def);
+        public void AppStatus(string op, string id, string text, string icon, string tooltip) => _run.Sink.AppStatus(op, id, text, icon, tooltip);
         public void Send(string target, string text) => Out().Privmsg(target, text);
         public void Notice(string target, string text) => Out().Notice(target, text);
         public void Join(string channel) => Out().Join(channel);

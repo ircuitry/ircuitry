@@ -297,6 +297,7 @@ public static class SelfTest
         fails += PluginHooksTest();
         fails += PluginPowersTest();
         fails += AppBatchNodesTest();
+        fails += WaveBNodesTest();
         fails += PluginPanelTest();
         fails += PluginPanelResponsiveTest();
         fails += PluginDialogTest();
@@ -3767,6 +3768,13 @@ public static class SelfTest
         public void OpenExternal(string target) => Opened.Add(target);
         public string Clipboard(string op, string text) { if (op == "write") { ClipText = text; return text; } return ClipText; }
         public void Notify(string title, string message) => Notes.Add(title + ":" + message);
+        public string? InputPlugin, InputNode;            // the last prompt/pick/file gate (so a test can answer it)
+        public string LastPick = "", LastFileMode = "";
+        public readonly List<string> StatusItems = new();
+        public void Prompt(string pid, string nid, string title, string message, string def, string ph) { InputPlugin = pid; InputNode = nid; }
+        public void Pick(string pid, string nid, string title, string options) { InputPlugin = pid; InputNode = nid; LastPick = options; }
+        public void FileDialog(string pid, string nid, string mode, string title, string def) { InputPlugin = pid; InputNode = nid; LastFileMode = mode; }
+        public void Status(string pid, string op, string id, string text, string icon, string tooltip) => StatusItems.Add(op + ":" + id + ":" + text);
     }
 
     /// <summary>The plugin MANAGER loop end-to-end: enabling a plugin registers its menu contribution, activating
@@ -3933,6 +3941,80 @@ public static class SelfTest
             Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
         }
+        return fails;
+    }
+
+    /// <summary>Wave-B app nodes: app.prompt/app.pick pause the flow and resume the submitted branch with the
+    /// typed/picked value seeded onto the value output (or the cancelled branch), and app.status reaches the host.
+    /// Verified with the fake app host answering the gate.</summary>
+    private static int WaveBNodesTest()
+    {
+        int fails = 0;
+        // app.prompt: command -> prompt (pauses) -> answer -> 'submitted' carries the value; cancel -> 'cancelled'
+        var g = new NodeGraph();
+        var on = N(g, "app.on", 0, 0); on.SetParam("event", "command"); on.SetParam("id", "go");
+        var pr = N(g, "app.prompt", 1, 0); pr.SetParam("message", "Name?");
+        var sv = N(g, "data.setvar", 2, 0); sv.SetParam("name", "v");
+        var toast = N(g, "app.toast", 3, 0); toast.SetParam("message", "got {v}");
+        var ct = N(g, "app.toast", 2, 1); ct.SetParam("message", "cancelled");
+        g.Connect(on.Id, 0, pr.Id, 0);
+        g.Connect(pr.Id, 0, sv.Id, 0); g.Connect(pr.Id, 1, sv.Id, 1); g.Connect(sv.Id, 0, toast.Id, 0);
+        g.Connect(pr.Id, 2, ct.Id, 0);
+
+        var app = new FakeApp();
+        var mgr = new Ircuitry.App.PluginManager(app);
+        mgr.Enable(new Ircuitry.App.PluginMeta { Name = "WB", Graph = g });
+        mgr.Activate("WB", "command", "go");
+        fails += Expect("wb-prompt-pause", app.InputNode != null && app.Toasts.Count == 0, "app.prompt pauses (no toast until answered)");
+        mgr.ResolveInput(app.InputPlugin!, app.InputNode!, true, "Mochi");
+        fails += Expect("wb-prompt-value", app.Toasts.Any(t => t.Contains("got Mochi")), $"submitted carries the typed value ({string.Join("|", app.Toasts)})");
+        app.Toasts.Clear(); app.InputNode = null;
+        mgr.Activate("WB", "command", "go");
+        mgr.ResolveInput(app.InputPlugin!, app.InputNode!, false, "");
+        fails += Expect("wb-prompt-cancel", app.Toasts.Any(t => t.Contains("cancelled")), "cancel takes the cancelled branch");
+
+        // app.pick
+        var g2 = new NodeGraph();
+        var on2 = N(g2, "app.on", 0, 0); on2.SetParam("event", "command"); on2.SetParam("id", "go");
+        var pk = N(g2, "app.pick", 1, 0); pk.SetParam("title", "Pick"); pk.SetParam("options", "Red\nGreen\nBlue");
+        var sv2 = N(g2, "data.setvar", 2, 0); sv2.SetParam("name", "c");
+        var to2 = N(g2, "app.toast", 3, 0); to2.SetParam("message", "chose {c}");
+        g2.Connect(on2.Id, 0, pk.Id, 0); g2.Connect(pk.Id, 0, sv2.Id, 0); g2.Connect(pk.Id, 1, sv2.Id, 1); g2.Connect(sv2.Id, 0, to2.Id, 0);
+        var app2 = new FakeApp();
+        var mgr2 = new Ircuitry.App.PluginManager(app2);
+        mgr2.Enable(new Ircuitry.App.PluginMeta { Name = "PK", Graph = g2 });
+        mgr2.Activate("PK", "command", "go");
+        fails += Expect("wb-pick-opts", app2.LastPick.Contains("Green"), "app.pick passes its options to the host");
+        mgr2.ResolveInput(app2.InputPlugin!, app2.InputNode!, true, "Green");
+        fails += Expect("wb-pick-value", app2.Toasts.Any(t => t.Contains("chose Green")), "picked carries the choice");
+
+        // app.file reaches the host with its mode, and resolves a path
+        var g4 = new NodeGraph();
+        var on4 = N(g4, "app.on", 0, 0); on4.SetParam("event", "command"); on4.SetParam("id", "go");
+        var fl = N(g4, "app.file", 1, 0); fl.SetParam("mode", "save");
+        var sv4 = N(g4, "data.setvar", 2, 0); sv4.SetParam("name", "p");
+        var to4 = N(g4, "app.toast", 3, 0); to4.SetParam("message", "path {p}");
+        g4.Connect(on4.Id, 0, fl.Id, 0); g4.Connect(fl.Id, 0, sv4.Id, 0); g4.Connect(fl.Id, 1, sv4.Id, 1); g4.Connect(sv4.Id, 0, to4.Id, 0);
+        var app4 = new FakeApp();
+        var mgr4 = new Ircuitry.App.PluginManager(app4);
+        mgr4.Enable(new Ircuitry.App.PluginMeta { Name = "FL", Graph = g4 });
+        mgr4.Activate("FL", "command", "go");
+        fails += Expect("wb-file-mode", app4.LastFileMode == "save", "app.file passes its mode");
+        mgr4.ResolveInput(app4.InputPlugin!, app4.InputNode!, true, "/tmp/site.zip");
+        fails += Expect("wb-file-path", app4.Toasts.Any(t => t.Contains("path /tmp/site.zip")), "chosen carries the path");
+
+        // app.status + permissions
+        var g3 = new NodeGraph();
+        var st3 = N(g3, "app.start", 0, 0);
+        var stat = N(g3, "app.status", 1, 0); stat.SetParam("op", "set"); stat.SetParam("id", "s1"); stat.SetParam("text", "Online");
+        g3.Connect(st3.Id, 0, stat.Id, 0);
+        var app3 = new FakeApp();
+        var mgr3 = new Ircuitry.App.PluginManager(app3);
+        mgr3.Enable(new Ircuitry.App.PluginMeta { Name = "ST", Graph = g3 });
+        fails += Expect("wb-status", app3.StatusItems.Any(s => s.Contains("set:s1:Online")), $"app.status reaches the host ({string.Join("|", app3.StatusItems)})");
+        fails += Expect("wb-perms", Ircuitry.App.PluginBundle.PermissionsFor(g).Contains("dialogs")
+            && Ircuitry.App.PluginBundle.PermissionsFor(g4).Contains("files")
+            && Ircuitry.App.PluginBundle.PermissionsFor(g3).Contains("statusbar"), "prompt->dialogs, file->files, status->statusbar");
         return fails;
     }
 

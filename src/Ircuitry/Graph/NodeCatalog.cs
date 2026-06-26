@@ -4621,7 +4621,7 @@ public static class NodeCatalog
                 Outputs = new[] { Ex("then"), Tx("id"), Tx("event") },
                 Params = new[]
                 {
-                    P("event", "Event", ParamType.Choice, "any", "", new[] { "any", "menu", "toolbar", "command", "context", "panel" }),
+                    P("event", "Event", ParamType.Choice, "any", "", new[] { "any", "menu", "toolbar", "command", "context", "panel", "status" }),
                     P("id", "Item id", ParamType.Text, "", "(any)"),
                 },
                 Exec = c =>
@@ -4808,6 +4808,65 @@ public static class NodeCatalog
                 },
                 SummaryParam = "message",
                 Exec = c => { c.AppNotify(c.Resolve(c.Param("title")), c.Resolve(c.Param("message"))); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "app.prompt", Icon = "text-aa", Title = "Ask for Text", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Pop a modal asking the user for a line of text. The flow PAUSES until they answer, then continues from 'submitted' (with the text on 'value') or 'cancelled'.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("submitted"), Tx("value"), Ex("cancelled") },
+                Params = new[]
+                {
+                    P("title", "Title", ParamType.Text, "Quick question", ""),
+                    P("message", "Message", ParamType.Text, "What should I call it?", ""),
+                    P("default", "Default", ParamType.Text, "", "(optional) prefilled text"),
+                    P("placeholder", "Placeholder", ParamType.Text, "", "(optional) hint"),
+                },
+                SummaryParam = "message",
+                // no Pulse: the modal pauses the flow; the runtime resumes submitted/cancelled when the user answers
+                Exec = c => c.AppPrompt(c.Resolve(c.Param("title")), c.Resolve(c.Param("message")), c.Resolve(c.Param("default")), c.Resolve(c.Param("placeholder"))),
+            },
+            new()
+            {
+                TypeId = "app.pick", Icon = "list-checks", Title = "Quick Pick", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Pop a chooser of options (one per line, or comma-separated). The flow PAUSES until the user picks, then continues from 'picked' (with the choice on 'value') or 'cancelled'.",
+                Inputs = new[] { Ex(), Tx("options") }, Outputs = new[] { Ex("picked"), Tx("value"), Ex("cancelled") },
+                Params = new[]
+                {
+                    P("title", "Title", ParamType.Text, "Pick one", ""),
+                    P("options", "Options", ParamType.Multiline, "One\nTwo\nThree", "one per line (or comma-separated)"),
+                },
+                SummaryParam = "title",
+                Exec = c => c.AppPick(c.Resolve(c.Param("title")), c.InOr(1, c.Resolve(c.Param("options")))),
+            },
+            new()
+            {
+                TypeId = "app.file", Icon = "folder-open", Title = "File Dialog", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Open the OS file picker to choose a file, a save location, or a folder. The flow PAUSES until the user answers, then continues from 'chosen' (with the path on 'path') or 'cancelled'.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("chosen"), Tx("path"), Ex("cancelled") },
+                Params = new[]
+                {
+                    P("mode", "Mode", ParamType.Choice, "open", "", new[] { "open", "save", "folder" }),
+                    P("title", "Title", ParamType.Text, "Choose", ""),
+                    P("default", "Default name/path", ParamType.Text, "", "(save: the suggested filename)"),
+                },
+                SummaryParam = "mode",
+                Exec = c => c.AppFile(c.Param("mode"), c.Resolve(c.Param("title")), c.Resolve(c.Param("default"))),
+            },
+            new()
+            {
+                TypeId = "app.status", Icon = "gauge", Title = "Status Item", Subtitle = "plugin", Category = NodeCategory.App,
+                Description = "Set (or clear) a small always-visible status item in ircuitry's chrome - text + an optional Phosphor icon. Clicking it fires On App Event (event = status, id = this item's id). op: set | clear.",
+                Inputs = new[] { Ex() }, Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("op", "Operation", ParamType.Choice, "set", "", new[] { "set", "clear" }),
+                    P("id", "Item id", ParamType.Text, "status", "unique id"),
+                    P("text", "Text", ParamType.Text, "Ready", "{tokens} ok"),
+                    P("icon", "Icon", ParamType.Text, "", "(optional) Phosphor name"),
+                    P("tooltip", "Tooltip", ParamType.Text, "", "(optional)"),
+                },
+                SummaryParam = "text",
+                Exec = c => { c.AppStatus(c.Param("op"), c.Resolve(c.Param("id")), c.Resolve(c.Param("text")), c.Param("icon"), c.Resolve(c.Param("tooltip"))); c.Pulse(0); },
             },
 
             // ===================== WEB (build websites with nodes - vanilla preview now, React eject next) =====================

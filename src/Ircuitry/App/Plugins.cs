@@ -29,6 +29,10 @@ public interface IAppHost
     void OpenExternal(string target);                                                                    // open a url / file / deep-link in the OS
     string Clipboard(string op, string text);                                                            // read | write the system clipboard
     void Notify(string title, string message);                                                           // native OS desktop notification
+    void Prompt(string pluginId, string nodeId, string title, string message, string def, string placeholder); // text input -> resumes the plugin
+    void Pick(string pluginId, string nodeId, string title, string options);                             // list chooser -> resumes the plugin
+    void FileDialog(string pluginId, string nodeId, string mode, string title, string def);             // native file dialog -> resumes the plugin
+    void Status(string pluginId, string op, string id, string text, string icon, string tooltip);        // set/clear a status-bar item
 }
 
 /// <summary>One field of a plugin's settings form. <see cref="Type"/>: text | password | secret (secret uses the
@@ -91,6 +95,10 @@ public sealed class AppSink : IRuntimeSink
     public void AppOpen(string target) => _host.Manager.App.OpenExternal(target);
     public string AppClipboard(string op, string text) => _host.Manager.App.Clipboard(op, text);
     public void AppNotify(string title, string message) => _host.Manager.App.Notify(title, message);
+    public void AppPrompt(Ircuitry.Graph.Node node, Dictionary<string, string> vars, string title, string message, string def, string placeholder) => _host.BeginPrompt(node, vars, title, message, def, placeholder);
+    public void AppPick(Ircuitry.Graph.Node node, Dictionary<string, string> vars, string title, string options) => _host.BeginPick(node, vars, title, options);
+    public void AppFile(Ircuitry.Graph.Node node, Dictionary<string, string> vars, string mode, string title, string def) => _host.BeginFile(node, vars, mode, title, def);
+    public void AppStatus(string op, string id, string text, string icon, string tooltip) => _host.Manager.App.Status(_host.Id, op, id, text, icon, tooltip);
 
     // ---- in-app panel scene building (the plugin's ui.* nodes draw into a dock panel, not an OS window) ----
     public void UiWindow(string id, string title, int width, int height, uint bg) => _host.UiWindow(id, title, width, height, bg);
@@ -251,6 +259,29 @@ public sealed class PluginHost
         });
     }
 
+    /// <summary>Begin a value-returning gate (prompt/pick/file): remember the asking node + vars, raise the UI.</summary>
+    public void BeginPrompt(Node node, Dictionary<string, string> vars, string title, string message, string def, string placeholder)
+    { lock (_pendingConfirms) _pendingConfirms[node.Id] = vars; Manager.App.Prompt(Id, node.Id, title, message, def, placeholder); }
+    public void BeginPick(Node node, Dictionary<string, string> vars, string title, string options)
+    { lock (_pendingConfirms) _pendingConfirms[node.Id] = vars; Manager.App.Pick(Id, node.Id, title, options); }
+    public void BeginFile(Node node, Dictionary<string, string> vars, string mode, string title, string def)
+    { lock (_pendingConfirms) _pendingConfirms[node.Id] = vars; Manager.App.FileDialog(Id, node.Id, mode, title, def); }
+
+    /// <summary>The user answered a prompt/pick/file gate: resume submitted(0) with the value seeded onto the
+    /// node's value output (pin 1), or cancelled(2).</summary>
+    public void ResolveInput(string nodeId, bool ok, string value)
+    {
+        Dictionary<string, string>? vars;
+        lock (_pendingConfirms) { if (!_pendingConfirms.Remove(nodeId, out vars)) return; }
+        var node = Graph.Find(nodeId);
+        if (node == null) return;
+        Schedule(() =>
+        {
+            try { GraphExecutor.FireFrom(Graph, _sink, node, ok ? 0 : 2, vars, ok ? new[] { (1, value) } : null); }
+            catch (Exception ex) { Manager.App.Log("[" + Id + "] plugin error: " + ex.Message, LogLevel.Error); }
+        });
+    }
+
     /// <summary>A panel interaction (button click / slider change / input submit) -> fire the plugin's ui.on flows,
     /// exactly like a node-authored UI window does via ServerConn.OnUiEvent.</summary>
     public void DeliverUiEvent(string windowId, UiKit.UiEvent ev)
@@ -405,6 +436,13 @@ public sealed class PluginManager
     {
         List<PluginHost> hosts; lock (_gate) hosts = _hosts.Values.ToList();
         foreach (var h in hosts) h.OnBus(channel, payload);
+    }
+
+    /// <summary>The app answered a prompt/pick/file gate (value + ok), or cancelled - resume the plugin's flow.</summary>
+    public void ResolveInput(string pluginId, string nodeId, bool ok, string value)
+    {
+        PluginHost? h; lock (_gate) _hosts.TryGetValue(pluginId, out h);
+        h?.ResolveInput(nodeId, ok, value);
     }
 
     /// <summary>(Re)build a panel's contents: fire its On App Event (event=panel, id=panelId) so the plugin's ui.*
@@ -618,6 +656,9 @@ public static class PluginBundle
                 case "app.open": perms.Add("open-external"); break;
                 case "app.clipboard": perms.Add("clipboard"); break;
                 case "app.notify": perms.Add("notify"); break;
+                case "app.prompt": case "app.pick": perms.Add("dialogs"); break;
+                case "app.file": perms.Add("files"); break;
+                case "app.status": perms.Add("statusbar"); break;
                 case "ai.editor": perms.Add("edit-graph"); break;   // gives the AI the workflow-editing tools
                 default:
                     if (n.TypeId.StartsWith("app.graph", StringComparison.Ordinal)) perms.Add("edit-graph");
