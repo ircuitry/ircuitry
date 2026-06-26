@@ -3777,7 +3777,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     {
         IrcState.Connecting => ("CONNECTING", Theme.Warn),
         IrcState.Registering => ("REGISTERING", Theme.Warn),
-        IrcState.Connected => ("LIVE " + Ircuitry.Core.Icons.Glyph("caret-right") + " " + c.CurrentNick, Theme.Ok),
+        IrcState.Connected => (Ircuitry.Core.Loc.T("LIVE") + " " + Ircuitry.Core.Icons.Glyph("caret-right") + " " + c.CurrentNick, Theme.Ok),
         IrcState.Error => ("ERROR", Theme.Alert),
         _ => c?.Running == true ? ("STARTING", Theme.Warn) : ("OFFLINE", Theme.Idle),
     };
@@ -4740,9 +4740,9 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         var (slabel, scol, _) = StatusInfo();
         Hud.SoftDot(r, new Vector2(16, bar.Center.Y), 3.5f, scol);
         r.Text(f, slabel, new Vector2(28, y), scol);
-        r.Text(f, $"BOTS {_app.Bots.Count}", new Vector2(210, y), Theme.TextDim);
-        r.Text(f, $"NODES {Bot.Graph.Nodes.Count}", new Vector2(294, y), Theme.TextDim);
-        r.Text(f, $"WIRES {Bot.Graph.Connections.Count}", new Vector2(384, y), Theme.TextDim);
+        r.Text(f, Ircuitry.Core.Loc.T("BOTS") + $" {_app.Bots.Count}", new Vector2(210, y), Theme.TextDim);
+        r.Text(f, Ircuitry.Core.Loc.T("NODES") + $" {Bot.Graph.Nodes.Count}", new Vector2(294, y), Theme.TextDim);
+        r.Text(f, Ircuitry.Core.Loc.T("WIRES") + $" {Bot.Graph.Connections.Count}", new Vector2(384, y), Theme.TextDim);
         r.Text(f, "ircuitry v" + Ircuitry.App.AppInfo.Version, new Vector2(478, y), Theme.TextFaint);
 
         // flood send-queue gauge: warms green->red as the outgoing backlog grows toward an Excess Flood kill
@@ -4821,7 +4821,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             IrcState.Connecting => ("CONNECTING", Theme.Warn, true),
             IrcState.Registering => ("REGISTERING", Theme.Warn, true),
-            IrcState.Connected => ("LIVE " + Ircuitry.Core.Icons.Glyph("caret-right") + " " + rt.CurrentNick, Theme.Ok, true),
+            IrcState.Connected => (Ircuitry.Core.Loc.T("LIVE") + " " + Ircuitry.Core.Icons.Glyph("caret-right") + " " + rt.CurrentNick, Theme.Ok, true),
             IrcState.Error => ("ERROR", Theme.Alert, false),
             _ => rt.Running ? ("STARTING", Theme.Warn, true) : ("OFFLINE", Theme.Idle, false),
         };
