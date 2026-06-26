@@ -305,48 +305,171 @@ public static class NodeCatalog
         var app = new Ircuitry.WebBuild.WebApp { Name = name };
         foreach (var sn in c.SourcesInto(statesPin))
         {
-            if (sn.TypeId == "web.state")
-                app.States.Add(new Ircuitry.WebBuild.WebState { Name = sn.GetParam("name"), Init = sn.GetParam("initial"), Kind = sn.GetParam("kind") });
-            else if (sn.TypeId == "web.theme")
-                foreach (var line in sn.GetParam("tokens").Split('\n'))
+            switch (sn.TypeId)
+            {
+                case "web.state":
+                    app.States.Add(new Ircuitry.WebBuild.WebState { Name = sn.GetParam("name"), Init = c.Resolve(sn.GetParam("initial")), Kind = sn.GetParam("kind") });
+                    break;
+                case "web.theme":
+                    foreach (var line in c.Resolve(sn.GetParam("tokens")).Split('\n'))
+                    {
+                        int i = line.IndexOf(':');
+                        if (i > 0) app.Tokens.Add((line[..i].Trim(), line[(i + 1)..].Trim()));
+                    }
+                    break;
+                case "web.fetch":
+                    app.Fetches.Add(new Ircuitry.WebBuild.WebFetch { Url = c.Resolve(sn.GetParam("url")), Into = sn.GetParam("into") });
+                    break;
+                case "web.css":
                 {
-                    int i = line.IndexOf(':');
-                    if (i > 0) app.Tokens.Add((line[..i].Trim(), line[(i + 1)..].Trim()));
+                    var css = c.Resolve(sn.GetParam("css"));
+                    if (css.Trim().Length > 0) app.Css.Add(css);
+                    break;
                 }
-            else if (sn.TypeId == "web.fetch")
-                app.Fetches.Add(new Ircuitry.WebBuild.WebFetch { Url = sn.GetParam("url"), Into = sn.GetParam("into") });
+                case "web.head":
+                {
+                    var t = c.Resolve(sn.GetParam("title")); if (t.Length > 0) app.Name = t;
+                    app.Description = c.Resolve(sn.GetParam("description"));
+                    app.Favicon = c.Resolve(sn.GetParam("favicon"));
+                    var lang = c.Resolve(sn.GetParam("lang")); if (lang.Length > 0) app.Lang = lang;
+                    break;
+                }
+            }
         }
         var roots = c.SourcesInto(rootPin);
         if (roots.Count > 0) app.Root = WebBuildEl(c, roots[0], 0);
         return app;
     }
 
-    // turn a wired tree of web.element nodes into the Web-IR (read structurally, never executed)
+    // the web.* node types that form the view tree (read structurally, never executed)
+    private static bool IsWebEl(string t) => t is "web.element" or "web.list" or "web.box" or "web.heading"
+        or "web.text" or "web.image" or "web.link" or "web.button" or "web.input" or "web.field";
+
+    // turn a wired tree of web.* element nodes into the Web-IR. Content params (text/style/src/...) resolve
+    // {workflow vars} so a page can be built from earlier answers; structural names (bind/model/keys) stay raw.
     private static Ircuitry.WebBuild.WebEl WebBuildEl(INodeContext c, Node node, int depth)
     {
-        bool isList = node.TypeId == "web.list";
-        string tag = node.GetParam("tag");
-        var el = new Ircuitry.WebBuild.WebEl { Tag = tag.Length > 0 ? tag : (isList ? "ul" : "div") };
-        var cls = node.GetParam("class"); if (cls.Length > 0) el.Attrs["class"] = cls;
-        var style = node.GetParam("style"); if (style.Length > 0) el.Style = style;
-        if (isList)
-            el.Repeat = new Ircuitry.WebBuild.WebRepeat
+        string R(string k) => c.Resolve(node.GetParam(k));   // resolved content
+        string P(string k) => node.GetParam(k);              // raw structural name
+        var el = new Ircuitry.WebBuild.WebEl();
+        switch (node.TypeId)
+        {
+            case "web.list":
+                el.Tag = P("tag").Length > 0 ? P("tag") : "ul";
+                el.Repeat = new Ircuitry.WebBuild.WebRepeat
+                {
+                    List = P("items"),
+                    Item = P("item").Length > 0 ? P("item") : "item",
+                    Key = P("key").Length > 0 ? P("key") : "id",
+                };
+                el.Style = Nz(R("style"));
+                break;
+            case "web.box":
+                el.Tag = P("as").Length > 0 ? P("as") : "div";
+                el.Style = Nz(WebBoxStyle(node, c) + R("style"));
+                break;
+            case "web.heading":
+                el.Tag = P("level") is "1" or "2" or "3" or "4" or "5" or "6" ? "h" + P("level") : "h2";
+                WebTextContent(node, c, el); el.Style = Nz(R("style"));
+                break;
+            case "web.text":
+                el.Tag = P("as").Length > 0 ? P("as") : "p";
+                WebTextContent(node, c, el); el.Style = Nz(R("style"));
+                break;
+            case "web.image":
+                el.Tag = "img";
+                { var src = R("src"); if (src.Length > 0) el.Attrs["src"] = src; var alt = R("alt"); if (alt.Length > 0) el.Attrs["alt"] = alt; }
+                el.Style = Nz(R("style"));
+                break;
+            case "web.link":
+                el.Tag = "a";
+                { var href = R("href"); if (href.Length > 0) el.Attrs["href"] = href; var tg = P("target"); if (tg.Length > 0) el.Attrs["target"] = tg; }
+                WebTextContent(node, c, el); el.Style = Nz(R("style"));
+                break;
+            case "web.button":
+                el.Tag = "button";
+                WebTextContent(node, c, el);
+                { var act = P("action"); if (act.Length > 0) el.On[P("event").Length > 0 ? P("event") : "click"] = WebParseAction(act); }
+                el.Style = Nz(WebButtonStyle(node) + R("style"));
+                break;
+            case "web.input":
+                el.Tag = "input";
+                el.Attrs["type"] = P("type").Length > 0 ? P("type") : "text";
+                { var ph = R("placeholder"); if (ph.Length > 0) el.Attrs["placeholder"] = ph; var nm = P("name"); if (nm.Length > 0) el.Attrs["name"] = nm; }
+                { var m = P("model"); if (m.Length > 0) el.Model = m; }
+                el.Style = Nz(R("style"));
+                break;
+            case "web.field":
             {
-                List = node.GetParam("items"),
-                Item = node.GetParam("item").Length > 0 ? node.GetParam("item") : "item",
-                Key = node.GetParam("key").Length > 0 ? node.GetParam("key") : "id",
-            };
-        var model = node.GetParam("model"); if (model.Length > 0) el.Model = model;
-        var bind = node.GetParam("bind");
-        if (bind.Length > 0) el.Bind = bind;
-        else { var t = node.GetParam("text"); if (t.Length > 0) el.Text = t; }
-        var ev = node.GetParam("event"); var act = node.GetParam("action");
-        if (ev.Length > 0 && act.Length > 0) el.On[ev] = WebParseAction(act);
-        if (depth < 64)
+                el.Tag = "label";
+                el.Style = Nz("display:flex;flex-direction:column;gap:6px;" + R("style"));
+                el.Children.Add(new Ircuitry.WebBuild.WebEl { Tag = "span", Text = R("label"), Style = "font-size:13px;font-weight:600" });
+                var inp = new Ircuitry.WebBuild.WebEl { Tag = "input", Style = "padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:14px" };
+                inp.Attrs["type"] = P("type").Length > 0 ? P("type") : "text";
+                { var ph = R("placeholder"); if (ph.Length > 0) inp.Attrs["placeholder"] = ph; }
+                { var m = P("model"); if (m.Length > 0) inp.Model = m; }
+                el.Children.Add(inp);
+                break;
+            }
+            default:   // web.element - the general one
+                el.Tag = P("tag").Length > 0 ? P("tag") : "div";
+                { var cls = P("class"); if (cls.Length > 0) el.Attrs["class"] = cls; }
+                { var m = P("model"); if (m.Length > 0) el.Model = m; }
+                WebTextContent(node, c, el);
+                { var ev = P("event"); var act = P("action"); if (ev.Length > 0 && act.Length > 0) el.On[ev] = WebParseAction(act); }
+                el.Style = Nz(R("style"));
+                break;
+        }
+        if (node.TypeId != "web.field" && depth < 64)
             foreach (var ch in c.SourcesInto(node, 0))           // children, in wire order
-                if (ch.TypeId == "web.element" || ch.TypeId == "web.list") el.Children.Add(WebBuildEl(c, ch, depth + 1));
+                if (IsWebEl(ch.TypeId)) el.Children.Add(WebBuildEl(c, ch, depth + 1));
         return el;
     }
+
+    private static string? Nz(string s) => s.Length > 0 ? s : null;
+
+    // static text OR a {state}/item.field binding, shared by the text-ish element nodes
+    private static void WebTextContent(Node node, INodeContext c, Ircuitry.WebBuild.WebEl el)
+    {
+        var bind = node.GetParam("bind");
+        if (bind.Length > 0) el.Bind = bind;
+        else { var t = c.Resolve(node.GetParam("text")); if (t.Length > 0) el.Text = t; }
+    }
+
+    // web.box: compose a flex/grid container style from friendly params (bare numbers -> px)
+    private static string WebBoxStyle(Node n, INodeContext c)
+    {
+        string G(string k) => c.Resolve(n.GetParam(k));
+        var sb = new System.Text.StringBuilder();
+        string disp = n.GetParam("display"); if (disp.Length == 0) disp = "flex";
+        sb.Append("display:").Append(disp).Append(';');
+        if (disp == "flex")
+        {
+            string dir = n.GetParam("direction"); if (dir.Length > 0) sb.Append("flex-direction:").Append(dir).Append(';');
+            string al = n.GetParam("align"); if (al.Length > 0) sb.Append("align-items:").Append(al).Append(';');
+            string ju = n.GetParam("justify"); if (ju.Length > 0) sb.Append("justify-content:").Append(ju).Append(';');
+            if (n.GetParam("wrap") == "true") sb.Append("flex-wrap:wrap;");
+        }
+        else if (disp == "grid")
+        {
+            string cols = n.GetParam("cols"); if (cols.Length > 0) sb.Append("grid-template-columns:").Append(cols).Append(';');
+        }
+        string gap = n.GetParam("gap"); if (gap.Length > 0) sb.Append("gap:").Append(WebPx(gap)).Append(';');
+        string pad = n.GetParam("pad"); if (pad.Length > 0) sb.Append("padding:").Append(WebPx(pad)).Append(';');
+        string bg = G("bg"); if (bg.Length > 0) sb.Append("background:").Append(bg).Append(';');
+        string radius = n.GetParam("radius"); if (radius.Length > 0) sb.Append("border-radius:").Append(WebPx(radius)).Append(';');
+        string mw = n.GetParam("maxWidth"); if (mw.Length > 0) sb.Append("max-width:").Append(WebPx(mw)).Append(";margin-left:auto;margin-right:auto;");
+        return sb.ToString();
+    }
+    private static string WebPx(string v) => v.Length > 0 && char.IsDigit(v[^1]) ? v + "px" : v;
+
+    private static string WebButtonStyle(Node n) => n.GetParam("variant") switch
+    {
+        "primary" => "background:var(--brand,#6C5CE7);color:#fff;border:none;padding:11px 20px;border-radius:10px;font-weight:700;cursor:pointer;font-size:15px;",
+        "ghost" => "background:transparent;color:var(--brand,#6C5CE7);border:none;padding:11px 20px;border-radius:10px;font-weight:700;cursor:pointer;font-size:15px;",
+        "outline" => "background:transparent;color:var(--brand,#6C5CE7);border:1px solid var(--brand,#6C5CE7);padding:10px 19px;border-radius:10px;font-weight:700;cursor:pointer;font-size:15px;",
+        _ => "padding:11px 20px;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:15px;",
+    };
 
     // "count.inc" | "count.dec" | "count.set:5" | "open.toggle" -> a WebAction
     private static Ircuitry.WebBuild.WebAction WebParseAction(string s)
@@ -4761,6 +4884,168 @@ public static class NodeCatalog
                 SummaryParam = "items",
                 Exec = c => { },   // pure declaration: read structurally by Web Preview / Web Eject
             },
+
+            // ----- web primitives (sugar over Web Element + two capabilities: raw CSS and page <head>) -----
+            new()
+            {
+                TypeId = "web.box", Icon = "layout", Title = "Web Box", Subtitle = "layout", Category = NodeCategory.Web,
+                Description = "A layout container (flex by default). Set direction / gap / align / justify / padding / background / radius / max-width without writing CSS by hand. Wire child elements into 'children'. Bare numbers become px.",
+                Inputs = new[] { new PinDef("children", PinKind.Text, true) }, Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("as", "Tag", ParamType.Text, "div", "div · section · header · footer · nav · main"),
+                    P("display", "Display", ParamType.Choice, "flex", "", new[] { "flex", "grid", "block" }),
+                    P("direction", "Direction", ParamType.Choice, "row", "", new[] { "row", "column" }),
+                    P("gap", "Gap", ParamType.Text, "", "e.g. 12"),
+                    P("align", "Align items", ParamType.Text, "", "center · flex-start · stretch"),
+                    P("justify", "Justify", ParamType.Text, "", "center · space-between"),
+                    P("wrap", "Wrap", ParamType.Choice, "false", "", new[] { "false", "true" }),
+                    P("cols", "Grid columns", ParamType.Text, "", "(grid) e.g. repeat(auto-fill,minmax(220px,1fr))"),
+                    P("pad", "Padding", ParamType.Text, "", "e.g. 24"),
+                    P("bg", "Background", ParamType.Text, "", "color or var(--surface)"),
+                    P("radius", "Radius", ParamType.Text, "", "e.g. 16"),
+                    P("maxWidth", "Max width", ParamType.Text, "", "e.g. 1080 (centers it)"),
+                    P("style", "Extra style", ParamType.Text, "", "appended inline CSS"),
+                },
+                SummaryParam = "as",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.heading", Icon = "text-h", Title = "Web Heading", Subtitle = "html", Category = NodeCategory.Web,
+                Description = "A heading (h1-h6). Static text OR a {state} binding.",
+                Inputs = new[] { new PinDef("children", PinKind.Text, true) }, Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("level", "Level", ParamType.Choice, "2", "", new[] { "1", "2", "3", "4", "5", "6" }),
+                    P("text", "Text", ParamType.Text, "Heading", ""),
+                    P("bind", "Text from state", ParamType.Text, "", "(optional) a state name"),
+                    P("style", "Style", ParamType.Text, "", "inline CSS"),
+                },
+                SummaryParam = "text",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.text", Icon = "paragraph", Title = "Web Text", Subtitle = "html", Category = NodeCategory.Web,
+                Description = "A paragraph or span of text. Static text OR a {state}/{item.field} binding.",
+                Inputs = new[] { new PinDef("children", PinKind.Text, true) }, Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("as", "Tag", ParamType.Choice, "p", "", new[] { "p", "span", "small", "strong", "em", "label" }),
+                    P("text", "Text", ParamType.Text, "", "static text"),
+                    P("bind", "Text from state", ParamType.Text, "", "(optional) a state name"),
+                    P("style", "Style", ParamType.Text, "", "inline CSS"),
+                },
+                SummaryParam = "text",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.image", Icon = "image", Title = "Web Image", Subtitle = "html", Category = NodeCategory.Web,
+                Description = "An <img>. Set its src (a URL or {state}) and alt text. Style it (e.g. width, height, object-fit:cover, border-radius).",
+                Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("src", "Source URL", ParamType.Text, "", "https://... or {state}"),
+                    P("alt", "Alt text", ParamType.Text, "", ""),
+                    P("style", "Style", ParamType.Text, "width:100%;border-radius:12px", "inline CSS"),
+                },
+                SummaryParam = "src",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.link", Icon = "link", Title = "Web Link", Subtitle = "html", Category = NodeCategory.Web,
+                Description = "An <a> link. Set its href + target. Static text, a {state} binding, or wire child elements into 'children'.",
+                Inputs = new[] { new PinDef("children", PinKind.Text, true) }, Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("href", "URL", ParamType.Text, "#", "https://... or {state}"),
+                    P("target", "Target", ParamType.Choice, "", "", new[] { "", "_blank" }),
+                    P("text", "Text", ParamType.Text, "Link", ""),
+                    P("bind", "Text from state", ParamType.Text, "", "(optional) a state name"),
+                    P("style", "Style", ParamType.Text, "", "inline CSS"),
+                },
+                SummaryParam = "text",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.button", Icon = "cursor-click", Title = "Web Button", Subtitle = "html", Category = NodeCategory.Web,
+                Description = "A styled button. Pick a variant for instant looks, set its text, and an optional click -> action (e.g. count.inc / gift.set:35 / open.toggle).",
+                Inputs = new[] { new PinDef("children", PinKind.Text, true) }, Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("text", "Text", ParamType.Text, "Click me", ""),
+                    P("variant", "Variant", ParamType.Choice, "primary", "", new[] { "primary", "ghost", "outline", "plain" }),
+                    P("event", "On event", ParamType.Choice, "click", "", new[] { "click" }),
+                    P("action", "Action", ParamType.Text, "", "state.op  e.g. count.inc · step.set:2"),
+                    P("style", "Extra style", ParamType.Text, "", "appended inline CSS"),
+                },
+                SummaryParam = "text",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.input", Icon = "textbox", Title = "Web Input", Subtitle = "html", Category = NodeCategory.Web,
+                Description = "A form <input>, two-way bound to a state (its value follows the state and typing updates it). Set type + placeholder.",
+                Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("type", "Type", ParamType.Choice, "text", "", new[] { "text", "email", "number", "password", "search", "url", "tel", "color", "date" }),
+                    P("placeholder", "Placeholder", ParamType.Text, "", ""),
+                    P("model", "Bind to state", ParamType.Text, "", "two-way bind to a state name"),
+                    P("name", "Name", ParamType.Text, "", "(optional) form field name"),
+                    P("style", "Style", ParamType.Text, "padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:14px", "inline CSS"),
+                },
+                SummaryParam = "model",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.field", Icon = "text-aa", Title = "Web Field", Subtitle = "html", Category = NodeCategory.Web,
+                Description = "A labelled form field: a label above a two-way-bound input. The quickest way to build a form row.",
+                Outputs = new[] { Tx("el") },
+                Params = new[]
+                {
+                    P("label", "Label", ParamType.Text, "Your name", ""),
+                    P("type", "Type", ParamType.Choice, "text", "", new[] { "text", "email", "number", "password", "search", "url", "tel" }),
+                    P("placeholder", "Placeholder", ParamType.Text, "", ""),
+                    P("model", "Bind to state", ParamType.Text, "", "two-way bind to a state name"),
+                    P("style", "Style", ParamType.Text, "", "inline CSS on the wrapper"),
+                },
+                SummaryParam = "label",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.css", Icon = "paint-brush", Title = "Web CSS", Subtitle = "style", Category = NodeCategory.Web,
+                Description = "Raw CSS for the page - the escape hatch for what inline styles can't do: :hover, @media responsive rules, @keyframes animations, ::selection, etc. Wire into Web Preview / Web Eject's 'states'.",
+                Outputs = new[] { Tx("css") },
+                Params = new[]
+                {
+                    P("css", "CSS", ParamType.Multiline, "a:hover { opacity: .8 }\n@media (max-width: 600px) { .row { flex-direction: column } }", "raw CSS rules"),
+                },
+                SummaryParam = "",
+                Exec = c => { },
+            },
+            new()
+            {
+                TypeId = "web.head", Icon = "file-html", Title = "Web Head", Subtitle = "meta", Category = NodeCategory.Web,
+                Description = "Page metadata for a real site: the document title, description (SEO/social), favicon, and language. Wire into Web Preview / Web Eject's 'states'.",
+                Outputs = new[] { Tx("head") },
+                Params = new[]
+                {
+                    P("title", "Title", ParamType.Text, "", "the browser tab title"),
+                    P("description", "Description", ParamType.Text, "", "<meta name=description>"),
+                    P("favicon", "Favicon URL", ParamType.Text, "", "(optional)"),
+                    P("lang", "Language", ParamType.Text, "en", ""),
+                },
+                SummaryParam = "title",
+                Exec = c => { },
+            },
+
             new()
             {
                 TypeId = "web.preview", Icon = "play-circle", Title = "Web Preview", Subtitle = "web", Category = NodeCategory.Web,

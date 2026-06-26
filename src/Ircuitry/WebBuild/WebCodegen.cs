@@ -18,10 +18,13 @@ public static class WebCodegen
     {
         var html = new StringBuilder();
         html.AppendLine("<!doctype html>");
-        html.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\">");
+        html.AppendLine("<html lang=\"" + Esc(app.Lang.Length > 0 ? app.Lang : "en") + "\"><head><meta charset=\"utf-8\">");
         html.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
         html.AppendLine("<title>" + Esc(app.Name) + "</title>");
+        if (app.Description.Length > 0) html.AppendLine("<meta name=\"description\" content=\"" + Esc(app.Description) + "\">");
+        if (app.Favicon.Length > 0) html.AppendLine("<link rel=\"icon\" href=\"" + Esc(app.Favicon) + "\">");
         if (app.Tokens.Count > 0) html.AppendLine("<style>" + TokenCss(app) + "</style>");
+        foreach (var css in app.Css) if (css.Trim().Length > 0) html.AppendLine("<style>" + css + "</style>");
         html.AppendLine("</head><body><div id=\"__app\"></div>");
         html.AppendLine("<script>");
         html.AppendLine("var IR = " + IrToJs(app) + ";");
@@ -224,9 +227,12 @@ render();
                 "  \"dependencies\": { \"react\": \"^18.3.1\", \"react-dom\": \"^18.3.1\" },\n" +
                 "  \"devDependencies\": { \"@vitejs/plugin-react\": \"^4.3.1\", \"vite\": \"^5.4.0\" }\n}\n",
             ["vite.config.js"] = "import react from '@vitejs/plugin-react';\nexport default { plugins: [react()], server: { host: true } };\n",
-            ["index.html"] = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n" +
+            ["index.html"] = "<!doctype html>\n<html lang=\"" + Esc(app.Lang.Length > 0 ? app.Lang : "en") + "\"><head><meta charset=\"utf-8\">\n" +
                 "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" + Esc(app.Name) + "</title>\n" +
+                (app.Description.Length > 0 ? "<meta name=\"description\" content=\"" + Esc(app.Description) + "\">\n" : "") +
+                (app.Favicon.Length > 0 ? "<link rel=\"icon\" href=\"" + Esc(app.Favicon) + "\">\n" : "") +
                 (app.Tokens.Count > 0 ? "<style>" + TokenCss(app) + "</style>\n" : "") +
+                string.Concat(app.Css.Where(s => s.Trim().Length > 0).Select(s => "<style>" + s + "</style>\n")) +
                 "</head>\n<body><div id=\"root\"></div><script type=\"module\" src=\"/src/main.jsx\"></script></body></html>\n",
             ["src/main.jsx"] = "import { StrictMode } from 'react';\nimport { createRoot } from 'react-dom/client';\nimport " + comp + " from './" + comp + ".jsx';\n\n" +
                 "createRoot(document.getElementById('root')).render(<StrictMode><" + comp + " /></StrictMode>);\n",

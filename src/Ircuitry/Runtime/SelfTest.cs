@@ -309,6 +309,7 @@ public static class SelfTest
         fails += WebCounterTest();
         fails += WebNodesCounterTest();
         fails += WebTodoTest();
+        fails += WebPrimitivesTest();
         fails += WebFetchTest();
         fails += WebEjectTest();
 
@@ -4300,6 +4301,53 @@ public static class SelfTest
         fails += Expect("web-nodes-actions", html.Contains("op: \"inc\"") && html.Contains("op: \"dec\""), "both button actions made it into the page");
         fails += Expect("web-nodes-bind", html.Contains("bind: \"count\""), "the h1 binding made it in");
         fails += Expect("web-nodes-order", html.IndexOf("text: \"+1\"") < html.IndexOf("text: \"-1\"") && html.IndexOf("text: \"-1\"") < html.IndexOf("bind: \"count\""), "children kept wire order (+1, -1, h1)");
+        return fails;
+    }
+
+    /// <summary>The 10 web primitives: box/heading/text/image/link/button/input/field render through the real
+    /// node->IR->codegen path (with attrs, variant styles, composed box CSS), {workflow vars} resolve in content
+    /// params, and the two capability nodes (web.css raw style, web.head page meta) reach both the vanilla page and
+    /// the React eject's index.html.</summary>
+    private static int WebPrimitivesTest()
+    {
+        int fails = 0;
+        var g = new NodeGraph();
+        var n = N(g, "web.state", 0, 0); n.SetParam("name", "n"); n.SetParam("initial", "0"); n.SetParam("kind", "number");
+        var q = N(g, "web.state", 0, 1); q.SetParam("name", "q"); q.SetParam("initial", ""); q.SetParam("kind", "string");
+        var head = N(g, "web.head", 0, 2); head.SetParam("title", "My Site"); head.SetParam("description", "A test");
+        var css = N(g, "web.css", 0, 3); css.SetParam("css", "a:hover{opacity:.8}");
+
+        var h = N(g, "web.heading", 1, 0); h.SetParam("level", "1"); h.SetParam("text", "Hi {who}");   // {var} resolves
+        var img = N(g, "web.image", 1, 1); img.SetParam("src", "https://x/p.png"); img.SetParam("alt", "p");
+        var btn = N(g, "web.button", 1, 2); btn.SetParam("variant", "primary"); btn.SetParam("text", "Go"); btn.SetParam("action", "n.inc");
+        var inp = N(g, "web.input", 1, 3); inp.SetParam("model", "q"); inp.SetParam("type", "search");
+        var box = N(g, "web.box", 2, 0); box.SetParam("display", "flex"); box.SetParam("gap", "10");
+        var prev = N(g, "web.preview", 3, 0); prev.SetParam("window", "wp");
+
+        g.Connect(h.Id, 0, box.Id, 0); g.Connect(img.Id, 0, box.Id, 0); g.Connect(btn.Id, 0, box.Id, 0); g.Connect(inp.Id, 0, box.Id, 0);
+        g.Connect(box.Id, 0, prev.Id, 1);
+        g.Connect(n.Id, 0, prev.Id, 2); g.Connect(q.Id, 0, prev.Id, 2);
+        g.Connect(head.Id, 0, prev.Id, 2); g.Connect(css.Id, 0, prev.Id, 2);
+
+        var sink = new FakeSink();
+        GraphExecutor.Fire(g, sink, prev, new Dictionary<string, string> { ["who"] = "World" });
+        string html = sink.WebOpens.Count > 0 ? sink.WebOpens[0].html : "";
+
+        fails += Expect("web-prim-box", html.Contains("display:flex") && html.Contains("gap:10px"), "web.box composes a flex style");
+        fails += Expect("web-prim-heading", html.Contains("tag: \"h1\""), "web.heading -> h1");
+        fails += Expect("web-prim-resolve", html.Contains("Hi World"), "{who} resolved from workflow vars in content");
+        fails += Expect("web-prim-image", html.Contains("https://x/p.png"), "web.image src as an attribute");
+        fails += Expect("web-prim-button", html.Contains("op: \"inc\"") && html.Contains("var(--brand"), "web.button action + variant style");
+        fails += Expect("web-prim-input", html.Contains("model: \"q\""), "web.input two-way model");
+        fails += Expect("web-prim-css", html.Contains("a:hover{opacity:.8}"), "web.css raw block in the page head");
+        fails += Expect("web-prim-head", html.Contains("<title>My Site</title>") && html.Contains("content=\"A test\""), "web.head title + description");
+
+        // the React eject of an app with css + head carries them into index.html
+        var app = new Ircuitry.WebBuild.WebApp { Name = "My Site", Description = "A test", Lang = "en" };
+        app.Css.Add("a:hover{opacity:.8}");
+        var proj = Ircuitry.WebBuild.WebCodegen.ReactProject(app);
+        string index = proj.TryGetValue("index.html", out var ix) ? ix : "";
+        fails += Expect("web-prim-eject-head", index.Contains("content=\"A test\"") && index.Contains("a:hover{opacity:.8}"), "eject index.html carries head meta + css");
         return fails;
     }
 

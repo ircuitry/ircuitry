@@ -14,8 +14,12 @@ namespace Ircuitry.WebBuild;
 public sealed class WebApp
 {
     public string Name = "App";
+    public string Description = "";                            // <meta name=description> (web.head)
+    public string Favicon = "";                               // <link rel=icon> href (web.head)
+    public string Lang = "en";                                // <html lang> (web.head)
     public List<WebState> States = new();
     public List<(string Name, string Value)> Tokens = new();   // design tokens -> CSS variables (:root { --name: value })
+    public List<string> Css = new();                           // raw CSS blocks (web.css) - hover, @media, @keyframes
     public List<WebFetch> Fetches = new();                     // on mount: GET each url -> set a state (the backend link)
     public WebEl Root = new() { Tag = "div" };
 }
