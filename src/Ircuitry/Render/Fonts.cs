@@ -127,7 +127,9 @@ public sealed class Fonts : IDisposable
         _ => _sans,
     };
 
-    public DynamicSpriteFont Get(FontKind kind, int size) => System(kind).GetFont(Math.Clamp(size, 6, 200));
+    // Chinese (CJK) glyphs read smaller + lighter than Latin at the same px, so bump the size when the UI is
+    // in Chinese (the SemiBold Noto Sans SC fallback supplies the extra weight).
+    public DynamicSpriteFont Get(FontKind kind, int size) => System(kind).GetFont(Math.Clamp(Ircuitry.Core.Loc.Zh ? size + 2 : size, 6, 200));
 
     public void Dispose()
     {
