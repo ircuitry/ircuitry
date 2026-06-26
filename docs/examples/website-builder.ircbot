@@ -1,0 +1,2094 @@
+{
+ "format": "ircuitry.workflow.v1",
+ "name": "Website Builder",
+ "description": "An AI-free website builder. Press Run, answer a few questions, pick a vibe and a hero photo, preview the real site in a live window, tweak and preview again, then Download a ready-to-run React + Vite project (zip, with a README and your name as author). Built entirely from ui.* + web.* nodes.",
+ "author": "ircuitry",
+ "category": "Utility",
+ "tags": [
+  "web",
+  "ui",
+  "builder",
+  "react",
+  "no-ai",
+  "demo"
+ ],
+ "nodes": [
+  {
+   "id": "b01",
+   "type": "event.start",
+   "x": 0,
+   "y": 0,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {}
+  },
+  {
+   "id": "b02",
+   "type": "data.setvar",
+   "x": 240,
+   "y": 0,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "site_name",
+    "mode": "set",
+    "value": "Acme Studio"
+   }
+  },
+  {
+   "id": "b03",
+   "type": "data.setvar",
+   "x": 480,
+   "y": 0,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "tagline",
+    "mode": "set",
+    "value": "We build calm, beautiful things."
+   }
+  },
+  {
+   "id": "b04",
+   "type": "data.setvar",
+   "x": 720,
+   "y": 0,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "author",
+    "mode": "set",
+    "value": "Your Name"
+   }
+  },
+  {
+   "id": "b05",
+   "type": "data.setvar",
+   "x": 960,
+   "y": 0,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "brand",
+    "mode": "set",
+    "value": "#C65B47"
+   }
+  },
+  {
+   "id": "b06",
+   "type": "data.setvar",
+   "x": 1200,
+   "y": 0,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "accent",
+    "mode": "set",
+    "value": "#E2A33C"
+   }
+  },
+  {
+   "id": "b07",
+   "type": "data.setvar",
+   "x": 1440,
+   "y": 0,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "bg",
+    "mode": "set",
+    "value": "#FBF4EA"
+   }
+  },
+  {
+   "id": "b08",
+   "type": "data.setvar",
+   "x": 0,
+   "y": 150,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "ink",
+    "mode": "set",
+    "value": "#2E2A26"
+   }
+  },
+  {
+   "id": "b09",
+   "type": "data.setvar",
+   "x": 240,
+   "y": 150,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "hero",
+    "mode": "set",
+    "value": "https://picsum.photos/seed/slate/1280/720"
+   }
+  },
+  {
+   "id": "b10",
+   "type": "ui.window",
+   "x": 480,
+   "y": 150,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "title": "ircuitry - Website Builder",
+    "width": "960",
+    "height": "720",
+    "bg": "#F7F5F2",
+    "window": "builder"
+   }
+  },
+  {
+   "id": "b11",
+   "type": "ui.rect",
+   "x": 720,
+   "y": 150,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "rail",
+    "x": "0",
+    "y": "0",
+    "w": "320",
+    "h": "720",
+    "color": "#1E1B2E"
+   }
+  },
+  {
+   "id": "b12",
+   "type": "ui.rect",
+   "x": 960,
+   "y": 150,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "railband",
+    "x": "0",
+    "y": "0",
+    "w": "320",
+    "h": "6",
+    "color": "#C65B47"
+   }
+  },
+  {
+   "id": "b13",
+   "type": "ui.text",
+   "x": 1200,
+   "y": 150,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "icon": "true",
+    "window": "builder",
+    "id": "brandico",
+    "x": "28",
+    "y": "40",
+    "text": "browser",
+    "size": "30",
+    "color": "#E2A33C",
+    "font": "sans"
+   }
+  },
+  {
+   "id": "b14",
+   "type": "ui.text",
+   "x": 1440,
+   "y": 150,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "brandtt",
+    "x": "70",
+    "y": "44",
+    "text": "Website Builder",
+    "size": "24",
+    "color": "#FFFFFF",
+    "font": "display"
+   }
+  },
+  {
+   "id": "b15",
+   "type": "ui.text",
+   "x": 0,
+   "y": 300,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "r1",
+    "x": "28",
+    "y": "110",
+    "text": "No code. No AI.",
+    "size": "15",
+    "color": "#E2A33C",
+    "font": "bold"
+   }
+  },
+  {
+   "id": "b16",
+   "type": "ui.text",
+   "x": 240,
+   "y": 300,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "r2",
+    "x": "28",
+    "y": "142",
+    "text": "Answer a few questions,",
+    "size": "14",
+    "color": "#B9B3C7",
+    "font": "sans"
+   }
+  },
+  {
+   "id": "b17",
+   "type": "ui.text",
+   "x": 480,
+   "y": 300,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "r3",
+    "x": "28",
+    "y": "164",
+    "text": "pick a vibe and a photo,",
+    "size": "14",
+    "color": "#B9B3C7",
+    "font": "sans"
+   }
+  },
+  {
+   "id": "b18",
+   "type": "ui.text",
+   "x": 720,
+   "y": 300,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "r4",
+    "x": "28",
+    "y": "186",
+    "text": "preview the real site, then",
+    "size": "14",
+    "color": "#B9B3C7",
+    "font": "sans"
+   }
+  },
+  {
+   "id": "b19",
+   "type": "ui.text",
+   "x": 960,
+   "y": 300,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "r5",
+    "x": "28",
+    "y": "208",
+    "text": "download a React project.",
+    "size": "14",
+    "color": "#B9B3C7",
+    "font": "sans"
+   }
+  },
+  {
+   "id": "b20",
+   "type": "ui.text",
+   "x": 1200,
+   "y": 300,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "s1",
+    "x": "28",
+    "y": "300",
+    "text": "1   Tell us about it",
+    "size": "13",
+    "color": "#8B84A0",
+    "font": "bold"
+   }
+  },
+  {
+   "id": "b21",
+   "type": "ui.text",
+   "x": 1440,
+   "y": 300,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "s2",
+    "x": "28",
+    "y": "430",
+    "text": "2   Pick a vibe",
+    "size": "13",
+    "color": "#8B84A0",
+    "font": "bold"
+   }
+  },
+  {
+   "id": "b22",
+   "type": "ui.text",
+   "x": 0,
+   "y": 450,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "s3",
+    "x": "28",
+    "y": "540",
+    "text": "3   Hero photo",
+    "size": "13",
+    "color": "#8B84A0",
+    "font": "bold"
+   }
+  },
+  {
+   "id": "b23",
+   "type": "ui.rect",
+   "x": 240,
+   "y": 450,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "card",
+    "x": "356",
+    "y": "36",
+    "w": "568",
+    "h": "648",
+    "color": "#FFFFFF"
+   }
+  },
+  {
+   "id": "b24",
+   "type": "ui.text",
+   "x": 480,
+   "y": 450,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "ftitle",
+    "x": "384",
+    "y": "60",
+    "text": "Let's make your website",
+    "size": "24",
+    "color": "#2E2A33",
+    "font": "display"
+   }
+  },
+  {
+   "id": "b25",
+   "type": "ui.text",
+   "x": 720,
+   "y": 450,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "fsub",
+    "x": "384",
+    "y": "96",
+    "text": "Fill these in - you can change anything and preview again.",
+    "size": "13",
+    "color": "#9A93A8",
+    "font": "sans"
+   }
+  },
+  {
+   "id": "b26",
+   "type": "ui.text",
+   "x": 960,
+   "y": 450,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "l_name",
+    "x": "384",
+    "y": "138",
+    "text": "Site name",
+    "size": "12",
+    "color": "#7C7488",
+    "font": "bold"
+   }
+  },
+  {
+   "id": "b27",
+   "type": "ui.input",
+   "x": 1200,
+   "y": 450,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "f_name",
+    "x": "384",
+    "y": "158",
+    "w": "510",
+    "h": "46",
+    "placeholder": "Acme Studio",
+    "text": "Acme Studio",
+    "color": "#FFFFFF",
+    "textColor": "#1F1B2E",
+    "size": "15"
+   }
+  },
+  {
+   "id": "b28",
+   "type": "ui.text",
+   "x": 1440,
+   "y": 450,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "l_tag",
+    "x": "384",
+    "y": "218",
+    "text": "Tagline",
+    "size": "12",
+    "color": "#7C7488",
+    "font": "bold"
+   }
+  },
+  {
+   "id": "b29",
+   "type": "ui.input",
+   "x": 0,
+   "y": 600,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "f_tagline",
+    "x": "384",
+    "y": "238",
+    "w": "510",
+    "h": "46",
+    "placeholder": "We build calm, beautiful things.",
+    "text": "We build calm, beautiful things.",
+    "color": "#FFFFFF",
+    "textColor": "#1F1B2E",
+    "size": "15"
+   }
+  },
+  {
+   "id": "b30",
+   "type": "ui.text",
+   "x": 240,
+   "y": 600,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "l_auth",
+    "x": "384",
+    "y": "298",
+    "text": "Your name (the author)",
+    "size": "12",
+    "color": "#7C7488",
+    "font": "bold"
+   }
+  },
+  {
+   "id": "b31",
+   "type": "ui.input",
+   "x": 480,
+   "y": 600,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "f_author",
+    "x": "384",
+    "y": "318",
+    "w": "510",
+    "h": "46",
+    "placeholder": "Jane Doe",
+    "text": "Your Name",
+    "color": "#FFFFFF",
+    "textColor": "#1F1B2E",
+    "size": "15"
+   }
+  },
+  {
+   "id": "b32",
+   "type": "ui.button",
+   "x": 720,
+   "y": 600,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "vibe_warm",
+    "x": "384",
+    "y": "384",
+    "w": "120",
+    "h": "40",
+    "text": "Warm",
+    "color": "#C65B47",
+    "textColor": "#FFFFFF",
+    "radius": "12"
+   }
+  },
+  {
+   "id": "b33",
+   "type": "ui.button",
+   "x": 960,
+   "y": 600,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "vibe_cool",
+    "x": "514",
+    "y": "384",
+    "w": "120",
+    "h": "40",
+    "text": "Cool",
+    "color": "#2D7DD2",
+    "textColor": "#FFFFFF",
+    "radius": "12"
+   }
+  },
+  {
+   "id": "b34",
+   "type": "ui.button",
+   "x": 1200,
+   "y": 600,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "vibe_char",
+    "x": "644",
+    "y": "384",
+    "w": "120",
+    "h": "40",
+    "text": "Charcoal",
+    "color": "#3A3A3A",
+    "textColor": "#FFFFFF",
+    "radius": "12"
+   }
+  },
+  {
+   "id": "b35",
+   "type": "ui.button",
+   "x": 1440,
+   "y": 600,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "vibe_play",
+    "x": "774",
+    "y": "384",
+    "w": "120",
+    "h": "40",
+    "text": "Playful",
+    "color": "#E84393",
+    "textColor": "#FFFFFF",
+    "radius": "12"
+   }
+  },
+  {
+   "id": "b36",
+   "type": "ui.button",
+   "x": 0,
+   "y": 750,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "ph_slate",
+    "x": "384",
+    "y": "470",
+    "w": "165",
+    "h": "40",
+    "text": "Slate",
+    "color": "#5B6470",
+    "textColor": "#FFFFFF",
+    "radius": "10"
+   }
+  },
+  {
+   "id": "b37",
+   "type": "ui.button",
+   "x": 240,
+   "y": 750,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "ph_dawn",
+    "x": "559",
+    "y": "470",
+    "w": "165",
+    "h": "40",
+    "text": "Dawn",
+    "color": "#C98B6B",
+    "textColor": "#FFFFFF",
+    "radius": "10"
+   }
+  },
+  {
+   "id": "b38",
+   "type": "ui.button",
+   "x": 480,
+   "y": 750,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "ph_sky",
+    "x": "734",
+    "y": "470",
+    "w": "160",
+    "h": "40",
+    "text": "Sky",
+    "color": "#5B8AA6",
+    "textColor": "#FFFFFF",
+    "radius": "10"
+   }
+  },
+  {
+   "id": "b39",
+   "type": "ui.button",
+   "x": 720,
+   "y": 750,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "preview",
+    "x": "384",
+    "y": "556",
+    "w": "290",
+    "h": "56",
+    "text": "Preview my site",
+    "color": "#1E1B2E",
+    "textColor": "#FFFFFF",
+    "radius": "16"
+   }
+  },
+  {
+   "id": "b40",
+   "type": "ui.button",
+   "x": 960,
+   "y": 750,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "download",
+    "x": "690",
+    "y": "556",
+    "w": "204",
+    "h": "56",
+    "text": "Download ZIP",
+    "color": "#2FA36F",
+    "textColor": "#FFFFFF",
+    "radius": "16"
+   }
+  },
+  {
+   "id": "b41",
+   "type": "ui.text",
+   "x": 1200,
+   "y": 750,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "status",
+    "x": "384",
+    "y": "632",
+    "text": "Tip: click Preview to open your site in a live window.",
+    "size": "13",
+    "color": "#9A93A8",
+    "font": "sans"
+   }
+  },
+  {
+   "id": "b42",
+   "type": "web.head",
+   "x": 1440,
+   "y": 750,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "title": "{site_name}",
+    "description": "{tagline}"
+   }
+  },
+  {
+   "id": "b43",
+   "type": "web.theme",
+   "x": 0,
+   "y": 900,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "tokens": "brand: {brand}\naccent: {accent}\nbg: {bg}\nink: {ink}\nradius: 16px"
+   }
+  },
+  {
+   "id": "b44",
+   "type": "web.css",
+   "x": 240,
+   "y": 900,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "css": ".btn:hover{filter:brightness(1.08)}\n.fade{animation:f .7s ease both}\n@keyframes f{from{opacity:0;transform:translateY(10px)}to{opacity:1}}"
+   }
+  },
+  {
+   "id": "b45",
+   "type": "web.heading",
+   "x": 480,
+   "y": 900,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "level": "1",
+    "text": "{site_name}",
+    "style": "font-family:Georgia,serif;font-size:46px;margin:0;max-width:620px;line-height:1.08"
+   }
+  },
+  {
+   "id": "b46",
+   "type": "web.text",
+   "x": 720,
+   "y": 900,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "text": "{tagline}",
+    "style": "margin:14px 0 0;font-size:19px;opacity:.92;max-width:560px"
+   }
+  },
+  {
+   "id": "b47",
+   "type": "web.button",
+   "x": 960,
+   "y": 900,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "variant": "primary",
+    "text": "Get in touch",
+    "style": "margin-top:26px"
+   }
+  },
+  {
+   "id": "b48",
+   "type": "web.element",
+   "x": 1200,
+   "y": 900,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "tag": "div",
+    "style": "min-height:460px;display:flex;flex-direction:column;justify-content:flex-end;padding:48px;color:#fff;background:linear-gradient(180deg,rgba(15,12,20,.15),rgba(15,12,20,.72)),url({hero}) center/cover"
+   }
+  },
+  {
+   "id": "b49",
+   "type": "web.heading",
+   "x": 1440,
+   "y": 900,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "level": "2",
+    "text": "What we do",
+    "style": "font-family:Georgia,serif;font-size:30px;color:var(--brand);margin:0 0 8px"
+   }
+  },
+  {
+   "id": "b50",
+   "type": "web.text",
+   "x": 0,
+   "y": 1050,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "text": "{tagline} We sweat the details so the work feels effortless. Reach out and let's make something lovely together.",
+    "style": "margin:0;color:#5a5560;font-size:16px;line-height:1.7;max-width:620px"
+   }
+  },
+  {
+   "id": "b51",
+   "type": "web.box",
+   "x": 240,
+   "y": 1050,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "as": "section",
+    "direction": "column",
+    "gap": "6",
+    "pad": "48",
+    "maxWidth": "760"
+   }
+  },
+  {
+   "id": "b52",
+   "type": "web.box",
+   "x": 480,
+   "y": 1050,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "as": "footer",
+    "pad": "28",
+    "justify": "center",
+    "bg": "var(--brand)"
+   }
+  },
+  {
+   "id": "b53",
+   "type": "web.text",
+   "x": 720,
+   "y": 1050,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "text": "Made by {author} - built with ircuitry",
+    "style": "color:#fff;font-size:14px;opacity:.95"
+   }
+  },
+  {
+   "id": "b54",
+   "type": "web.box",
+   "x": 960,
+   "y": 1050,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "as": "main",
+    "direction": "column",
+    "bg": "var(--bg)",
+    "style": "color:var(--ink);font-family:system-ui,-apple-system,sans-serif;min-height:100vh"
+   }
+  },
+  {
+   "id": "b55",
+   "type": "web.preview",
+   "x": 1200,
+   "y": 1050,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "site_preview",
+    "title": "{site_name}",
+    "width": "1000",
+    "height": "760"
+   }
+  },
+  {
+   "id": "b56",
+   "type": "web.eject",
+   "x": 1440,
+   "y": 1050,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "{site_name}",
+    "author": "{author}",
+    "zip": "zip",
+    "dir": "~/ircuitry-web/my-website.zip"
+   }
+  },
+  {
+   "id": "b57",
+   "type": "ui.on",
+   "x": 0,
+   "y": 1200,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "vibe_warm"
+   }
+  },
+  {
+   "id": "b58",
+   "type": "data.setvar",
+   "x": 240,
+   "y": 1200,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "brand",
+    "mode": "set",
+    "value": "#C65B47"
+   }
+  },
+  {
+   "id": "b59",
+   "type": "data.setvar",
+   "x": 480,
+   "y": 1200,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "accent",
+    "mode": "set",
+    "value": "#E2A33C"
+   }
+  },
+  {
+   "id": "b60",
+   "type": "data.setvar",
+   "x": 720,
+   "y": 1200,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "bg",
+    "mode": "set",
+    "value": "#FBF4EA"
+   }
+  },
+  {
+   "id": "b61",
+   "type": "data.setvar",
+   "x": 960,
+   "y": 1200,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "ink",
+    "mode": "set",
+    "value": "#2E2A26"
+   }
+  },
+  {
+   "id": "b62",
+   "type": "ui.on",
+   "x": 1200,
+   "y": 1200,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "vibe_cool"
+   }
+  },
+  {
+   "id": "b63",
+   "type": "data.setvar",
+   "x": 1440,
+   "y": 1200,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "brand",
+    "mode": "set",
+    "value": "#2D7DD2"
+   }
+  },
+  {
+   "id": "b64",
+   "type": "data.setvar",
+   "x": 0,
+   "y": 1350,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "accent",
+    "mode": "set",
+    "value": "#45C4B0"
+   }
+  },
+  {
+   "id": "b65",
+   "type": "data.setvar",
+   "x": 240,
+   "y": 1350,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "bg",
+    "mode": "set",
+    "value": "#F0F6FB"
+   }
+  },
+  {
+   "id": "b66",
+   "type": "data.setvar",
+   "x": 480,
+   "y": 1350,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "ink",
+    "mode": "set",
+    "value": "#1B2A36"
+   }
+  },
+  {
+   "id": "b67",
+   "type": "ui.on",
+   "x": 720,
+   "y": 1350,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "vibe_char"
+   }
+  },
+  {
+   "id": "b68",
+   "type": "data.setvar",
+   "x": 960,
+   "y": 1350,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "brand",
+    "mode": "set",
+    "value": "#3A3A3A"
+   }
+  },
+  {
+   "id": "b69",
+   "type": "data.setvar",
+   "x": 1200,
+   "y": 1350,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "accent",
+    "mode": "set",
+    "value": "#E0A458"
+   }
+  },
+  {
+   "id": "b70",
+   "type": "data.setvar",
+   "x": 1440,
+   "y": 1350,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "bg",
+    "mode": "set",
+    "value": "#F4F4F4"
+   }
+  },
+  {
+   "id": "b71",
+   "type": "data.setvar",
+   "x": 0,
+   "y": 1500,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "ink",
+    "mode": "set",
+    "value": "#1A1A1A"
+   }
+  },
+  {
+   "id": "b72",
+   "type": "ui.on",
+   "x": 240,
+   "y": 1500,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "vibe_play"
+   }
+  },
+  {
+   "id": "b73",
+   "type": "data.setvar",
+   "x": 480,
+   "y": 1500,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "brand",
+    "mode": "set",
+    "value": "#E84393"
+   }
+  },
+  {
+   "id": "b74",
+   "type": "data.setvar",
+   "x": 720,
+   "y": 1500,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "accent",
+    "mode": "set",
+    "value": "#6C5CE7"
+   }
+  },
+  {
+   "id": "b75",
+   "type": "data.setvar",
+   "x": 960,
+   "y": 1500,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "bg",
+    "mode": "set",
+    "value": "#FFF0F6"
+   }
+  },
+  {
+   "id": "b76",
+   "type": "data.setvar",
+   "x": 1200,
+   "y": 1500,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "ink",
+    "mode": "set",
+    "value": "#2D2436"
+   }
+  },
+  {
+   "id": "b77",
+   "type": "ui.on",
+   "x": 1440,
+   "y": 1500,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "ph_slate"
+   }
+  },
+  {
+   "id": "b78",
+   "type": "data.setvar",
+   "x": 0,
+   "y": 1650,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "hero",
+    "mode": "set",
+    "value": "https://picsum.photos/seed/slate/1280/720"
+   }
+  },
+  {
+   "id": "b79",
+   "type": "ui.on",
+   "x": 240,
+   "y": 1650,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "ph_dawn"
+   }
+  },
+  {
+   "id": "b80",
+   "type": "data.setvar",
+   "x": 480,
+   "y": 1650,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "hero",
+    "mode": "set",
+    "value": "https://picsum.photos/seed/dawn/1280/720"
+   }
+  },
+  {
+   "id": "b81",
+   "type": "ui.on",
+   "x": 720,
+   "y": 1650,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "ph_sky"
+   }
+  },
+  {
+   "id": "b82",
+   "type": "data.setvar",
+   "x": 960,
+   "y": 1650,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "hero",
+    "mode": "set",
+    "value": "https://picsum.photos/seed/sky/1280/720"
+   }
+  },
+  {
+   "id": "b83",
+   "type": "ui.on",
+   "x": 1200,
+   "y": 1650,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "preview"
+   }
+  },
+  {
+   "id": "b84",
+   "type": "data.setvar",
+   "x": 1440,
+   "y": 1650,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "site_name",
+    "mode": "set",
+    "value": "{ui_field_f_name}"
+   }
+  },
+  {
+   "id": "b85",
+   "type": "data.setvar",
+   "x": 0,
+   "y": 1800,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "tagline",
+    "mode": "set",
+    "value": "{ui_field_f_tagline}"
+   }
+  },
+  {
+   "id": "b86",
+   "type": "data.setvar",
+   "x": 240,
+   "y": 1800,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "author",
+    "mode": "set",
+    "value": "{ui_field_f_author}"
+   }
+  },
+  {
+   "id": "b87",
+   "type": "ui.text",
+   "x": 480,
+   "y": 1800,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "status",
+    "x": "384",
+    "y": "632",
+    "text": "Opening your live preview...",
+    "size": "13",
+    "color": "#3FA36F",
+    "font": "sans"
+   }
+  },
+  {
+   "id": "b88",
+   "type": "ui.on",
+   "x": 720,
+   "y": 1800,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "event": "click",
+    "id": "download"
+   }
+  },
+  {
+   "id": "b89",
+   "type": "data.setvar",
+   "x": 960,
+   "y": 1800,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "site_name",
+    "mode": "set",
+    "value": "{ui_field_f_name}"
+   }
+  },
+  {
+   "id": "b90",
+   "type": "data.setvar",
+   "x": 1200,
+   "y": 1800,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "tagline",
+    "mode": "set",
+    "value": "{ui_field_f_tagline}"
+   }
+  },
+  {
+   "id": "b91",
+   "type": "data.setvar",
+   "x": 1440,
+   "y": 1800,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "name": "author",
+    "mode": "set",
+    "value": "{ui_field_f_author}"
+   }
+  },
+  {
+   "id": "b92",
+   "type": "ui.text",
+   "x": 0,
+   "y": 1950,
+   "muted": false,
+   "streamAsTool": false,
+   "title": "",
+   "colorTag": -1,
+   "params": {
+    "window": "builder",
+    "id": "status",
+    "x": "384",
+    "y": "632",
+    "text": "Saved a React project to ~/ircuitry-web/my-website.zip",
+    "size": "13",
+    "color": "#3FA36F",
+    "font": "sans"
+   }
+  }
+ ],
+ "connections": [
+  {
+   "from": "b01",
+   "fromPin": 0,
+   "to": "b02",
+   "toPin": 0
+  },
+  {
+   "from": "b02",
+   "fromPin": 0,
+   "to": "b03",
+   "toPin": 0
+  },
+  {
+   "from": "b03",
+   "fromPin": 0,
+   "to": "b04",
+   "toPin": 0
+  },
+  {
+   "from": "b04",
+   "fromPin": 0,
+   "to": "b05",
+   "toPin": 0
+  },
+  {
+   "from": "b05",
+   "fromPin": 0,
+   "to": "b06",
+   "toPin": 0
+  },
+  {
+   "from": "b06",
+   "fromPin": 0,
+   "to": "b07",
+   "toPin": 0
+  },
+  {
+   "from": "b07",
+   "fromPin": 0,
+   "to": "b08",
+   "toPin": 0
+  },
+  {
+   "from": "b08",
+   "fromPin": 0,
+   "to": "b09",
+   "toPin": 0
+  },
+  {
+   "from": "b10",
+   "fromPin": 0,
+   "to": "b11",
+   "toPin": 0
+  },
+  {
+   "from": "b11",
+   "fromPin": 0,
+   "to": "b12",
+   "toPin": 0
+  },
+  {
+   "from": "b12",
+   "fromPin": 0,
+   "to": "b13",
+   "toPin": 0
+  },
+  {
+   "from": "b13",
+   "fromPin": 0,
+   "to": "b14",
+   "toPin": 0
+  },
+  {
+   "from": "b14",
+   "fromPin": 0,
+   "to": "b15",
+   "toPin": 0
+  },
+  {
+   "from": "b15",
+   "fromPin": 0,
+   "to": "b16",
+   "toPin": 0
+  },
+  {
+   "from": "b16",
+   "fromPin": 0,
+   "to": "b17",
+   "toPin": 0
+  },
+  {
+   "from": "b17",
+   "fromPin": 0,
+   "to": "b18",
+   "toPin": 0
+  },
+  {
+   "from": "b18",
+   "fromPin": 0,
+   "to": "b19",
+   "toPin": 0
+  },
+  {
+   "from": "b19",
+   "fromPin": 0,
+   "to": "b20",
+   "toPin": 0
+  },
+  {
+   "from": "b20",
+   "fromPin": 0,
+   "to": "b21",
+   "toPin": 0
+  },
+  {
+   "from": "b21",
+   "fromPin": 0,
+   "to": "b22",
+   "toPin": 0
+  },
+  {
+   "from": "b22",
+   "fromPin": 0,
+   "to": "b23",
+   "toPin": 0
+  },
+  {
+   "from": "b23",
+   "fromPin": 0,
+   "to": "b24",
+   "toPin": 0
+  },
+  {
+   "from": "b24",
+   "fromPin": 0,
+   "to": "b25",
+   "toPin": 0
+  },
+  {
+   "from": "b25",
+   "fromPin": 0,
+   "to": "b26",
+   "toPin": 0
+  },
+  {
+   "from": "b26",
+   "fromPin": 0,
+   "to": "b27",
+   "toPin": 0
+  },
+  {
+   "from": "b27",
+   "fromPin": 0,
+   "to": "b28",
+   "toPin": 0
+  },
+  {
+   "from": "b28",
+   "fromPin": 0,
+   "to": "b29",
+   "toPin": 0
+  },
+  {
+   "from": "b29",
+   "fromPin": 0,
+   "to": "b30",
+   "toPin": 0
+  },
+  {
+   "from": "b30",
+   "fromPin": 0,
+   "to": "b31",
+   "toPin": 0
+  },
+  {
+   "from": "b31",
+   "fromPin": 0,
+   "to": "b32",
+   "toPin": 0
+  },
+  {
+   "from": "b32",
+   "fromPin": 0,
+   "to": "b33",
+   "toPin": 0
+  },
+  {
+   "from": "b33",
+   "fromPin": 0,
+   "to": "b34",
+   "toPin": 0
+  },
+  {
+   "from": "b34",
+   "fromPin": 0,
+   "to": "b35",
+   "toPin": 0
+  },
+  {
+   "from": "b35",
+   "fromPin": 0,
+   "to": "b36",
+   "toPin": 0
+  },
+  {
+   "from": "b36",
+   "fromPin": 0,
+   "to": "b37",
+   "toPin": 0
+  },
+  {
+   "from": "b37",
+   "fromPin": 0,
+   "to": "b38",
+   "toPin": 0
+  },
+  {
+   "from": "b38",
+   "fromPin": 0,
+   "to": "b39",
+   "toPin": 0
+  },
+  {
+   "from": "b39",
+   "fromPin": 0,
+   "to": "b40",
+   "toPin": 0
+  },
+  {
+   "from": "b40",
+   "fromPin": 0,
+   "to": "b41",
+   "toPin": 0
+  },
+  {
+   "from": "b45",
+   "fromPin": 0,
+   "to": "b48",
+   "toPin": 0
+  },
+  {
+   "from": "b46",
+   "fromPin": 0,
+   "to": "b48",
+   "toPin": 0
+  },
+  {
+   "from": "b47",
+   "fromPin": 0,
+   "to": "b48",
+   "toPin": 0
+  },
+  {
+   "from": "b49",
+   "fromPin": 0,
+   "to": "b51",
+   "toPin": 0
+  },
+  {
+   "from": "b50",
+   "fromPin": 0,
+   "to": "b51",
+   "toPin": 0
+  },
+  {
+   "from": "b53",
+   "fromPin": 0,
+   "to": "b52",
+   "toPin": 0
+  },
+  {
+   "from": "b48",
+   "fromPin": 0,
+   "to": "b54",
+   "toPin": 0
+  },
+  {
+   "from": "b51",
+   "fromPin": 0,
+   "to": "b54",
+   "toPin": 0
+  },
+  {
+   "from": "b52",
+   "fromPin": 0,
+   "to": "b54",
+   "toPin": 0
+  },
+  {
+   "from": "b54",
+   "fromPin": 0,
+   "to": "b55",
+   "toPin": 1
+  },
+  {
+   "from": "b43",
+   "fromPin": 0,
+   "to": "b55",
+   "toPin": 2
+  },
+  {
+   "from": "b44",
+   "fromPin": 0,
+   "to": "b55",
+   "toPin": 2
+  },
+  {
+   "from": "b42",
+   "fromPin": 0,
+   "to": "b55",
+   "toPin": 2
+  },
+  {
+   "from": "b54",
+   "fromPin": 0,
+   "to": "b56",
+   "toPin": 1
+  },
+  {
+   "from": "b43",
+   "fromPin": 0,
+   "to": "b56",
+   "toPin": 2
+  },
+  {
+   "from": "b44",
+   "fromPin": 0,
+   "to": "b56",
+   "toPin": 2
+  },
+  {
+   "from": "b42",
+   "fromPin": 0,
+   "to": "b56",
+   "toPin": 2
+  },
+  {
+   "from": "b57",
+   "fromPin": 0,
+   "to": "b58",
+   "toPin": 0
+  },
+  {
+   "from": "b58",
+   "fromPin": 0,
+   "to": "b59",
+   "toPin": 0
+  },
+  {
+   "from": "b59",
+   "fromPin": 0,
+   "to": "b60",
+   "toPin": 0
+  },
+  {
+   "from": "b60",
+   "fromPin": 0,
+   "to": "b61",
+   "toPin": 0
+  },
+  {
+   "from": "b62",
+   "fromPin": 0,
+   "to": "b63",
+   "toPin": 0
+  },
+  {
+   "from": "b63",
+   "fromPin": 0,
+   "to": "b64",
+   "toPin": 0
+  },
+  {
+   "from": "b64",
+   "fromPin": 0,
+   "to": "b65",
+   "toPin": 0
+  },
+  {
+   "from": "b65",
+   "fromPin": 0,
+   "to": "b66",
+   "toPin": 0
+  },
+  {
+   "from": "b67",
+   "fromPin": 0,
+   "to": "b68",
+   "toPin": 0
+  },
+  {
+   "from": "b68",
+   "fromPin": 0,
+   "to": "b69",
+   "toPin": 0
+  },
+  {
+   "from": "b69",
+   "fromPin": 0,
+   "to": "b70",
+   "toPin": 0
+  },
+  {
+   "from": "b70",
+   "fromPin": 0,
+   "to": "b71",
+   "toPin": 0
+  },
+  {
+   "from": "b72",
+   "fromPin": 0,
+   "to": "b73",
+   "toPin": 0
+  },
+  {
+   "from": "b73",
+   "fromPin": 0,
+   "to": "b74",
+   "toPin": 0
+  },
+  {
+   "from": "b74",
+   "fromPin": 0,
+   "to": "b75",
+   "toPin": 0
+  },
+  {
+   "from": "b75",
+   "fromPin": 0,
+   "to": "b76",
+   "toPin": 0
+  },
+  {
+   "from": "b77",
+   "fromPin": 0,
+   "to": "b78",
+   "toPin": 0
+  },
+  {
+   "from": "b79",
+   "fromPin": 0,
+   "to": "b80",
+   "toPin": 0
+  },
+  {
+   "from": "b81",
+   "fromPin": 0,
+   "to": "b82",
+   "toPin": 0
+  },
+  {
+   "from": "b83",
+   "fromPin": 0,
+   "to": "b84",
+   "toPin": 0
+  },
+  {
+   "from": "b84",
+   "fromPin": 0,
+   "to": "b85",
+   "toPin": 0
+  },
+  {
+   "from": "b85",
+   "fromPin": 0,
+   "to": "b86",
+   "toPin": 0
+  },
+  {
+   "from": "b86",
+   "fromPin": 0,
+   "to": "b87",
+   "toPin": 0
+  },
+  {
+   "from": "b87",
+   "fromPin": 0,
+   "to": "b55",
+   "toPin": 0
+  },
+  {
+   "from": "b88",
+   "fromPin": 0,
+   "to": "b89",
+   "toPin": 0
+  },
+  {
+   "from": "b89",
+   "fromPin": 0,
+   "to": "b90",
+   "toPin": 0
+  },
+  {
+   "from": "b90",
+   "fromPin": 0,
+   "to": "b91",
+   "toPin": 0
+  },
+  {
+   "from": "b91",
+   "fromPin": 0,
+   "to": "b56",
+   "toPin": 0
+  },
+  {
+   "from": "b56",
+   "fromPin": 0,
+   "to": "b92",
+   "toPin": 0
+  }
+ ]
+}
