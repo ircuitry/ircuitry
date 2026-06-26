@@ -227,12 +227,12 @@ public sealed partial class MainScreen
         if (string.IsNullOrEmpty(s) || cx >= maxX) return cx;
         string draw = ellipsize ? r.Ellipsize(f, s, MathF.Max(8, maxX - cx)) : s;
         r.Text(f, draw, new Vector2(MathF.Round(cx), MathF.Round(y)), col);
-        return cx + f.MeasureString(draw).X + gap;
+        return cx + f.MeasureString(Ircuitry.Render.Renderer.SafeText(draw)).X + gap;
     }
 
     private float Chip(Renderer r, DynamicSpriteFont f, string s, float cx, float y, Color col)
     {
-        float tw = f.MeasureString(s).X;
+        float tw = f.MeasureString(Ircuitry.Render.Renderer.SafeText(s)).X;
         var box = new RectF(cx, y, tw + 10, 15);
         r.RoundFill(box, Theme.WithAlpha(col, 0.20f), 4f);
         r.Text(f, s, new Vector2(cx + 5, y + 1), Theme.Mix(col, Theme.Text, 0.4f));

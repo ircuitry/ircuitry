@@ -962,12 +962,12 @@ public sealed class GraphEditor
             if (z > 0.4f)
             {
                 var tf = r.Fonts.Get(FontKind.SansBold, Math.Clamp((int)(13 * z), 8, 18));
-                r.Text(tf, r.Ellipsize(tf, f.Title.Length > 0 ? f.Title : "Note", tb.W - 14 * z), new Vector2(tb.X + 8 * z, tb.Center.Y - tf.MeasureString("Xg").Y / 2f), Theme.TextInk);
+                r.Text(tf, r.Ellipsize(tf, f.Title.Length > 0 ? f.Title : "Note", tb.W - 14 * z), new Vector2(tb.X + 8 * z, tb.Center.Y - tf.MeasureString(Ircuitry.Render.Renderer.SafeText("Xg")).Y / 2f), Theme.TextInk);
             }
             if (!f.Collapsed && f.Body.Length > 0 && z > 0.5f)
             {
                 var bf = r.Fonts.Get(FontKind.Sans, Math.Clamp((int)(12 * z), 8, 15));
-                float lh = bf.MeasureString("Xg").Y + 2 * z, ty = tb.Bottom + 6 * z;
+                float lh = bf.MeasureString(Ircuitry.Render.Renderer.SafeText("Xg")).Y + 2 * z, ty = tb.Bottom + 6 * z;
                 foreach (var line in f.Body.Split('\n'))
                 {
                     if (ty + lh > rect.Bottom - 4 * z) break;
@@ -1011,12 +1011,12 @@ public sealed class GraphEditor
         if (txt.Length > 64) txt = txt[..64] + "…";
         var f = r.Fonts.Get(FontKind.Mono, 11);
         string lab = label.Length > 0 ? label + " = " : "";
-        var box = new RectF(pos.X, pos.Y, f.MeasureString(lab + txt).X + 14, 20);
+        var box = new RectF(pos.X, pos.Y, f.MeasureString(Ircuitry.Render.Renderer.SafeText(lab + txt)).X + 14, 20);
         r.RoundFill(box.Offset(0, 1), Theme.WithAlpha(Color.Black, 0.18f), 6f);
         r.RoundFill(box, pinned ? Theme.WithAlpha(Theme.Sky, 0.93f) : Theme.WithAlpha(Color.Black, 0.84f), 6f);
         if (pinned) r.RoundOutline(box, Theme.WithAlpha(Theme.Mix(Theme.Sky, Color.White, 0.3f), 0.9f), 6f);
         r.Text(f, lab, new Vector2(box.X + 7, box.Center.Y - 6), pinned ? Theme.WithAlpha(Theme.TextInk, 0.6f) : Theme.WithAlpha(Color.White, 0.6f));
-        r.Text(f, txt, new Vector2(box.X + 7 + f.MeasureString(lab).X, box.Center.Y - 6), pinned ? Theme.TextInk : Color.White);
+        r.Text(f, txt, new Vector2(box.X + 7 + f.MeasureString(Ircuitry.Render.Renderer.SafeText(lab)).X, box.Center.Y - 6), pinned ? Theme.TextInk : Color.White);
     }
 
     private void DrawGhosts(Renderer r, Vector2 screen)
@@ -1666,12 +1666,12 @@ public sealed class GraphEditor
             }
             else
             {
-                var isz = tf.MeasureString(Ircuitry.Core.Icons.Glyph(n.Def.Icon));
+                var isz = tf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph(n.Def.Icon)));
                 r.Text(tf, Ircuitry.Core.Icons.Glyph(n.Def.Icon), new Vector2(ix, card.Y + (hh - isz.Y) / 2f), cat);
                 tx = ix + isz.X + 6 * z;
             }
             string title = r.Ellipsize(tf, n.DisplayTitle, card.Right - tx - 10 * z);
-            r.Text(tf, title, new Vector2(tx, card.Y + (hh - tf.MeasureString(title).Y) / 2f), Theme.Text);
+            r.Text(tf, title, new Vector2(tx, card.Y + (hh - tf.MeasureString(Ircuitry.Render.Renderer.SafeText(title)).Y) / 2f), Theme.Text);
         }
 
         // pins + labels
@@ -1683,7 +1683,7 @@ public sealed class GraphEditor
             var pd = ins[p];
             DrawPort(r, ps, pd.Kind, Graph.InputConnected(n.Id, p), z);
             if (z > 0.55f && pd.Name.Length > 0 && pd.Kind != PinKind.Tool)   // tool pins sit on the edge - no inline label
-                r.Text(lf, pd.Name, new Vector2(ps.X + 10 * z, ps.Y - lf.MeasureString(pd.Name).Y / 2f), Theme.TextDim);
+                r.Text(lf, pd.Name, new Vector2(ps.X + 10 * z, ps.Y - lf.MeasureString(Ircuitry.Render.Renderer.SafeText(pd.Name)).Y / 2f), Theme.TextDim);
         }
         for (int p = 0; p < outs.Length; p++)
         {
@@ -1692,7 +1692,7 @@ public sealed class GraphEditor
             DrawPort(r, ps, pd.Kind, Graph.OutputConnected(n.Id, p), z);
             if (z > 0.55f && pd.Name.Length > 0 && pd.Kind != PinKind.Tool)
             {
-                var m = lf.MeasureString(pd.Name);
+                var m = lf.MeasureString(Ircuitry.Render.Renderer.SafeText(pd.Name));
                 r.Text(lf, pd.Name, new Vector2(ps.X - 10 * z - m.X, ps.Y - m.Y / 2f), Theme.TextDim);
             }
         }
@@ -1707,7 +1707,7 @@ public sealed class GraphEditor
             string val = n.GetParam(n.Def.SummaryParam!);
             val = val.Length == 0 ? "-" : val.Replace("\n", " " + Ircuitry.Core.Icons.Glyph("arrow-bend-down-left") + " ");
             val = r.Ellipsize(sf, val, sumRect.W - 14 * z);
-            r.Text(sf, val, new Vector2(sumRect.X + 7 * z, sumRect.Center.Y - sf.MeasureString(val).Y / 2f), Theme.Mix(Theme.TextDim, cat, 0.3f));
+            r.Text(sf, val, new Vector2(sumRect.X + 7 * z, sumRect.Center.Y - sf.MeasureString(Ircuitry.Render.Renderer.SafeText(val)).Y / 2f), Theme.Mix(Theme.TextDim, cat, 0.3f));
         }
 
         // lifetime fire-count badge (top-right) while/after a run
@@ -1718,7 +1718,7 @@ public sealed class GraphEditor
             {
                 var bf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(10 * z), 8, 14));
                 string s = fc > 999 ? "999+" : fc.ToString();
-                var m = bf.MeasureString(s);
+                var m = bf.MeasureString(Ircuitry.Render.Renderer.SafeText(s));
                 float bw = m.X + 12 * z, bh = m.Y + 4 * z;
                 var pill = new RectF(card.Right - bw - 5 * z, card.Y - bh * 0.45f, bw, bh);
                 r.RoundFill(pill, Theme.Mix(Theme.PanelHi, cat, 0.5f), bh / 2f);
@@ -1735,7 +1735,7 @@ public sealed class GraphEditor
             {
                 var mf = r.Fonts.Get(FontKind.Mono, Math.Clamp((int)MathF.Round(10 * z), 8, 14));
                 const string tag = "muted";
-                var m = mf.MeasureString(tag);
+                var m = mf.MeasureString(Ircuitry.Render.Renderer.SafeText(tag));
                 var pill = new RectF(card.Center.X - m.X / 2f - 7 * z, card.Center.Y - m.Y / 2f - 2 * z, m.X + 14 * z, m.Y + 4 * z);
                 r.RoundFill(pill, Theme.WithAlpha(Theme.TextDim, 0.85f), pill.H / 2f);
                 r.Text(mf, tag, new Vector2(pill.Center.X - m.X / 2f, pill.Center.Y - m.Y / 2f), Theme.TextInk);

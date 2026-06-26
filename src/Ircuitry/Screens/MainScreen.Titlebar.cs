@@ -72,7 +72,7 @@ public sealed partial class MainScreen
             r.Disc(c, 7f, Theme.Alert);
             var nf = r.Fonts.Get(FontKind.SansBold, 9);
             string n = _notifUnread > 9 ? "9+" : _notifUnread.ToString();
-            r.Text(nf, n, new Vector2(c.X - nf.MeasureString(n).X / 2f, c.Y - nf.MeasureString(n).Y / 2f), Theme.TextInk);
+            r.Text(nf, n, new Vector2(c.X - nf.MeasureString(Ircuitry.Render.Renderer.SafeText(n)).X / 2f, c.Y - nf.MeasureString(Ircuitry.Render.Renderer.SafeText(n)).Y / 2f), Theme.TextInk);
         }
 
         var fleetR = Btn(38, 14);   // fleet health board (every bot's live status); reddens when any local bot has errors
@@ -275,7 +275,7 @@ public sealed partial class MainScreen
             var e = elems[k];
             if (e.kind == 1) return GroupHeaderWidth(gf, e.g!);
             var b = bots[e.bot];
-            return _renamingBot == b ? 210 : Math.Clamp(tf.MeasureString(b.Name).X + 58, 86, 150);
+            return _renamingBot == b ? 210 : Math.Clamp(tf.MeasureString(Ircuitry.Render.Renderer.SafeText(b.Name)).X + 58, 86, 150);
         }
         var ws = new float[elems.Count];
         float total = 0;
@@ -379,7 +379,7 @@ public sealed partial class MainScreen
     private float GroupHeaderWidth(FontStashSharp.DynamicSpriteFont gf, TabGroup g)
     {
         if (_renamingGroup == g) return 150;
-        return Math.Clamp(gf.MeasureString(g.Name).X + 32, 56, 150) + (g.Collapsed ? 20 : 0);   // + room for the count badge
+        return Math.Clamp(gf.MeasureString(Ircuitry.Render.Renderer.SafeText(g.Name)).X + 32, 56, 150) + (g.Collapsed ? 20 : 0);   // + room for the count badge
     }
 
     private void DrawGroupHeader(Renderer r, TabGroup g, RectF slot, FontStashSharp.DynamicSpriteFont gf, Clock clock, RectF gutter, float viewW, Action<RectF> noDrag)
@@ -404,12 +404,12 @@ public sealed partial class MainScreen
         float tx = chip.X + 8;
         var cf = r.Fonts.Get(FontKind.SansBold, 11);
         string caret = Ircuitry.Core.Icons.Glyph(g.Collapsed ? "caret-right" : "caret-down");
-        r.Text(cf, caret, new Vector2(tx, chip.Center.Y - cf.MeasureString(caret).Y / 2f), Theme.TextInk);
+        r.Text(cf, caret, new Vector2(tx, chip.Center.Y - cf.MeasureString(Ircuitry.Render.Renderer.SafeText(caret)).Y / 2f), Theme.TextInk);
         tx += 13;
         float nameMax = chip.Right - tx - 8 - (g.Collapsed ? 16 : 0);
-        r.Text(gf, r.Ellipsize(gf, g.Name, nameMax), new Vector2(tx, chip.Center.Y - gf.MeasureString(g.Name).Y / 2f - 1), Theme.TextInk);
+        r.Text(gf, r.Ellipsize(gf, g.Name, nameMax), new Vector2(tx, chip.Center.Y - gf.MeasureString(Ircuitry.Render.Renderer.SafeText(g.Name)).Y / 2f - 1), Theme.TextInk);
         if (g.Collapsed)
-            r.TextRight(cf, _app.GroupCount(g).ToString(), chip.Right - 8, chip.Center.Y - cf.MeasureString("0").Y / 2f, Theme.WithAlpha(Theme.TextInk, 0.85f));
+            r.TextRight(cf, _app.GroupCount(g).ToString(), chip.Right - 8, chip.Center.Y - cf.MeasureString(Ircuitry.Render.Renderer.SafeText("0")).Y / 2f, Theme.WithAlpha(Theme.TextInk, 0.85f));
 
         if (!Modal && gutter.Contains(In.Mouse) && chip.Contains(In.Mouse))
         {
@@ -454,7 +454,7 @@ public sealed partial class MainScreen
             bool busy = st is Ircuitry.App.Server.ControlClient.Conn.Reconnecting or Ircuitry.App.Server.ControlClient.Conn.Connecting;
             string cg = Ircuitry.Core.Icons.Glyph(live ? "cloud" : busy ? "cloud-arrow-up" : "cloud-slash");
             var cc = live ? col : busy ? Theme.Amber : Theme.Alert;
-            var cm = cf.MeasureString(cg);
+            var cm = cf.MeasureString(Ircuitry.Render.Renderer.SafeText(cg));
             r.Text(cf, cg, new Vector2(tab.X + 16 - cm.X / 2f, tab.Center.Y + 3 - cm.Y / 2f), Theme.WithAlpha(cc, active ? 1f : 0.8f));
         }
         else if (active) Hud.SoftDot(r, new Vector2(tab.X + 16, tab.Center.Y + 3), 3.4f, col);
@@ -470,7 +470,7 @@ public sealed partial class MainScreen
         }
 
         Color txt = active ? Theme.Text : Theme.TextDim;
-        r.Text(tf, r.Ellipsize(tf, bot.Name, slot.W - 52), new Vector2(tab.X + 28, tab.Center.Y - tf.MeasureString(bot.Name).Y / 2f + 3), txt);
+        r.Text(tf, r.Ellipsize(tf, bot.Name, slot.W - 52), new Vector2(tab.X + 28, tab.Center.Y - tf.MeasureString(Ircuitry.Render.Renderer.SafeText(bot.Name)).Y / 2f + 3), txt);
 
         bool canClose = _app.Bots.Count > 1;
         var xc = new Vector2(tab.Right - 14, tab.Center.Y + 3);

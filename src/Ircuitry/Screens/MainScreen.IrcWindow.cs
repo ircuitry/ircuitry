@@ -347,7 +347,7 @@ public sealed partial class MainScreen
         float pad = 9f, headY = y + 4;
 
         string nick = b.M.Nick.Length > 0 ? b.M.Nick : "·";
-        float nw = nickF.MeasureString(nick).X;
+        float nw = nickF.MeasureString(Ircuitry.Render.Renderer.SafeText(nick)).X;
         var tag = new RectF(x + 2, headY, nw + 16, 17);
         r.RoundFill(tag, Theme.WithAlpha(nc, 0.22f), 7f);
         r.Disc(new Vector2(tag.X + 8, tag.Center.Y), 3f, nc);
@@ -355,7 +355,7 @@ public sealed partial class MainScreen
         if (b.M.At != default) r.TextRight(r.Fonts.Get(FontKind.Mono, 10), b.M.At.ToString("HH:mm"), x + w - 4, headY + 3, Theme.TextFaint);
 
         float bubTop = headY + 20;
-        float lineH = bodyF.MeasureString("Mg").Y + 2f;
+        float lineH = bodyF.MeasureString(Ircuitry.Render.Renderer.SafeText("Mg")).Y + 2f;
         var bub = new RectF(x + 6, bubTop, w - 12, b.Lines.Length * lineH + pad * 2);
         r.RoundFill(bub, Theme.WithAlpha(nc, 0.10f), 10f);
         r.RoundOutline(bub, Theme.WithAlpha(nc, 0.30f), 10f);
@@ -367,7 +367,7 @@ public sealed partial class MainScreen
         {
             string label = Ircuitry.Core.Icons.Glyph(b.Run.Icon) + " ran " + b.Run.Trigger;
             var cf = r.Fonts.Get(FontKind.SansBold, 11);
-            var chip = new RectF(x + 8, bub.Bottom + 4, MathF.Min(cf.MeasureString(label).X + 18, w - 16), 18);
+            var chip = new RectF(x + 8, bub.Bottom + 4, MathF.Min(cf.MeasureString(Ircuitry.Render.Renderer.SafeText(label)).X + 18, w - 16), 18);
             bool hot = chip.Contains(In.Mouse);
             r.RoundFill(chip, hot ? Theme.Lime : Theme.WithAlpha(Theme.Lime, 0.30f), 8f);
             r.Text(cf, r.Ellipsize(cf, label, chip.W - 14), new Vector2(chip.X + 8, chip.Y + 2), hot ? Theme.TextInk : Theme.Mix(Theme.Lime, Theme.Text, 0.5f));
@@ -438,7 +438,7 @@ public sealed partial class MainScreen
             if (run.Msgid.Length > 0) byMsg[run.Msgid] = run;
 
         var bodyF = r.Fonts.Get(FontKind.Sans, 13);
-        float lineH = bodyF.MeasureString("Mg").Y + 2f;
+        float lineH = bodyF.MeasureString(Ircuitry.Render.Renderer.SafeText("Mg")).Y + 2f;
         _ircBubbles.Clear();
         float total = 0;
         foreach (var m in ring)
@@ -462,7 +462,7 @@ public sealed partial class MainScreen
             foreach (var word in hard.Split(' '))
             {
                 string trial = cur.Length == 0 ? word : cur + " " + word;
-                if (cur.Length > 0 && f.MeasureString(trial).X > maxW) { lines.Add(cur.ToString()); cur.Clear(); cur.Append(word); }
+                if (cur.Length > 0 && f.MeasureString(Ircuitry.Render.Renderer.SafeText(trial)).X > maxW) { lines.Add(cur.ToString()); cur.Clear(); cur.Append(word); }
                 else { if (cur.Length > 0) cur.Append(' '); cur.Append(word); }
             }
             lines.Add(cur.ToString());

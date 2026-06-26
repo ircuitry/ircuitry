@@ -841,16 +841,16 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         var bf = r.Fonts.Get(FontKind.SansBold, 13);
         float h = 30, y = corner.Y - 10 - h, rx = corner.X - 10;
         string eyeLbl = Ircuitry.Core.Icons.Glyph("television") + "  Bot's-eye";
-        float ew = bf.MeasureString(eyeLbl).X + 26;
+        float ew = bf.MeasureString(Ircuitry.Render.Renderer.SafeText(eyeLbl)).X + 26;
         if (_ui.Button("map.eye", new RectF(rx - ew, y, ew, h), eyeLbl, Theme.Teal)) OpenIrcWindow();
         rx -= ew + 8;
         string cLbl = Ircuitry.Core.Icons.Glyph("terminal-window") + (con.Visible ? "  Hide console" : "  Console");
-        float cw = bf.MeasureString(cLbl).X + 26;
+        float cw = bf.MeasureString(Ircuitry.Render.Renderer.SafeText(cLbl)).X + 26;
         if (_ui.Button("map.console", new RectF(rx - cw, y, cw, h), cLbl, con.Visible ? Theme.Lime : Theme.Idle))
         { con.Visible = !con.Visible; SaveDockLayout(); }
         rx -= cw + 8;
         string sLbl = Ircuitry.Core.Icons.Glyph("bookmarks-simple") + "  Snippets";
-        float sw = bf.MeasureString(sLbl).X + 26;
+        float sw = bf.MeasureString(Ircuitry.Render.Renderer.SafeText(sLbl)).X + 26;
         if (_ui.Button("map.snippets", new RectF(rx - sw, y, sw, h), sLbl, _shelfOpen ? Theme.Berry : Theme.Idle))
         { _shelfOpen = !_shelfOpen; _shelfDirty = true; }
         r.End();
@@ -2369,11 +2369,11 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             r.RoundFill(hdr, Theme.Mix(Theme.PanelHi, col, hHover ? 0.28f : 0.16f), 10f);
             r.RoundOutline(hdr, Theme.WithAlpha(col, 0.35f), 10f);
             var icf = r.Fonts.Get(FontKind.Display, 14);
-            r.Text(icf, icon, new Vector2(hdr.X + 10, hdr.Center.Y - icf.MeasureString(icon).Y / 2f), col);
+            r.Text(icf, icon, new Vector2(hdr.X + 10, hdr.Center.Y - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(icon)).Y / 2f), col);
             var nf = r.Fonts.Get(FontKind.SansBold, 13);
-            r.Text(nf, title, new Vector2(hdr.X + 34, hdr.Center.Y - nf.MeasureString("M").Y / 2f - 1), Theme.Text);
+            r.Text(nf, title, new Vector2(hdr.X + 34, hdr.Center.Y - nf.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y / 2f - 1), Theme.Text);
             var chf = r.Fonts.Get(FontKind.SansBold, 12);
-            r.Text(chf, collapsed ? Ircuitry.Core.Icons.Glyph("caret-right") : Ircuitry.Core.Icons.Glyph("caret-down"), new Vector2(hdr.Right - 18, hdr.Center.Y - chf.MeasureString("M").Y / 2f - 1), Theme.WithAlpha(Theme.Text, 0.55f));
+            r.Text(chf, collapsed ? Ircuitry.Core.Icons.Glyph("caret-right") : Ircuitry.Core.Icons.Glyph("caret-down"), new Vector2(hdr.Right - 18, hdr.Center.Y - chf.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y / 2f - 1), Theme.WithAlpha(Theme.Text, 0.55f));
             if (!Modal && In.LeftPressed && hHover) { if (!_collapsedSections.Remove(title)) _collapsedSections.Add(title); }
             y += hh + 7;
             if (collapsed) return;
@@ -2416,17 +2416,17 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             r.RoundFill(tile, col, 7f);
             var icf = r.Fonts.Get(FontKind.Display, 14);
             string ci = CategoryIcon(group.Key);
-            r.Text(icf, ci, new Vector2(tile.Center.X - icf.MeasureString(ci).X / 2f, tile.Center.Y - icf.MeasureString(ci).Y / 2f), Theme.TextInk);
+            r.Text(icf, ci, new Vector2(tile.Center.X - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(ci)).X / 2f, tile.Center.Y - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(ci)).Y / 2f), Theme.TextInk);
             var nf = r.Fonts.Get(FontKind.SansBold, 13);
-            r.Text(nf, CategoryName(group.Key), new Vector2(tile.Right + 9, hdr.Center.Y - nf.MeasureString("M").Y / 2f - 1), Theme.Text);
+            r.Text(nf, CategoryName(group.Key), new Vector2(tile.Right + 9, hdr.Center.Y - nf.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y / 2f - 1), Theme.Text);
             var cf = r.Fonts.Get(FontKind.SansBold, 11);
             string cnt = matches.Count.ToString();
-            float cw = cf.MeasureString(cnt).X + 14;
+            float cw = cf.MeasureString(Ircuitry.Render.Renderer.SafeText(cnt)).X + 14;
             var badge = new RectF(hdr.Right - 12 - 16 - cw, hdr.Center.Y - 9, cw, 18);
             r.RoundFill(badge, Theme.WithAlpha(col, 0.92f), 9f);
-            r.Text(cf, cnt, new Vector2(badge.Center.X - cf.MeasureString(cnt).X / 2f, badge.Center.Y - cf.MeasureString(cnt).Y / 2f), Theme.TextInk);
+            r.Text(cf, cnt, new Vector2(badge.Center.X - cf.MeasureString(Ircuitry.Render.Renderer.SafeText(cnt)).X / 2f, badge.Center.Y - cf.MeasureString(Ircuitry.Render.Renderer.SafeText(cnt)).Y / 2f), Theme.TextInk);
             var chf = r.Fonts.Get(FontKind.SansBold, 12);
-            r.Text(chf, collapsed ? Ircuitry.Core.Icons.Glyph("caret-right") : Ircuitry.Core.Icons.Glyph("caret-down"), new Vector2(hdr.Right - 18, hdr.Center.Y - chf.MeasureString("M").Y / 2f - 1), Theme.WithAlpha(Theme.Text, 0.55f));
+            r.Text(chf, collapsed ? Ircuitry.Core.Icons.Glyph("caret-right") : Ircuitry.Core.Icons.Glyph("caret-down"), new Vector2(hdr.Right - 18, hdr.Center.Y - chf.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y / 2f - 1), Theme.WithAlpha(Theme.Text, 0.55f));
 
             if (!searching && !Modal && In.LeftPressed && hdr.Contains(In.Mouse))
                 _openCat = _openCat == group.Key ? (NodeCategory?)null : group.Key;
@@ -2498,7 +2498,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         else
         {
             var iconF = r.Fonts.Get(FontKind.Display, 17);
-            r.Text(iconF, Ircuitry.Core.Icons.Glyph(def.Icon), new Vector2(chip.X + 13, chip.Center.Y - iconF.MeasureString(Ircuitry.Core.Icons.Glyph(def.Icon)).Y / 2f), col);
+            r.Text(iconF, Ircuitry.Core.Icons.Glyph(def.Icon), new Vector2(chip.X + 13, chip.Center.Y - iconF.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph(def.Icon))).Y / 2f), col);
         }
         r.Text(r.Fonts.Get(FontKind.SansBold, 13), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 13), def.Title, chip.W - 70), new Vector2(chip.X + 42, chip.Y + 6), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.Sans, 10), def.Subtitle, new Vector2(chip.X + 42, chip.Y + 23), Theme.TextFaint);
@@ -2511,7 +2511,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             var sf = r.Fonts.Get(FontKind.Display, 15);
             string star = Ircuitry.Core.Icons.Glyph("star");   // colour (amber vs faint) distinguishes pinned from not
-            r.Text(sf, star, new Vector2(chip.Right - 24, chip.Center.Y - sf.MeasureString(star).Y / 2f), fav ? Theme.Amber : Theme.WithAlpha(Theme.Text, starHover ? 0.8f : 0.4f));
+            r.Text(sf, star, new Vector2(chip.Right - 24, chip.Center.Y - sf.MeasureString(Ircuitry.Render.Renderer.SafeText(star)).Y / 2f), fav ? Theme.Amber : Theme.WithAlpha(Theme.Text, starHover ? 0.8f : 0.4f));
         }
 
         if (starHover && In.LeftPressed && !Modal) { Ircuitry.Core.NodePrefs.ToggleFavorite(def.TypeId); return; }   // pin toggles, never starts a drag
@@ -2672,7 +2672,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             string cn = _clipNodeTitle.Length > 16 ? _clipNodeTitle[..15] + "…" : _clipNodeTitle;
             string clabel = Ircuitry.Core.Icons.Glyph("copy") + $"  Install {cn} (from clipboard)";
-            float cw = r.Fonts.Get(FontKind.SansBold, 13).MeasureString(clabel).X + 30;
+            float cw = r.Fonts.Get(FontKind.SansBold, 13).MeasureString(Ircuitry.Render.Renderer.SafeText(clabel)).X + 30;
             bx -= gap + cw; if (_ui.Button("nm.paste", new RectF(bx, by, cw, bh), clabel, Theme.Cyan, primary: true)) { _nodeMgrOpen = false; InstallFromClipboard(); }
         }
         if (updates > 0) { bx -= gap + 138; if (_ui.Button("nm.updateall", new RectF(bx, by, 138, bh), Ircuitry.Core.Icons.Glyph("download-simple") + $" Update all ({updates})", Theme.Amber, primary: true)) foreach (var tid in _nodeMgrUpdates.Keys.ToList()) UpdateNode(tid); }
@@ -2739,11 +2739,11 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 var cb = new RectF(row.X + 12, row.Center.Y - 9, 18, 18);
                 r.RoundFill(cb, selected ? Theme.Cyan : Theme.PanelLo, 5);
                 r.RoundOutline(cb, selected ? Theme.Cyan : Theme.Edge, 5);
-                if (selected) r.Text(tf, Ircuitry.Core.Icons.Glyph("check"), new Vector2(cb.Center.X - tf.MeasureString(Ircuitry.Core.Icons.Glyph("check")).X / 2f, cb.Center.Y - tf.MeasureString(Ircuitry.Core.Icons.Glyph("check")).Y / 2f), Theme.TextInk);
+                if (selected) r.Text(tf, Ircuitry.Core.Icons.Glyph("check"), new Vector2(cb.Center.X - tf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph("check"))).X / 2f, cb.Center.Y - tf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph("check"))).Y / 2f), Theme.TextInk);
 
                 var iconImg = def.IconImage != null ? r.IconTexture(def.TypeId, def.IconImage) : null;
                 if (iconImg != null) r.Image(iconImg, new RectF(row.X + 40, row.Center.Y - 11, 22, 22));
-                else r.Text(icf, Ircuitry.Core.Icons.Glyph(def.Icon), new Vector2(row.X + 40, row.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(def.Icon)).Y / 2f), col);
+                else r.Text(icf, Ircuitry.Core.Icons.Glyph(def.Icon), new Vector2(row.X + 40, row.Center.Y - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph(def.Icon))).Y / 2f), col);
 
                 bool inLib = _nodeMgrInLibrary.ContainsKey(def.TypeId);
                 bool hasUpdate = _nodeMgrUpdates.TryGetValue(def.TypeId, out var note);
@@ -3290,7 +3290,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 if (e.Count > 1)
                 {
                     string cnt = "x" + e.Count;
-                    var cb = new RectF(row.Right - 8 - (sf.MeasureString(cnt).X + 12), row.Y + 7, sf.MeasureString(cnt).X + 12, 15);
+                    var cb = new RectF(row.Right - 8 - (sf.MeasureString(Ircuitry.Render.Renderer.SafeText(cnt)).X + 12), row.Y + 7, sf.MeasureString(Ircuitry.Render.Renderer.SafeText(cnt)).X + 12, 15);
                     r.RoundFill(cb, Theme.WithAlpha(Theme.Alert, 0.22f), 7f);
                     r.Text(sf, cnt, new Vector2(cb.X + 6, cb.Y + 2), Theme.Alert);
                 }
@@ -3659,7 +3659,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             var sv = Bot.Servers[i];
             string lbl = sv.DisplayName;
-            float cw = MathF.Min(w, chipFont.MeasureString(lbl).X + 30);
+            float cw = MathF.Min(w, chipFont.MeasureString(Ircuitry.Render.Renderer.SafeText(lbl)).X + 30);
             if (cx + cw > x + w + 0.5f) { cx = x; cy += chipH + 6; }
             var chip = new RectF(cx, cy, cw, chipH);
             bool selected = i == Bot.SelectedServer;
@@ -4040,8 +4040,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         string Fit(DynamicSpriteFont f, string s, float maxW)
         {
-            if (f.MeasureString(s).X <= maxW) return s;
-            while (s.Length > 1 && f.MeasureString(s + "…").X > maxW) s = s.Substring(0, s.Length - 1);
+            if (f.MeasureString(Ircuitry.Render.Renderer.SafeText(s)).X <= maxW) return s;
+            while (s.Length > 1 && f.MeasureString(Ircuitry.Render.Renderer.SafeText(s + "…")).X > maxW) s = s.Substring(0, s.Length - 1);
             return s + "…";
         }
         void Card(RectF box, Color accent, string icon, string title, string sub, Color? dot)
@@ -4359,9 +4359,9 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         string label = (nick.Length > 0 ? nick : "*") + "  ";
         string body = text.Replace('\n', ' ').Replace('\r', ' ').Trim();
         const float maxW = 244;
-        float nameW = fn.MeasureString(label).X;
+        float nameW = fn.MeasureString(Ircuitry.Render.Renderer.SafeText(label)).X;
         string shown = r.Ellipsize(fb, body, maxW - nameW - 18);
-        float bw = Math.Min(maxW, nameW + fb.MeasureString(shown).X + 18);
+        float bw = Math.Min(maxW, nameW + fb.MeasureString(Ircuitry.Render.Renderer.SafeText(shown)).X + 18);
         float bh = 24;
         // keep the bubble near the card, but if it's wider than the card (+overhang) the bounds invert,
         // so just center it on the card instead of clamping (which would throw min>max).
@@ -4424,7 +4424,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         var tile = new RectF(panel.X + 14, panel.Center.Y - 22, 44, 44);
         r.RoundFill(tile, Theme.WithAlpha(Theme.Amber, 0.22f), 11);
         var icf = r.Fonts.Get(FontKind.Display, 24);
-        r.Text(icf, Ircuitry.Core.Icons.Glyph(_achCur.Icon), new Vector2(tile.Center.X - icf.MeasureString(Ircuitry.Core.Icons.Glyph(_achCur.Icon)).X / 2f, tile.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(_achCur.Icon)).Y / 2f), Theme.Text);
+        r.Text(icf, Ircuitry.Core.Icons.Glyph(_achCur.Icon), new Vector2(tile.Center.X - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph(_achCur.Icon))).X / 2f, tile.Center.Y - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph(_achCur.Icon))).Y / 2f), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.SansBold, 11), Ircuitry.Core.Icons.Glyph("trophy") + " ACHIEVEMENT UNLOCKED", new Vector2(tile.Right + 12, panel.Y + 14), Theme.AmberDim);
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), r.Ellipsize(r.Fonts.Get(FontKind.SansBold, 16), _achCur.Title, pw - 80), new Vector2(tile.Right + 12, panel.Y + 32), Theme.Text);
         r.Text(r.Fonts.Get(FontKind.Sans, 11), _achCur.Category, new Vector2(tile.Right + 12, panel.Y + 54), Theme.TextDim);
@@ -4695,7 +4695,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 var tile = new RectF(row.X + 8, row.Center.Y - 17, 34, 34);
                 r.RoundFill(tile, d.Unlocked ? Theme.WithAlpha(Theme.Amber, 0.25f) : Theme.PanelLo, 9);
                 var icf = r.Fonts.Get(FontKind.Display, 18);
-                r.Text(icf, Ircuitry.Core.Icons.Glyph(d.Icon), new Vector2(tile.Center.X - icf.MeasureString(Ircuitry.Core.Icons.Glyph(d.Icon)).X / 2f, tile.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(d.Icon)).Y / 2f), d.Unlocked ? Theme.Text : Theme.TextFaint);
+                r.Text(icf, Ircuitry.Core.Icons.Glyph(d.Icon), new Vector2(tile.Center.X - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph(d.Icon))).X / 2f, tile.Center.Y - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph(d.Icon))).Y / 2f), d.Unlocked ? Theme.Text : Theme.TextFaint);
                 r.Text(bf, d.Title, new Vector2(row.X + 50, row.Y + 6), d.Unlocked ? Theme.Text : Theme.TextDim);
                 r.Text(r.Fonts.Get(FontKind.Sans, 10), r.Ellipsize(r.Fonts.Get(FontKind.Sans, 10), d.Desc, row.W - 150), new Vector2(row.X + 50, row.Y + 26), Theme.TextFaint);
                 // progress / status on the right
@@ -4735,7 +4735,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         r.Fill(bar, Theme.PanelLo);
         r.HLine(0, bar.W, bar.Y, Theme.Hairline, 1f);
         var f = r.Fonts.Get(FontKind.SansBold, 12);
-        float y = bar.Y + (bar.H - f.MeasureString("R").Y) / 2f;
+        float y = bar.Y + (bar.H - f.MeasureString(Ircuitry.Render.Renderer.SafeText("R")).Y) / 2f;
 
         var (slabel, scol, _) = StatusInfo();
         Hud.SoftDot(r, new Vector2(16, bar.Center.Y), 3.5f, scol);
@@ -4766,7 +4766,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         if (errN > 0)
         {
             string elbl = Ircuitry.Core.Icons.Glyph("warning-octagon") + "  " + errN + (errN == 1 ? " error" : " errors");
-            float ew = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(elbl).X + 24;
+            float ew = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(Ircuitry.Render.Renderer.SafeText(elbl)).X + 24;
             var er = new RectF(bar.W - 16 - ew, bar.Center.Y - 11, ew, 22);
             var ec = _errTrayOpen ? Theme.Alert : Theme.Mix(Theme.Alert, Theme.PanelHi, 0.45f);
             if (_ui.Button("status.errtray", er, elbl, ec)) { _errTrayOpen = !_errTrayOpen; }
@@ -4796,7 +4796,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             float p = Math.Clamp(win / (float)cap, 0f, 1f);
             var col = over ? Theme.Alert : Theme.Mix(Theme.Ok, Theme.Alert, p);
             string lbl = ic + FmtTokens(win) + " / " + FmtTokens(cap) + (over ? "  OVER" : "");
-            float tw = f.MeasureString(lbl).X;
+            float tw = f.MeasureString(Ircuitry.Render.Renderer.SafeText(lbl)).X;
             float right = bar.W - 16;
             // small bar to the right of the text
             var gx = new RectF(right - 60, bar.Center.Y - 5, 60, 10);
@@ -4804,12 +4804,12 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             float blink = over ? 0.45f + 0.55f * clock.Sin01(3f) : 1f;
             r.RoundFill(new RectF(gx.X, gx.Y, gx.W * Math.Max(0.05f, p), gx.H), Theme.WithAlpha(col, blink), 5f);
             r.RoundOutline(gx, Theme.Hairline, 5f);
-            r.TextRight(f, lbl, gx.X - 10, bar.Center.Y - f.MeasureString(lbl).Y / 2f, col);
+            r.TextRight(f, lbl, gx.X - 10, bar.Center.Y - f.MeasureString(Ircuitry.Render.Renderer.SafeText(lbl)).Y / 2f, col);
         }
         else
         {
             string lbl = ic + FmtTokens(total) + " tokens";
-            r.TextRight(f, lbl, bar.W - 16, bar.Center.Y - f.MeasureString(lbl).Y / 2f, Theme.TextDim);
+            r.TextRight(f, lbl, bar.W - 16, bar.Center.Y - f.MeasureString(Ircuitry.Render.Renderer.SafeText(lbl)).Y / 2f, Theme.TextDim);
         }
     }
 
@@ -4861,7 +4861,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         foreach (var word in text.Split(' '))
         {
             string test = cur.Length == 0 ? word : cur + " " + word;
-            if (f.MeasureString(test).X <= maxW) cur = test;
+            if (f.MeasureString(Ircuitry.Render.Renderer.SafeText(test)).X <= maxW) cur = test;
             else { if (cur.Length > 0) lines.Add(cur); cur = word; }
         }
         if (cur.Length > 0) lines.Add(cur);
@@ -5382,7 +5382,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                     {
                         string chip = (res.pass ? Ircuitry.Core.Icons.Glyph("check") + " pass" : Ircuitry.Core.Icons.Glyph("x") + " fail") + "  " + res.detail;
                         var cc = res.pass ? Theme.Ok : Theme.Alert;
-                        var cm = lf.MeasureString(chip);
+                        var cm = lf.MeasureString(Ircuitry.Render.Renderer.SafeText(chip));
                         var cb = new RectF(card.X + 86, card.Y + 5, Math.Min(cm.X + 16, w - 200), 18);
                         r.RoundFill(cb, Theme.WithAlpha(cc, 0.16f), 7f);
                         r.Text(lf, r.Ellipsize(lf, chip, cb.W - 12), new Vector2(cb.X + 8, cb.Y + 2), cc);

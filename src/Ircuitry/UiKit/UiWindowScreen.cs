@@ -281,11 +281,11 @@ public sealed class UiWindowScreen : IScreen
                 // a single line scrolls so its END (the caret) stays visible instead of running off the box
                 float avail = MathF.Max(8f, rect.W - 16f);
                 string vis = e.Text;
-                while (vis.Length > 1 && font.MeasureString(vis).X > avail) vis = vis[1..];
+                while (vis.Length > 1 && font.MeasureString(Ircuitry.Render.Renderer.SafeText(vis)).X > avail) vis = vis[1..];
                 r.Text(font, vis, new Vector2(tx, ty), Rgba(e.TextColor, e.Alpha));
                 if (blink)   // blinking caret
                 {
-                    float cx = tx + font.MeasureString(vis).X + 1f;
+                    float cx = tx + font.MeasureString(Ircuitry.Render.Renderer.SafeText(vis)).X + 1f;
                     r.VLine(cx, ty + 1f, ty + e.FontSize, Rgba(0xFFFFFFFF, e.Alpha));
                 }
                 break;

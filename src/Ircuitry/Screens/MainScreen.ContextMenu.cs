@@ -141,10 +141,10 @@ public sealed partial class MainScreen
 
             var textCol = it.Enabled ? Theme.Text : Theme.TextFaint;
             var iconCol = it.Tint ?? (it.Enabled ? Theme.Mix(Theme.Text, Theme.Cyan, 0.35f) : Theme.TextFaint);
-            r.Text(icf, Ircuitry.Core.Icons.Glyph(it.Icon), new Vector2(row.X + 11, row.Center.Y - icf.MeasureString(Ircuitry.Core.Icons.Glyph(it.Icon)).Y / 2f), iconCol);
-            r.Text(lf, it.Label, new Vector2(row.X + 38, row.Center.Y - lf.MeasureString(it.Label).Y / 2f - 1), textCol);
+            r.Text(icf, Ircuitry.Core.Icons.Glyph(it.Icon), new Vector2(row.X + 11, row.Center.Y - icf.MeasureString(Ircuitry.Render.Renderer.SafeText(Ircuitry.Core.Icons.Glyph(it.Icon))).Y / 2f), iconCol);
+            r.Text(lf, it.Label, new Vector2(row.X + 38, row.Center.Y - lf.MeasureString(Ircuitry.Render.Renderer.SafeText(it.Label)).Y / 2f - 1), textCol);
             if (!string.IsNullOrEmpty(it.Shortcut))
-                r.TextRight(scf, it.Shortcut, row.Right - 12, row.Center.Y - scf.MeasureString("M").Y / 2f, Theme.TextFaint);
+                r.TextRight(scf, it.Shortcut, row.Right - 12, row.Center.Y - scf.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y / 2f, Theme.TextFaint);
             cy += itemH;
         }
 

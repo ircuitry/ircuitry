@@ -61,7 +61,7 @@ public sealed class Ui
         R.RoundFill(rect, enabled ? fill : Theme.PanelLo, 10f);
         R.RoundOutline(rect, enabled ? Theme.WithAlpha(primary ? Theme.Mix(accent, Theme.Text, 0.25f) : accent, hover ? 1f : 0.7f) : Theme.Hairline, 10f);
         var f = R.Fonts.Get(FontKind.SansBold, 14);
-        var sz = f.MeasureString(label);
+        var sz = f.MeasureString(Ircuitry.Render.Renderer.SafeText(label));
         var tc = enabled ? (primary ? Theme.TextInk : Theme.Mix(Theme.Text, accent, 0.2f)) : Theme.TextFaint;
         R.Text(f, label, new Vector2(rect.Center.X - sz.X / 2f, rect.Center.Y - sz.Y / 2f - 1), tc);
 
@@ -80,7 +80,7 @@ public sealed class Ui
         R.Disc(new Vector2(knobX, track.Center.Y), th / 2f - 3f, value ? on : Theme.TextDim);
 
         var f = R.Fonts.Get(FontKind.Mono, 13);
-        R.Text(f, label, new Vector2(track.Right + 12, rect.Center.Y - f.MeasureString(label).Y / 2f), Theme.TextDim);
+        R.Text(f, label, new Vector2(track.Right + 12, rect.Center.Y - f.MeasureString(Ircuitry.Render.Renderer.SafeText(label)).Y / 2f), Theme.TextDim);
 
         bool clicked = hover && In.LeftPressed;
         return clicked ? !value : value;
@@ -154,7 +154,7 @@ public sealed class Ui
         bool hover = Over(rect);
         bool focused = Focus == id;
         var f = R.Fonts.Get(FontKind.Mono, 14);
-        float charW = f.MeasureString("M").X, pad = 9f, innerW = rect.W - pad * 2;
+        float charW = f.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).X, pad = 9f, innerW = rect.W - pad * 2;
 
         if (Enabled)
         {
@@ -179,7 +179,7 @@ public sealed class Ui
 
         // draw
         R.RoundFill(rect, Theme.PanelLo, 7f);
-        float baseY = rect.Center.Y - f.MeasureString("M").Y / 2f - 1;
+        float baseY = rect.Center.Y - f.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y / 2f - 1;
         string display = password ? new string('•', value.Length) : value;
 
         if (focused)
@@ -220,9 +220,9 @@ public sealed class Ui
         R.RoundOutline(rect, hover ? Theme.Edge : Theme.Hairline, 7f);
         var f = R.Fonts.Get(FontKind.Mono, 14);
         var ac = hover ? Theme.Cyan : Theme.TextDim;
-        R.Text(f, "‹", new Vector2(rect.X + 9, rect.Center.Y - f.MeasureString("‹").Y / 2f), ac);
-        R.TextRight(f, "›", rect.Right - 9, rect.Center.Y - f.MeasureString("›").Y / 2f, ac);
-        R.TextCenteredX(f, options[idx], rect.Center.X, rect.Center.Y - f.MeasureString("M").Y / 2f, Theme.Text);
+        R.Text(f, "‹", new Vector2(rect.X + 9, rect.Center.Y - f.MeasureString(Ircuitry.Render.Renderer.SafeText("‹")).Y / 2f), ac);
+        R.TextRight(f, "›", rect.Right - 9, rect.Center.Y - f.MeasureString(Ircuitry.Render.Renderer.SafeText("›")).Y / 2f, ac);
+        R.TextCenteredX(f, options[idx], rect.Center.X, rect.Center.Y - f.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y / 2f, Theme.Text);
 
         if (hover && In.LeftPressed)
             idx = In.Mouse.X < rect.X + rect.W * 0.33f
@@ -245,7 +245,7 @@ public sealed class Ui
         bool hover = Over(rect);
         bool focused = Focus == id;
         var f = R.Fonts.Get(FontKind.Mono, 14);
-        float charW = f.MeasureString("M").X, lineH = f.MeasureString("M").Y + 2f, pad = 9f;
+        float charW = f.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).X, lineH = f.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y + 2f, pad = 9f;
         int maxChars = Math.Max(1, (int)((rect.W - pad * 2) / charW));
         int visibleLines = Math.Max(1, (int)((rect.H - pad * 2 + 2) / lineH));
 
@@ -394,7 +394,7 @@ public sealed class Ui
 
     private int CaretFromMouseSingle(RectF rect, string value)
     {
-        float charW = R.Fonts.Get(FontKind.Mono, 14).MeasureString("M").X;
+        float charW = R.Fonts.Get(FontKind.Mono, 14).MeasureString(Ircuitry.Render.Renderer.SafeText("M")).X;
         return Math.Clamp((int)Math.Round((In.Mouse.X - (rect.X + 9) + _scroll) / charW), 0, value.Length);
     }
 

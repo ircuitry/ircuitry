@@ -205,7 +205,7 @@ public partial class MainScreen
                 {
                     var s = _rmSaved[i];
                     if (string.IsNullOrWhiteSpace(s.url)) continue;   // never render a blank chip
-                    var bw = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(s.url).X + 26;
+                    var bw = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(Ircuitry.Render.Renderer.SafeText(s.url)).X + 26;
                     if (_ui.Button("rm.saved" + i, new RectF(cx, y, bw, 28), s.url, Theme.Sky))
                     { _rmUrl = s.url; _rmToken = ""; _rmReplaceToken = false; }   // token comes from the key store, not here
                     cx += bw + 8; shown++;
@@ -318,7 +318,7 @@ public partial class MainScreen
             foreach (var lb in locals)
             {
                 if (ls++ >= 4) break;
-                var sz = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(lb.Name).X + 30;
+                var sz = r.Fonts.Get(FontKind.SansBold, 12).MeasureString(Ircuitry.Render.Renderer.SafeText(lb.Name)).X + 30;
                 if (px + sz > x + w) { px = x; y += 32; }
                 if (_ui.Button("rm.push." + lb.Name, new RectF(px, y, sz, 28), Ircuitry.Core.Icons.Glyph("upload-simple") + " " + lb.Name, Theme.Sky))
                     PushLocalBot(lb, rc);
@@ -735,7 +735,7 @@ public partial class MainScreen
             Hud.SoftDot(r, sp, 5.5f, col);
             r.Disc(sp, 2.6f, Color.White);
             var f = r.Fonts.Get(FontKind.SansBold, 11);
-            var m = f.MeasureString(p.User);
+            var m = f.MeasureString(Ircuitry.Render.Renderer.SafeText(p.User));
             var pill = new RectF(sp.X + 9, sp.Y + 7, m.X + 12, m.Y + 5);
             r.RoundFill(pill, col, 6f);
             r.Text(f, p.User, new Vector2(pill.X + 6, pill.Y + 2), Theme.TextInk);

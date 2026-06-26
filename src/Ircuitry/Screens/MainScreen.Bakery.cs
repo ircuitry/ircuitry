@@ -164,7 +164,7 @@ public partial class MainScreen
     private float ResBtn(Renderer r, string id, ref float by, float bx, string label, bool on, Action click, bool asRow = true)
     {
         var f = r.Fonts.Get(FontKind.SansBold, 11);
-        float w = f.MeasureString(label).X + 22, h = 24;
+        float w = f.MeasureString(Ircuitry.Render.Renderer.SafeText(label)).X + 22, h = 24;
         if (_ui.Button(id, new RectF(bx, by, w, h), label, on ? Theme.Berry : Theme.Idle, primary: on)) click();
         return bx + w + 6;
     }

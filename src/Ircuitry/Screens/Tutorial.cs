@@ -67,9 +67,9 @@ public sealed class Tutorial
 
         var small = r.Fonts.Get(FontKind.Mono, 11);
         if (index >= 1 && index <= Total)
-            r.TextRight(small, $"STEP {index} / {Total}", card.Right - 18, card.Y + (Hud.HeaderH - small.MeasureString("M").Y) / 2f - 1, Theme.TextDim);
+            r.TextRight(small, $"STEP {index} / {Total}", card.Right - 18, card.Y + (Hud.HeaderH - small.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y) / 2f - 1, Theme.TextDim);
         else
-            r.TextRight(small, index == 0 ? "WELCOME" : "DONE", card.Right - 18, card.Y + (Hud.HeaderH - small.MeasureString("M").Y) / 2f - 1, Theme.TextDim);
+            r.TextRight(small, index == 0 ? "WELCOME" : "DONE", card.Right - 18, card.Y + (Hud.HeaderH - small.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y) / 2f - 1, Theme.TextDim);
 
         float x = card.X + 22, w = card.W - 44, y = card.Y + Hud.HeaderH + 16;
         var bf = r.Fonts.Get(FontKind.Sans, 14);

@@ -27,7 +27,7 @@ public static class Hud
 
         SoftDot(r, new Vector2(rect.X + 18, rect.Y + HeaderH / 2f), 4.5f, accent);
         var f = r.Fonts.Get(FontKind.Display, 15);
-        var sz = f.MeasureString(title);
+        var sz = f.MeasureString(Ircuitry.Render.Renderer.SafeText(title));
         r.Text(f, title, new Vector2(rect.X + 32, rect.Y + (HeaderH - sz.Y) / 2f - 1), Theme.Text);
 
         r.RoundOutline(rect, Theme.Edge, PanelRadius);
@@ -45,7 +45,7 @@ public static class Hud
         var dot = new Vector2(rect.X + rect.H * 0.62f, rect.Center.Y);
         SoftDot(r, dot, 4.5f, Theme.WithAlpha(color, dotA));
         var f = r.Fonts.Get(FontKind.SansBold, 13);
-        r.Text(f, label, new Vector2(dot.X + 12, rect.Center.Y - f.MeasureString(label).Y / 2f - 1), Theme.Mix(Theme.Text, color, 0.35f));
+        r.Text(f, label, new Vector2(dot.X + 12, rect.Center.Y - f.MeasureString(Ircuitry.Render.Renderer.SafeText(label)).Y / 2f - 1), Theme.Mix(Theme.Text, color, 0.35f));
     }
 
     /// <summary>A glowing dot faked in alpha mode (no batch switch) via stacked discs.</summary>
