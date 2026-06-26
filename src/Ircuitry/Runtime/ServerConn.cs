@@ -265,8 +265,8 @@ public sealed class ServerConn : IRuntimeSink
         // webhooks, On Start and the socket nodes all work, but we don't dial (or spin reconnects on) an empty host.
         bool hostless = _cfg.Host.Trim().Length == 0;
         _owner.LogFrom(Label, LogLevel.System, hostless
-            ? $"{Ircuitry.Core.Icons.Glyph("play")} running (no IRC server - timers/sockets only) - {_owner.CountTriggers()} trigger(s) armed"
-            : $"{Ircuitry.Core.Icons.Glyph("play")} connecting - {_owner.CountTriggers()} trigger(s) armed");
+            ? $"{Ircuitry.Core.Icons.Glyph("play")} {Ircuitry.Core.Loc.T("running (no IRC server - timers/sockets only) -")} {_owner.CountTriggers()} {Ircuitry.Core.Loc.T("trigger(s) armed")}"
+            : $"{Ircuitry.Core.Icons.Glyph("play")} {Ircuitry.Core.Loc.T("connecting -")} {_owner.CountTriggers()} {Ircuitry.Core.Loc.T("trigger(s) armed")}");
         FireFamily("start", BaseVars());   // On Start: stand up listeners / one-time setup, regardless of IRC
         if (!hostless) _client.Connect(_cfg);
         StartTimers();

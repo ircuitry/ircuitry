@@ -257,7 +257,7 @@ public sealed class BotRuntime
         if (!Running) return;
         FreezeGraph(graph);
         AppliedSig = graph.BehaviorSignature();
-        _log.Add(LogLevel.System, $"{Ircuitry.Core.Icons.Glyph("arrows-clockwise")} applied workflow changes - {CountTriggers()} trigger(s) armed");
+        _log.Add(LogLevel.System, $"{Ircuitry.Core.Icons.Glyph("arrows-clockwise")} {Ircuitry.Core.Loc.T("applied workflow changes -")} {CountTriggers()} {Ircuitry.Core.Loc.T("trigger(s) armed")}");
     }
 
     private void FreezeGraph(NodeGraph graph) =>

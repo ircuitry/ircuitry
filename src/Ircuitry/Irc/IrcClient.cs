@@ -314,7 +314,7 @@ public sealed class IrcClient
             _reconnectAttempt++;
             int delay = Math.Min(30, 1 << Math.Min(_reconnectAttempt, 5));   // 2,4,8,16,30,30…
             State = IrcState.Connecting;
-            Status?.Invoke($"reconnecting in {delay}s (attempt {_reconnectAttempt})…", false);
+            Status?.Invoke(Ircuitry.Core.Loc.T("reconnecting in") + $" {delay}s (attempt {_reconnectAttempt})…", false);
             for (int i = 0; i < delay * 10 && !_quit; i++) Thread.Sleep(100);
             if (_quit) break;
 
@@ -331,7 +331,7 @@ public sealed class IrcClient
     {
         lock (_outLock) _outQueue.Clear();      // drop stale outgoing from a previous connection
         State = IrcState.Connecting;
-        Status?.Invoke($"connecting to {_cfg.Host}:{_cfg.Port} {(_cfg.UseTls ? "(TLS)" : "")}…", false);
+        Status?.Invoke(Ircuitry.Core.Loc.T("connecting to") + $" {_cfg.Host}:{_cfg.Port} {(_cfg.UseTls ? "(TLS)" : "")}…", false);
 
         _tcp = new TcpClient();
         if (!_tcp.ConnectAsync(_cfg.Host, _cfg.Port).Wait(12000))
@@ -471,7 +471,7 @@ public sealed class IrcClient
         _saslMech = ChooseSaslMech();
         if (_saslMech.Length == 0) { Status?.Invoke("SASL: no usable mechanism for what's configured", true); EndCap(); return; }
         _saslActive = true; _scram = null; _scramStep = 0; _authBuf.Clear();
-        Status?.Invoke("SASL: authenticating with " + _saslMech, false);
+        Status?.Invoke(Ircuitry.Core.Loc.T("SASL: authenticating with") + " " + _saslMech, false);
         SendNow("AUTHENTICATE " + _saslMech);
     }
 
@@ -582,7 +582,7 @@ public sealed class IrcClient
             // Some platforms (Windows/SChannel) need the cert round-tripped through a PFX blob to use its
             // private key in a TLS handshake; doing it everywhere is harmless and keeps CertFP working cross-OS.
             cert = new X509Certificate2(cert.Export(X509ContentType.Pkcs12));
-            Status?.Invoke("client cert ready - CertFP SHA-256 " + fp + " (register it with services to use SASL EXTERNAL)", false);
+            Status?.Invoke(Ircuitry.Core.Loc.T("client cert ready - CertFP SHA-256") + " " + fp + " " + Ircuitry.Core.Loc.T("(register it with services to use SASL EXTERNAL)"), false);
             return new X509Certificate2Collection(cert);
         }
         catch (Exception ex)
@@ -600,7 +600,7 @@ public sealed class IrcClient
                 State = IrcState.Connected;
                 _reconnectAttempt = 0;                 // healthy connection - reset backoff
                 CurrentNick = m.P(0);
-                Status?.Invoke("registered as " + CurrentNick, false);
+                Status?.Invoke(Ircuitry.Core.Loc.T("registered as") + " " + CurrentNick, false);
                 Registered?.Invoke();
                 foreach (var ch in _cfg.ChannelList) Join(ch);
                 break;
