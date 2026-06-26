@@ -4432,7 +4432,7 @@ public static class SelfTest
         var head = N(g, "web.head", 0, 2); head.SetParam("title", "My Site"); head.SetParam("description", "A test");
         var css = N(g, "web.css", 0, 3); css.SetParam("css", "a:hover{opacity:.8}");
 
-        var h = N(g, "web.heading", 1, 0); h.SetParam("level", "1"); h.SetParam("text", "Hi {who}");   // {var} resolves
+        var h = N(g, "web.heading", 1, 0); h.SetParam("level", "1"); h.SetParam("text", "Hi {who}"); h.SetParam("zh", "你好");   // {var} resolves; zh = bilingual
         var img = N(g, "web.image", 1, 1); img.SetParam("src", "https://x/p.png"); img.SetParam("alt", "p");
         var btn = N(g, "web.button", 1, 2); btn.SetParam("variant", "primary"); btn.SetParam("text", "Go"); btn.SetParam("action", "n.inc");
         var inp = N(g, "web.input", 1, 3); inp.SetParam("model", "q"); inp.SetParam("type", "search");
@@ -4457,12 +4457,18 @@ public static class SelfTest
         fails += Expect("web-prim-css", html.Contains("a:hover{opacity:.8}"), "web.css raw block in the page head");
         fails += Expect("web-prim-head", html.Contains("<title>My Site</title>") && html.Contains("content=\"A test\""), "web.head title + description");
 
+        // bilingual: the zh variant ships to the page + a navigator.language flag drives it (vanilla)
+        fails += Expect("web-prim-zh-vanilla", html.Contains("zh: \"你好\"") && html.Contains("navigator.language"), "web.heading zh variant + auto-detect in the vanilla page");
+
         // the React eject of an app with css + head carries them into index.html
         var app = new Ircuitry.WebBuild.WebApp { Name = "My Site", Description = "A test", Lang = "en" };
         app.Css.Add("a:hover{opacity:.8}");
+        app.Root = new Ircuitry.WebBuild.WebEl { Tag = "h1", Text = "Hi", Zh = "你好" };
         var proj = Ircuitry.WebBuild.WebCodegen.ReactProject(app);
         string index = proj.TryGetValue("index.html", out var ix) ? ix : "";
+        string comp = proj.TryGetValue("src/MySite.jsx", out var jx) ? jx : "";
         fails += Expect("web-prim-eject-head", index.Contains("content=\"A test\"") && index.Contains("a:hover{opacity:.8}"), "eject index.html carries head meta + css");
+        fails += Expect("web-prim-zh-react", comp.Contains("const __zh") && comp.Contains("__zh ? \"你好\" : \"Hi\""), "React eject renders the zh variant via navigator.language");
         return fails;
     }
 

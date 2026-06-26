@@ -49,6 +49,7 @@ public sealed class WebEl
     public Dictionary<string, string> Attrs = new();   // static attributes (class, type, href, ...)
     public string? Style;                               // inline CSS, e.g. "padding:12px;display:flex;gap:8px;color:var(--brand)"
     public string? Text;                                // static text content (leaf)
+    public string? Zh;                                  // optional Chinese for Text; shown when navigator.language is zh*
     public string? Bind;                                // dynamic text: a state name, or "item.field" inside a repeat
     public string? Model;                               // two-way bind an <input>'s value to this state name
     public WebRepeat? Repeat;                           // when set: render this element once per item of a list state

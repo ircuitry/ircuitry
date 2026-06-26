@@ -434,6 +434,8 @@ public static class NodeCatalog
         var bind = node.GetParam("bind");
         if (bind.Length > 0) el.Bind = bind;
         else { var t = c.Resolve(node.GetParam("text")); if (t.Length > 0) el.Text = t; }
+        var zh = c.Resolve(node.GetParam("zh"));   // optional Chinese variant (ejected sites auto-detect navigator.language)
+        if (zh.Length > 0) el.Zh = zh;
     }
 
     // web.box: compose a flex/grid container style from friendly params (bare numbers -> px)
@@ -4979,6 +4981,7 @@ public static class NodeCatalog
                     P("level", "Level", ParamType.Choice, "2", "", new[] { "1", "2", "3", "4", "5", "6" }),
                     P("text", "Text", ParamType.Text, "Heading", ""),
                     P("bind", "Text from state", ParamType.Text, "", "(optional) a state name"),
+                    P("zh", "Chinese", ParamType.Text, "", "(optional) shown when the visitor's browser is Chinese"),
                     P("style", "Style", ParamType.Text, "", "inline CSS"),
                 },
                 SummaryParam = "text",
@@ -4994,6 +4997,7 @@ public static class NodeCatalog
                     P("as", "Tag", ParamType.Choice, "p", "", new[] { "p", "span", "small", "strong", "em", "label" }),
                     P("text", "Text", ParamType.Text, "", "static text"),
                     P("bind", "Text from state", ParamType.Text, "", "(optional) a state name"),
+                    P("zh", "Chinese", ParamType.Text, "", "(optional) shown when the visitor's browser is Chinese"),
                     P("style", "Style", ParamType.Text, "", "inline CSS"),
                 },
                 SummaryParam = "text",
@@ -5024,6 +5028,7 @@ public static class NodeCatalog
                     P("target", "Target", ParamType.Choice, "", "", new[] { "", "_blank" }),
                     P("text", "Text", ParamType.Text, "Link", ""),
                     P("bind", "Text from state", ParamType.Text, "", "(optional) a state name"),
+                    P("zh", "Chinese", ParamType.Text, "", "(optional) shown when the visitor's browser is Chinese"),
                     P("style", "Style", ParamType.Text, "", "inline CSS"),
                 },
                 SummaryParam = "text",
@@ -5037,6 +5042,7 @@ public static class NodeCatalog
                 Params = new[]
                 {
                     P("text", "Text", ParamType.Text, "Click me", ""),
+                    P("zh", "Chinese", ParamType.Text, "", "(optional) shown when the visitor's browser is Chinese"),
                     P("variant", "Variant", ParamType.Choice, "primary", "", new[] { "primary", "ghost", "outline", "plain" }),
                     P("event", "On event", ParamType.Choice, "click", "", new[] { "click" }),
                     P("action", "Action", ParamType.Text, "", "state.op  e.g. count.inc · step.set:2"),

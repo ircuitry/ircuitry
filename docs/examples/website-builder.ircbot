@@ -887,6 +887,7 @@
    "params": {
     "variant": "primary",
     "text": "Get in touch",
+    "zh": "\u8054\u7cfb\u6211\u4eec",
     "style": "margin-top:26px"
    }
   },
@@ -916,6 +917,7 @@
    "params": {
     "level": "2",
     "text": "What we do",
+    "zh": "\u6211\u4eec\u505a\u4ec0\u4e48",
     "style": "font-family:Georgia,serif;font-size:30px;color:var(--brand);margin:0 0 8px"
    }
   },
@@ -977,6 +979,7 @@
    "colorTag": -1,
    "params": {
     "text": "Made by {author} - built with ircuitry",
+    "zh": "\u7531 {author} \u5236\u4f5c\uff0c\u4f7f\u7528 ircuitry \u6784\u5efa",
     "style": "color:#fff;font-size:14px;opacity:.95"
    }
   },

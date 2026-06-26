@@ -56,6 +56,7 @@ public static class WebCodegen
         if (el.Bind != null) sb.Append(", bind: ").Append(JsStr(el.Bind));
         if (el.Model != null) sb.Append(", model: ").Append(JsStr(el.Model));
         if (el.Text != null) sb.Append(", text: ").Append(JsStr(el.Text));
+        if (el.Zh != null) sb.Append(", zh: ").Append(JsStr(el.Zh));
         if (el.Repeat != null) sb.Append(", repeat: { list: ").Append(JsStr(el.Repeat.List)).Append(", item: ").Append(JsStr(el.Repeat.Item)).Append(", key: ").Append(JsStr(el.Repeat.Key)).Append(" }");
         if (el.On.Count > 0) sb.Append(", on: { ").Append(string.Join(", ", el.On.Select(kv => JsStr(kv.Key) + ": { state: " + JsStr(kv.Value.State) + ", op: " + JsStr(kv.Value.Op) + ", arg: " + JsStr(kv.Value.Arg) + " }"))).Append(" }");
         if (el.Children.Count > 0)
@@ -73,6 +74,7 @@ public static class WebCodegen
     // attribute-value quote, so this verbatim string needs no escaping.
     private const string Interpreter = @"
 var Q = '\'';
+var ZH = (navigator.language || '').toLowerCase().indexOf('zh') === 0;
 var s = {};
 IR.states.forEach(function(st){
   s[st.name] = st.kind === 'number' ? (parseFloat(st.init) || 0)
@@ -95,7 +97,7 @@ function renderTag(n, scope, key){
   var inner = '';
   if (n.children && n.children.length) for (var i = 0; i < n.children.length; i++) inner += renderNode(n.children[i], scope);
   else if (n.bind) inner = esc(lookup(n.bind, scope));
-  else if (n.text != null) inner = esc(n.text);
+  else if (n.text != null) inner = esc(ZH && n.zh ? n.zh : n.text);
   return '<' + n.tag + attrs(n, scope, key) + '>' + inner + '</' + n.tag + '>';
 }
 function renderNode(n, scope){
@@ -137,6 +139,7 @@ render();
             sb.AppendLine("  const [" + s.Name + ", set" + Cap(s.Name) + "] = useState(" + JsLiteral(s) + ");");
         foreach (var f in app.Fetches)
             sb.AppendLine("  useEffect(() => { fetch('" + f.Url + "').then(r => r.json()).then(set" + Cap(f.Into) + ").catch(() => {}); }, []);");
+        if (HasZh(app.Root)) sb.AppendLine("  const __zh = (navigator.language || '').toLowerCase().indexOf('zh') === 0;   // ejected site auto-detects Chinese");
         sb.AppendLine("  return (");
         var jsx = new StringBuilder();
         RenderJsx(app.Root, jsx, 4, null, null);
@@ -169,6 +172,7 @@ render();
         if (el.Children.Count == 0)
         {
             if (el.Bind != null) sb.Append('{').Append(el.Bind).Append('}');
+            else if (el.Zh != null) sb.Append("{__zh ? ").Append(JsStr(el.Zh)).Append(" : ").Append(JsStr(el.Text ?? "")).Append('}');
             else if (el.Text != null) sb.Append(JsxText(el.Text));
             sb.Append("</").Append(el.Tag).Append(">\n");
         }
@@ -306,6 +310,7 @@ render();
 
     private static string Esc(string s) => (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
     private static string JsxText(string s) => (s ?? "").Replace("{", "{'{'}").Replace("}", "{'}'}");
+    private static bool HasZh(WebEl e) => e.Zh != null || e.Children.Exists(HasZh);
     private static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
     private static string Ident(string s) { var c = new string((s ?? "App").Where(char.IsLetterOrDigit).ToArray()); return c.Length == 0 ? "App" : (char.IsDigit(c[0]) ? "App" + c : Cap(c)); }
     private static string Slug(string s) { var c = new string((s ?? "app").ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-'); return c.Length == 0 ? "app" : c; }
