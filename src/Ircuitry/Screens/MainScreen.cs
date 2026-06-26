@@ -4856,7 +4856,24 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
     private static List<string> Wrap(DynamicSpriteFont f, string text, float maxW)
     {
+        text = Ircuitry.Core.Loc.T(text);   // translate the WHOLE string first, then wrap (a wrapped line never matches the table)
         var lines = new List<string>();
+        // Chinese has no spaces, so word-splitting can't wrap it - break per character when the text is CJK.
+        bool cjk = false;
+        foreach (var ch in text) if (ch >= '\u4e00' && ch <= '\u9fff') { cjk = true; break; }
+        if (cjk)
+        {
+            var line = "";
+            foreach (var ch in text)
+            {
+                if (ch == '\n') { lines.Add(line); line = ""; continue; }
+                string test = line + ch;
+                if (line.Length == 0 || f.MeasureString(Ircuitry.Render.Renderer.SafeText(test)).X <= maxW) line = test;
+                else { lines.Add(line); line = ch.ToString(); }
+            }
+            if (line.Length > 0) lines.Add(line);
+            return lines;
+        }
         var cur = "";
         foreach (var word in text.Split(' '))
         {

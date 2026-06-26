@@ -254,6 +254,7 @@ public sealed class Renderer
     /// <summary>Truncate text with an ellipsis so it fits within maxWidth.</summary>
     public string Ellipsize(DynamicSpriteFont font, string text, float maxWidth)
     {
+        text = Ircuitry.Core.Loc.T(text);   // translate before truncating, so the visible (translated) text is what gets ellipsized
         if (string.IsNullOrEmpty(text) || Measure(font, text).X <= maxWidth) return text;
         const string ell = "…";
         int lo = 0, hi = text.Length;

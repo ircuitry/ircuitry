@@ -116,12 +116,23 @@ public sealed class Tutorial
 
     private static List<string> Wrap(Renderer r, FontStashSharp.DynamicSpriteFont f, string text, float maxW)
     {
+        text = Ircuitry.Core.Loc.T(text);
         var lines = new List<string>();
+        bool cjk = false;
+        foreach (var ch in text) if (ch >= '\u4e00' && ch <= '\u9fff') { cjk = true; break; }
         foreach (var para in text.Split('\n'))
         {
-            var words = para.Split(' ');
             string cur = "";
-            foreach (var word in words)
+            if (cjk)
+            {
+                foreach (var ch in para)
+                {
+                    string trial = cur + ch;
+                    if (r.Measure(f, trial).X > maxW && cur.Length > 0) { lines.Add(cur); cur = ch.ToString(); }
+                    else cur = trial;
+                }
+            }
+            else foreach (var word in para.Split(' '))
             {
                 string trial = cur.Length == 0 ? word : cur + " " + word;
                 if (r.Measure(f, trial).X > maxW && cur.Length > 0) { lines.Add(cur); cur = word; }
