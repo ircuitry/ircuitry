@@ -21,6 +21,15 @@ public static class Loc
     public static bool Zh { get; private set; }
 
     private static Dictionary<string, string> _map = new(StringComparer.Ordinal);
+    // case-insensitive fallback: many labels are drawn UPPERCASED at render (e.g. "Cancel".ToUpperInvariant()
+    // -> "CANCEL") or are literal SECTION HEADERS, so one translation should serve every case variant.
+    private static Dictionary<string, string> _lower = new(StringComparer.Ordinal);
+
+    private static void Index()
+    {
+        _lower = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var kv in _map) _lower[kv.Key.ToLowerInvariant()] = kv.Value;   // last wins; fine for UI labels
+    }
 
     static Loc() => Detect();
 
@@ -44,13 +53,13 @@ public static class Loc
             var path = Path.Combine(assetsDir, "i18n", "zh.json");
             if (!File.Exists(path)) return;
             var d = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(path));
-            if (d != null) _map = new Dictionary<string, string>(d, StringComparer.Ordinal);
+            if (d != null) { _map = new Dictionary<string, string>(d, StringComparer.Ordinal); Index(); }
         }
         catch { /* keep English */ }
     }
 
     /// <summary>Replace the table directly (tests).</summary>
-    public static void LoadMap(Dictionary<string, string> map) => _map = new Dictionary<string, string>(map, StringComparer.Ordinal);
+    public static void LoadMap(Dictionary<string, string> map) { _map = new Dictionary<string, string>(map, StringComparer.Ordinal); Index(); }
 
     /// <summary>The number of loaded translations.</summary>
     public static int Count => _map.Count;
@@ -60,6 +69,8 @@ public static class Loc
     public static string T(string s)
     {
         if (!Zh || string.IsNullOrEmpty(s)) return s;
-        return _map.TryGetValue(s, out var z) ? z : s;
+        if (_map.TryGetValue(s, out var z)) return z;                       // exact
+        if (_lower.TryGetValue(s.ToLowerInvariant(), out var z2)) return z2; // any case variant (UPPER headers, ToUpper buttons)
+        return s;
     }
 }
