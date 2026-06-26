@@ -12,30 +12,30 @@
 </head>
 <body>
   <header class="bar">
-    <div class="brand"><img src="icon.png" alt="" onerror="this.style.display='none'"> ircuitry <span class="sub">cockpit</span></div>
+    <div class="brand"><img src="icon.png" alt="" onerror="this.style.display='none'"> ircuitry <span class="sub" data-i18n="cockpit">cockpit</span></div>
     <div class="conn" id="conn"><span class="dot" id="dot"></span><span id="connText">offline</span></div>
   </header>
 
   <main>
     <section id="login" class="card login" hidden>
-      <h1>Connect</h1>
-      <p class="muted">Enter the access token printed by <code>ircuitry --server</code>.</p>
-      <label>Access token</label>
-      <input id="token" type="password" placeholder="token" autocomplete="current-password">
-      <button id="loginBtn" class="btn primary">Connect</button>
+      <h1 data-i18n="Connect">Connect</h1>
+      <p class="muted" data-i18n-html="Enter the access token printed by <code>ircuitry --server</code>.">Enter the access token printed by <code>ircuitry --server</code>.</p>
+      <label data-i18n="Access token">Access token</label>
+      <input id="token" type="password" placeholder="token" data-i18n-ph="token" autocomplete="current-password">
+      <button id="loginBtn" class="btn primary" data-i18n="Connect">Connect</button>
       <p class="err" id="loginErr"></p>
     </section>
 
     <section id="dash" hidden>
       <div class="row">
-        <h2>Bots</h2>
+        <h2 data-i18n="Bots">Bots</h2>
         <span class="actions">
-          <button id="openApp" class="btn ghost small" title="Open this server in the ircuitry desktop app">Open in app</button>
-          <button id="logout" class="btn ghost small">Sign out</button>
+          <button id="openApp" class="btn ghost small" title="Open this server in the ircuitry desktop app" data-i18n="Open in app" data-i18n-title="Open this server in the ircuitry desktop app">Open in app</button>
+          <button id="logout" class="btn ghost small" data-i18n="Sign out">Sign out</button>
         </span>
       </div>
       <div id="bots" class="bots"></div>
-      <h2>Console</h2>
+      <h2 data-i18n="Console">Console</h2>
       <div id="console" class="console"></div>
     </section>
   </main>
