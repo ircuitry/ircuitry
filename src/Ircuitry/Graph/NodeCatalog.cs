@@ -5069,32 +5069,55 @@ public static class NodeCatalog
             new()
             {
                 TypeId = "web.eject", Icon = "export", Title = "Web Eject (React)", Subtitle = "web", Category = NodeCategory.Web,
-                Description = "Write the wired page out as a real, clean React + Vite project (idiomatic useState / handlers / bindings). Wire the same root element + states as Web Preview. Outputs the folder; then `npm install && npm run dev` (or build it in a Container node). No lock-in - it's your repo.",
+                Description = "Write the wired page out as a real, clean React + Vite project (idiomatic useState / handlers / bindings) with a run-it README. Wire the same root element + states as Web Preview. Output a folder, or a single .zip to hand off. No lock-in - it's your repo. Outputs the path written.",
                 Inputs = new[] { Ex(), Tx("root"), new PinDef("states", PinKind.Text, true), Tx("dir") },
-                Outputs = new[] { Ex("then"), Tx("dir") },
+                Outputs = new[] { Ex("then"), Tx("path") },
                 Params = new[]
                 {
                     P("name", "App name", ParamType.Text, "App", "the component + project name"),
-                    P("dir", "Folder", ParamType.Text, "~/ircuitry-web/my-app", "where to write the Vite project", file: true),
+                    P("author", "Author", ParamType.Text, "", "your name (goes in the README + package.json)"),
+                    P("zip", "Output", ParamType.Choice, "folder", "", new[] { "folder", "zip" }),
+                    P("dir", "Folder / zip path", ParamType.Text, "~/ircuitry-web/my-app", "where to write it", file: true),
                 },
                 SummaryParam = "name",
                 Exec = c =>
                 {
                     var app = WebGatherApp(c, 2, 1, c.Resolve(c.Param("name")));
+                    app.Author = c.Resolve(c.Param("author"));
+                    bool zip = c.Param("zip") == "zip";
                     string raw = c.InOr(3, c.Resolve(c.Param("dir")));
-                    if (raw.Trim().Length == 0) raw = "~/ircuitry-web/app";
-                    string dir = HostDir(raw);
+                    if (raw.Trim().Length == 0) raw = zip ? "~/ircuitry-web/app.zip" : "~/ircuitry-web/app";
+                    string outPath = HostDir(raw);
                     try
                     {
                         var files = Ircuitry.WebBuild.WebCodegen.ReactProject(app);
-                        foreach (var kv in files)
+                        if (zip)
                         {
-                            var path = System.IO.Path.Combine(dir, kv.Key);
-                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-                            System.IO.File.WriteAllText(path, kv.Value);
+                            if (!outPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) outPath += ".zip";
+                            string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ircuitry-eject-" + System.Guid.NewGuid().ToString("N"));
+                            foreach (var kv in files)
+                            {
+                                var p = System.IO.Path.Combine(tmp, kv.Key);
+                                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(p)!);
+                                System.IO.File.WriteAllText(p, kv.Value);
+                            }
+                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(outPath)!);
+                            if (System.IO.File.Exists(outPath)) System.IO.File.Delete(outPath);
+                            System.IO.Compression.ZipFile.CreateFromDirectory(tmp, outPath);
+                            try { System.IO.Directory.Delete(tmp, true); } catch { }
+                            c.Log("ejected a " + files.Count + "-file React project to " + outPath, LogLevel.System);
                         }
-                        c.Log("ejected " + files.Count + " files to " + dir + "  (cd there, then: npm install && npm run dev)", LogLevel.System);
-                        c.SetOut(1, dir);
+                        else
+                        {
+                            foreach (var kv in files)
+                            {
+                                var path = System.IO.Path.Combine(outPath, kv.Key);
+                                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+                                System.IO.File.WriteAllText(path, kv.Value);
+                            }
+                            c.Log("ejected " + files.Count + " files to " + outPath + "  (cd there, then: npm install && npm run dev)", LogLevel.System);
+                        }
+                        c.SetOut(1, outPath);
                     }
                     catch (Exception ex) { c.Log("Web Eject failed: " + ex.Message, LogLevel.Error); }
                     c.Pulse(0);

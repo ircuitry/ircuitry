@@ -4442,7 +4442,7 @@ public static class SelfTest
             var plus = N(g, "web.element", 1, 0); plus.SetParam("tag", "button"); plus.SetParam("text", "+1"); plus.SetParam("event", "click"); plus.SetParam("action", "count.inc");
             var label = N(g, "web.element", 1, 1); label.SetParam("tag", "h1"); label.SetParam("bind", "count");
             var root = N(g, "web.element", 2, 0); root.SetParam("tag", "div");
-            var eject = N(g, "web.eject", 3, 0); eject.SetParam("name", "Counter"); eject.SetParam("dir", tmp);
+            var eject = N(g, "web.eject", 3, 0); eject.SetParam("name", "Counter"); eject.SetParam("author", "Valware"); eject.SetParam("dir", tmp);
             g.Connect(plus.Id, 0, root.Id, 0); g.Connect(label.Id, 0, root.Id, 0);
             g.Connect(root.Id, 0, eject.Id, 1); g.Connect(count.Id, 0, eject.Id, 2);
 
@@ -4459,6 +4459,16 @@ public static class SelfTest
                 string src = System.IO.File.ReadAllText(jsx);
                 fails += Expect("web-eject-react", src.Contains("const [count, setCount] = useState(0)") && src.Contains("onClick={() => setCount(v => v + 1)}") && src.Contains("{count}"), $"idiomatic React emitted ({src.Length} chars)");
             }
+            string readme = System.IO.Path.Combine(tmp, "README.md");
+            fails += Expect("web-eject-readme", System.IO.File.Exists(readme) && System.IO.File.ReadAllText(readme).Contains("npm install") && System.IO.File.ReadAllText(readme).Contains("Valware"), "a run-it README is written, crediting the author");
+            if (System.IO.File.Exists(pkg)) fails += Expect("web-eject-author", System.IO.File.ReadAllText(pkg).Contains("\"author\": \"Valware\""), "package.json carries the author");
+
+            // zip output: a single .zip handoff
+            string zpath = System.IO.Path.Combine(tmp, "site.zip");
+            var ez = N(g, "web.eject", 3, 1); ez.SetParam("name", "Counter"); ez.SetParam("zip", "zip"); ez.SetParam("dir", zpath);
+            g.Connect(root.Id, 0, ez.Id, 1); g.Connect(count.Id, 0, ez.Id, 2);
+            GraphExecutor.Fire(g, new FakeSink(), ez, new Dictionary<string, string>());
+            fails += Expect("web-eject-zip", System.IO.File.Exists(zpath) && new System.IO.FileInfo(zpath).Length > 200, $"zip output writes a non-empty archive ({(System.IO.File.Exists(zpath) ? new System.IO.FileInfo(zpath).Length + "b" : "missing")})");
         }
         finally { try { System.IO.Directory.Delete(tmp, true); } catch { } }
         return fails;

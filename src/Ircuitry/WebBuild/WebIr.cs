@@ -14,6 +14,7 @@ namespace Ircuitry.WebBuild;
 public sealed class WebApp
 {
     public string Name = "App";
+    public string Author = "";                                // README + package.json author (web.eject)
     public string Description = "";                            // <meta name=description> (web.head)
     public string Favicon = "";                               // <link rel=icon> href (web.head)
     public string Lang = "en";                                // <html lang> (web.head)

@@ -223,9 +223,12 @@ render();
         return new Dictionary<string, string>
         {
             ["package.json"] = "{\n  \"name\": \"" + Slug(app.Name) + "\",\n  \"private\": true,\n  \"type\": \"module\",\n" +
+                (app.Description.Length > 0 ? "  \"description\": \"" + JsonStr(app.Description) + "\",\n" : "") +
+                (app.Author.Length > 0 ? "  \"author\": \"" + JsonStr(app.Author) + "\",\n" : "") +
                 "  \"scripts\": { \"dev\": \"vite\", \"build\": \"vite build\", \"preview\": \"vite preview\" },\n" +
                 "  \"dependencies\": { \"react\": \"^18.3.1\", \"react-dom\": \"^18.3.1\" },\n" +
                 "  \"devDependencies\": { \"@vitejs/plugin-react\": \"^4.3.1\", \"vite\": \"^5.4.0\" }\n}\n",
+            ["README.md"] = Readme(app),
             ["vite.config.js"] = "import react from '@vitejs/plugin-react';\nexport default { plugins: [react()], server: { host: true } };\n",
             ["index.html"] = "<!doctype html>\n<html lang=\"" + Esc(app.Lang.Length > 0 ? app.Lang : "en") + "\"><head><meta charset=\"utf-8\">\n" +
                 "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" + Esc(app.Name) + "</title>\n" +
@@ -241,6 +244,26 @@ render();
     }
 
     // ---------------- shared helpers ----------------
+    private static string JsonStr(string s) => (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", " ").Trim();
+
+    // the run-it README shipped with an eject (so a non-developer can get the site live)
+    private static string Readme(WebApp app)
+    {
+        var sb = new StringBuilder();
+        sb.Append("# ").Append(app.Name).Append("\n\n");
+        if (app.Description.Length > 0) sb.Append(app.Description).Append("\n\n");
+        if (app.Author.Length > 0) sb.Append("By **").Append(app.Author).Append("**.\n\n");
+        sb.Append("A plain React + Vite project built with [ircuitry](https://github.com/ircuitry/ircuitry). No lock-in - the code is yours.\n\n");
+        sb.Append("## Run it\n\n");
+        sb.Append("You need [Node.js](https://nodejs.org) (version 18 or newer). Then, in this folder:\n\n");
+        sb.Append("```bash\nnpm install\nnpm run dev\n```\n\n");
+        sb.Append("Open the URL it prints (usually http://localhost:5173). Edits hot-reload as you save.\n\n");
+        sb.Append("## Publish it\n\n");
+        sb.Append("```bash\nnpm run build\n```\n\n");
+        sb.Append("That writes a static site to `dist/` - drop it on Netlify, Vercel, GitHub Pages, or any web host.\n");
+        return sb.ToString();
+    }
+
     private static string JsLiteral(WebState s) => s.Kind switch
     {
         "string" => "\"" + Esc(s.Init).Replace("\"", "\\\"") + "\"",
