@@ -187,7 +187,7 @@ public partial class MainScreen
         float bw = 150, bh = 34, bx = panel.Right - pad - bw, by = panel.Bottom - bh - 8;
         if (_ui.Button("nb.save", new RectF(bx, by, bw, bh), _nbEditId.Length > 0 ? Ircuitry.Core.Icons.Glyph("cake") + "  SAVE" : Ircuitry.Core.Icons.Glyph("cake") + "  BAKE", Theme.Violet, primary: true, enabled: ok))
             NbSave(manifest);
-        if (_ui.Button("nb.submit", new RectF(bx - 10 - 110, by, 110, bh), "SUBMIT " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Berry, enabled: ok)) NbSubmit(manifest);
+        if (_ui.Button("nb.submit", new RectF(bx - 10 - 110, by, 110, bh), "SUBMIT", Theme.Berry, enabled: ok)) NbSubmit(manifest);
         if (_ui.Button("nb.export", new RectF(bx - 10 - 110 - 10 - 100, by, 100, bh), "EXPORT", Theme.Sky, enabled: ok)) NbExport(manifest);
         if (_ui.Button("nb.cancel", new RectF(cx, by, 90, bh), "CLOSE", Theme.Idle)) _nbOpen = false;
 
@@ -340,7 +340,7 @@ public partial class MainScreen
         string prefilled = $"https://github.com/ircuitry/community-nodes/new/main?filename={Uri.EscapeDataString(file)}&value={Uri.EscapeDataString(manifest)}";
         try
         {
-            if (prefilled.Length <= 7000) { Ircuitry.App.DeepLink.OpenUrl(prefilled); PushToast(Ircuitry.Core.Icons.Glyph("arrow-up-right") + " opening a GitHub PR for your node"); }
+            if (prefilled.Length <= 7000) { Ircuitry.App.DeepLink.OpenUrl(prefilled); PushToast("opening a GitHub PR for your node"); }
             else { try { Clipboard.SetText(manifest); } catch { } Ircuitry.App.DeepLink.OpenUrl("https://github.com/ircuitry/community-nodes/new/main"); PushToast("node copied - paste it into the GitHub editor"); }
         }
         catch (Exception ex) { _nbStatus = "submit failed: " + ex.Message; }

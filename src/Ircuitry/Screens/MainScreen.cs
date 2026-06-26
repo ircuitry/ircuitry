@@ -2184,7 +2184,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             y += 40;
         }
 
-        if (_ui.Button("imp.browse", new RectF(x, panel.Bottom - 46, 254, 32), Ircuitry.Core.Icons.Glyph("globe") + "  Browse community workflows " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Lime))
+        if (_ui.Button("imp.browse", new RectF(x, panel.Bottom - 46, 254, 32), Ircuitry.Core.Icons.Glyph("globe") + "  Browse community workflows", Theme.Lime))
             Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
         if (_ui.Button("imp.cancel", new RectF(panel.Right - 130, panel.Bottom - 46, 110, 32), "CANCEL", Theme.Idle))
             _importOpen = false;
@@ -2347,9 +2347,9 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         r.Begin(BlendMode.Alpha, content.ToRectangle());
         if (_ui.Button("palette.build", new RectF(x, footY, w, 30), Ircuitry.Core.Icons.Glyph("cake") + "  Bake a node…", Theme.Violet, primary: true))
             OpenNodeBuilder();
-        if (_ui.Button("palette.manage", new RectF(x, footY + 34, w, 30), customCount > 0 ? Ircuitry.Core.Icons.Glyph("puzzle-piece") + $"  Community nodes · {customCount}" : Ircuitry.Core.Icons.Glyph("puzzle-piece") + "  Community nodes", Theme.Berry))
+        if (_ui.Button("palette.manage", new RectF(x, footY + 34, w, 30), Ircuitry.Core.Icons.Glyph("puzzle-piece") + "  " + Ircuitry.Core.Loc.T("Community nodes") + (customCount > 0 ? $" · {customCount}" : ""), Theme.Berry))
             OpenNodeManager();
-        if (_ui.Button("palette.workflows", new RectF(x, footY + 68, w, 30), Ircuitry.Core.Icons.Glyph("robot") + "  Community workflows " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Sky))
+        if (_ui.Button("palette.workflows", new RectF(x, footY + 68, w, 30), Ircuitry.Core.Icons.Glyph("robot") + "  Community workflows", Theme.Sky))
             Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
         r.End();
 
@@ -2666,7 +2666,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         r.Begin();
         float bh = 30, by = top - 2, gap = 10, bx = panel.Right - 20;
-        bx -= 138; if (_ui.Button("nm.browse", new RectF(bx, by, 138, bh), Ircuitry.Core.Icons.Glyph("globe") + " Browse library " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Lime)) Ircuitry.App.DeepLink.OpenUrl(NodeLibraryUrl);
+        bx -= 138; if (_ui.Button("nm.browse", new RectF(bx, by, 138, bh), Ircuitry.Core.Icons.Glyph("globe") + " Browse library", Theme.Lime)) Ircuitry.App.DeepLink.OpenUrl(NodeLibraryUrl);
         // only offer clipboard install when an actual .ircnode manifest is sitting in the clipboard, and name it
         if (_clipNodeTitle != null)
         {
@@ -2981,7 +2981,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         r.Begin();
         var goR = new RectF(panel.Right - 22 - 150, panel.Bottom - 48, 150, 34);
         var laterR = new RectF(goR.X - 12 - 110, panel.Bottom - 48, 110, 34);
-        if (_ui.Button("up.changelog", new RectF(x, panel.Bottom - 48, 168, 34), Ircuitry.Core.Icons.Glyph("clipboard") + " Full changelog " + Ircuitry.Core.Icons.Glyph("arrow-up-right"), Theme.Idle))
+        if (_ui.Button("up.changelog", new RectF(x, panel.Bottom - 48, 168, 34), Ircuitry.Core.Icons.Glyph("clipboard") + " Full changelog", Theme.Idle))
             Ircuitry.App.DeepLink.OpenUrl($"https://github.com/{Ircuitry.App.AppInfo.Repo}/releases/tag/v{_upVer}");
         if (_ui.Button("up.later", laterR, "LATER", Theme.Idle)) _upPromptOpen = false;
         if (_ui.Button("up.go", goR, UpAuto ? Ircuitry.Core.Icons.Glyph("download-simple") + "  Update now" : Ircuitry.Core.Icons.Glyph("download-simple") + "  Download", Theme.Lime, primary: true)) StartUpdateDownload();
