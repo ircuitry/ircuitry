@@ -69,8 +69,24 @@ public static class Loc
     public static string T(string s)
     {
         if (!Zh || string.IsNullOrEmpty(s)) return s;
-        if (_map.TryGetValue(s, out var z)) return z;                       // exact
-        if (_lower.TryGetValue(s.ToLowerInvariant(), out var z2)) return z2; // any case variant (UPPER headers, ToUpper buttons)
+        var hit = Lookup(s);
+        if (hit != null) return hit;
+        // icon-prefixed labels: "<glyph><spaces>Label" (e.g. a button drawn as Icons.Glyph("cake") + "  Bake a
+        // node…"). Keep the leading glyph(s)+spaces, translate the remaining label, and recompose.
+        int j = 0;
+        while (j < s.Length && (s[j] == ' ' || (s[j] >= '\uE000' && s[j] <= '\uF8FF') || char.IsSurrogate(s[j]))) j++;
+        if (j > 0 && j < s.Length)
+        {
+            var rest = Lookup(s.Substring(j));
+            if (rest != null) return s.Substring(0, j) + rest;
+        }
         return s;
+    }
+
+    private static string? Lookup(string s)
+    {
+        if (_map.TryGetValue(s, out var z)) return z;                        // exact
+        if (_lower.TryGetValue(s.ToLowerInvariant(), out var z2)) return z2;  // any case variant
+        return null;
     }
 }

@@ -3963,6 +3963,7 @@ public static class SelfTest
             fails += Expect("loc-zh-detect", Ircuitry.Core.Loc.Zh, "zh_CN detected as Chinese");
             fails += Expect("loc-zh-translate", Ircuitry.Core.Loc.T("Run") == "运行" && Ircuitry.Core.Loc.T("Settings") == "设置", "known strings translate");
             fails += Expect("loc-zh-case", Ircuitry.Core.Loc.T("RUN") == "运行" && Ircuitry.Core.Loc.T("run") == "运行", "case variants resolve (UPPER headers, ToUpper buttons)");
+            fails += Expect("loc-zh-glyph", Ircuitry.Core.Loc.T("\uE000  Run") == "\uE000  运行", "icon-prefixed labels translate the text after the glyph");
             fails += Expect("loc-zh-fallback", Ircuitry.Core.Loc.T("Totally Unmapped") == "Totally Unmapped", "unknown strings fall back to English");
             fails += Expect("loc-render-hook", Ircuitry.Render.Renderer.SafeText("Run") == "运行", "the renderer SafeText choke point localizes");
 
