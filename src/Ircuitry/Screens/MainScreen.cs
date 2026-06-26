@@ -1493,6 +1493,96 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         _editor.Graph = g;
         _demoShotFit = true;
     }
+
+    /// <summary>
+    /// Build one of four hand-laid "showcase" graphs for the website's theme carousel - each shows off a
+    /// different pillar (a real website, an AI agent, an automation, a classic IRC bot) so cycling the
+    /// carousel's themes also cycles what ircuitry can build. Framed by FocusContent like the demo shot.
+    /// Drive with --showcase web|ai|auto|irc.
+    /// </summary>
+    public void DebugShowcase(string key)
+    {
+        var b = Bot;
+        var g = b.Graph;
+        g.Nodes.Clear(); g.Connections.Clear();
+        Node Add(string type, float x, float y) => g.Add(NodeCatalog.Get(type), new Vector2(x, y));
+
+        switch ((key ?? "").Trim().ToLowerInvariant())
+        {
+            case "web":   // a reactive page, built from nodes (mirrors the Web Counter example, themed for a rescue site)
+            {
+                var start = Add("event.start", 0, -40);
+                var prev = Add("web.preview", 320, -40);
+                prev.SetParam("window", "rescue"); prev.SetParam("title", "Rescue Dogs"); prev.SetParam("width", "360"); prev.SetParam("height", "340");
+                var state = Add("web.state", 0, 180); state.SetParam("name", "adopted"); state.SetParam("initial", "0"); state.SetParam("kind", "number");
+                var root = Add("web.element", 320, 180); root.SetParam("tag", "div"); root.SetParam("class", "app");
+                var hero = Add("web.element", 640, 60); hero.SetParam("tag", "h1"); hero.SetParam("text", "Adopt a Rescue Dog");
+                var btn = Add("web.element", 640, 180); btn.SetParam("tag", "button"); btn.SetParam("text", "Adopt one"); btn.SetParam("event", "click"); btn.SetParam("action", "adopted.inc");
+                var label = Add("web.element", 640, 300); label.SetParam("tag", "p"); label.SetParam("bind", "adopted");
+                g.Connect(start.Id, 0, prev.Id, 0);
+                g.Connect(root.Id, 0, prev.Id, 1);
+                g.Connect(state.Id, 0, prev.Id, 2);
+                g.Connect(hero.Id, 0, root.Id, 0);
+                g.Connect(btn.Id, 0, root.Id, 0);
+                g.Connect(label.Id, 0, root.Id, 0);
+                b.Name = "rescue-site";
+                break;
+            }
+            case "ai":   // an AI agent: a command asks the model (with a tool + memory) and the reply goes back
+            {
+                var cmd = Add("event.command", -380, -150); cmd.SetParam("command", "ask");
+                var ai = Add("ai.reply", -20, -150); ai.SetParam("prompt", "{args}");
+                var rep = Add("action.reply", 340, -150);
+                var tool = Add("ai.tool", -20, -340); tool.SetParam("name", "weather"); tool.SetParam("description", "look up the forecast");
+                var msg = Add("event.message", -380, 70);
+                var mem = Add("ai.memory", -20, 70);
+                g.Connect(cmd.Id, 0, ai.Id, 0); g.Connect(cmd.Id, 1, ai.Id, 1);
+                g.Connect(ai.Id, 0, rep.Id, 0); g.Connect(ai.Id, 1, rep.Id, 1);
+                g.Connect(tool.Id, 0, ai.Id, 2);
+                g.Connect(msg.Id, 0, mem.Id, 0); g.Connect(msg.Id, 1, mem.Id, 1);
+                b.Name = "ask-ai";
+                break;
+            }
+            case "auto":   // an automation: a schedule hits an API, and a webhook stores parsed JSON
+            {
+                var sched = Add("event.schedule", -380, -150);
+                var http = Add("net.http", -20, -150); http.SetParam("url", "https://api.thecatapi.com/v1/images/search");
+                var log = Add("action.log", 340, -150);
+                var hook = Add("event.webhook", -380, 90); hook.SetParam("path", "deploy-hook");
+                var json = Add("data.json", -20, 150); json.SetParam("path", "$.title");
+                var db = Add("db.set", 340, 90); db.SetParam("key", "last-payload");
+                g.Connect(sched.Id, 0, http.Id, 0);
+                g.Connect(http.Id, 0, log.Id, 0); g.Connect(http.Id, 1, log.Id, 1);
+                g.Connect(hook.Id, 1, json.Id, 0);
+                g.Connect(json.Id, 0, db.Id, 1);
+                g.Connect(hook.Id, 0, db.Id, 0);
+                b.Name = "automation";
+                break;
+            }
+            default:   // "irc": the classic bot - command, message filter, and a join greeter
+            {
+                var cmd = Add("event.command", -360, -150); cmd.SetParam("command", "ping");
+                var rep = Add("action.reply", -20, -150); rep.SetParam("message", "pong!");
+                var msg = Add("event.message", -360, 40);
+                var has = Add("filter.contains", -20, 40); has.SetParam("needle", "ircuitry");
+                var rep2 = Add("action.reply", 320, 20); rep2.SetParam("message", "you rang, {nick}?");
+                var join = Add("event.join", -360, 210);
+                var welcome = Add("action.reply", -20, 210); welcome.SetParam("message", "welcome to {channel}, {nick}!");
+                g.Connect(cmd.Id, 0, rep.Id, 0);
+                g.Connect(msg.Id, 0, has.Id, 0); g.Connect(msg.Id, 1, has.Id, 1);
+                g.Connect(has.Id, 0, rep2.Id, 0);
+                g.Connect(join.Id, 0, welcome.Id, 0);
+                b.Name = "my-bot"; b.Settings.Channels = "#ircuitry";
+                break;
+            }
+        }
+
+        b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true;
+        if (string.IsNullOrEmpty(b.Settings.Nick)) b.Settings.Nick = "ircuitry";
+        _editor.Graph = g;
+        _demoShotFit = true;
+    }
+
     /// <summary>Add a node the user chose (drag/quick-add/palette/install) and remember it as recently used.</summary>
     private Node SpawnNode(NodeDef def, Vector2 world)
     {
