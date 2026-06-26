@@ -126,7 +126,7 @@ public sealed class IrcClient
             var s = _stream;                 // re-read under the lock - RunLoop disposes it under the same lock
             if (s == null) return;
             try { s.Write(bytes, 0, bytes.Length); s.Flush(); }
-            catch (Exception ex) { Status?.Invoke("write failed: " + ex.Message, true); }
+            catch (Exception ex) { Status?.Invoke(Ircuitry.Core.Loc.T("write failed:") + " " + ex.Message, true); }
         }
     }
 
@@ -295,7 +295,7 @@ public sealed class IrcClient
             try { ConnectOnce(); }
             catch (Exception ex)
             {
-                if (!_quit) { State = IrcState.Error; Status?.Invoke("connection error: " + ex.Message, true); }
+                if (!_quit) { State = IrcState.Error; Status?.Invoke(Ircuitry.Core.Loc.T("connection error:") + " " + ex.Message, true); }
             }
             finally
             {
@@ -363,7 +363,7 @@ public sealed class IrcClient
             if (line.Length == 0) continue;
             RawIn?.Invoke(line);
             try { Handle(IrcParser.Parse(line)); }
-            catch (Exception ex) { Status?.Invoke("handler error: " + ex.Message, true); }
+            catch (Exception ex) { Status?.Invoke(Ircuitry.Core.Loc.T("handler error:") + " " + ex.Message, true); }
         }
     }
 
@@ -424,13 +424,13 @@ public sealed class IrcClient
         else if (sub.Equals("ACK", StringComparison.OrdinalIgnoreCase))
         {
             foreach (var c in m.Trailing.Split(' ', StringSplitOptions.RemoveEmptyEntries)) _enabled.Add(c);
-            Status?.Invoke("caps: " + string.Join(' ', _enabled), false);
+            Status?.Invoke(Ircuitry.Core.Loc.T("caps:") + " " + string.Join(' ', _enabled), false);
             if (_enabled.Contains("sasl", StringComparer.OrdinalIgnoreCase) && _cfg.UseSasl) StartSasl();
             else EndCap();
         }
         else if (sub.Equals("NAK", StringComparison.OrdinalIgnoreCase))
         {
-            Status?.Invoke("server refused caps: " + m.Trailing, false);
+            Status?.Invoke(Ircuitry.Core.Loc.T("server refused caps:") + " " + m.Trailing, false);
             EndCap();
         }
     }
@@ -525,7 +525,7 @@ public sealed class IrcClient
         }
         catch (Exception ex)
         {
-            Status?.Invoke("SASL " + _saslMech + " error: " + ex.Message, true);
+            Status?.Invoke("SASL " + _saslMech + " " + Ircuitry.Core.Loc.T("error:") + " " + ex.Message, true);
             SendNow("AUTHENTICATE *");                             // abort; the server replies 904 and we end CAP
         }
     }
@@ -587,7 +587,7 @@ public sealed class IrcClient
         }
         catch (Exception ex)
         {
-            Status?.Invoke("client certificate not loaded (" + ex.Message + ") - continuing without it", true);
+            Status?.Invoke(Ircuitry.Core.Loc.T("client certificate not loaded") + " (" + ex.Message + ") " + Ircuitry.Core.Loc.T("- continuing without it"), true);
             return null;
         }
     }
@@ -626,7 +626,7 @@ public sealed class IrcClient
                 if (_saslActive) { _saslActive = false; Status?.Invoke("SASL authenticated.", false); EndCap(); }
                 break;
             case 902: case 904: case 905: case 906: case 907: case 908:
-                if (_saslActive) { _saslActive = false; Status?.Invoke("SASL failed (" + num + "): " + m.Trailing, true); EndCap(); }
+                if (_saslActive) { _saslActive = false; Status?.Invoke(Ircuitry.Core.Loc.T("SASL failed") + " (" + num + "): " + m.Trailing, true); EndCap(); }
                 break;
         }
     }
