@@ -298,6 +298,7 @@ public static class SelfTest
         fails += PluginPowersTest();
         fails += AppBatchNodesTest();
         fails += WaveBNodesTest();
+        fails += LocTest();
         fails += PluginPanelTest();
         fails += PluginPanelResponsiveTest();
         fails += PluginDialogTest();
@@ -3940,6 +3941,38 @@ public static class SelfTest
         {
             Environment.SetEnvironmentVariable("IRCUITRY_HOME", oldHome);
             try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+        }
+        return fails;
+    }
+
+    /// <summary>Localization: English is a passthrough (even with a table loaded); a zh* locale translates known
+    /// strings and falls back to English for the rest; the renderer's SafeText choke point applies it.</summary>
+    private static int LocTest()
+    {
+        int fails = 0;
+        var saved = Environment.GetEnvironmentVariable("IRCUITRY_LANG");
+        try
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_LANG", "en_US.UTF-8");
+            Ircuitry.Core.Loc.Detect();
+            Ircuitry.Core.Loc.LoadMap(new Dictionary<string, string> { ["Run"] = "运行", ["Settings"] = "设置" });
+            fails += Expect("loc-en-default", !Ircuitry.Core.Loc.Zh && Ircuitry.Core.Loc.T("Run") == "Run", "English keeps the source string");
+
+            Environment.SetEnvironmentVariable("IRCUITRY_LANG", "zh_CN.UTF-8");
+            Ircuitry.Core.Loc.Detect();
+            fails += Expect("loc-zh-detect", Ircuitry.Core.Loc.Zh, "zh_CN detected as Chinese");
+            fails += Expect("loc-zh-translate", Ircuitry.Core.Loc.T("Run") == "运行" && Ircuitry.Core.Loc.T("Settings") == "设置", "known strings translate");
+            fails += Expect("loc-zh-fallback", Ircuitry.Core.Loc.T("Totally Unmapped") == "Totally Unmapped", "unknown strings fall back to English");
+            fails += Expect("loc-render-hook", Ircuitry.Render.Renderer.SafeText("Run") == "运行", "the renderer SafeText choke point localizes");
+
+            Environment.SetEnvironmentVariable("IRCUITRY_LANG", "zh-Hans");
+            Ircuitry.Core.Loc.Detect();
+            fails += Expect("loc-hans", Ircuitry.Core.Loc.Zh, "zh-Hans detected");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("IRCUITRY_LANG", saved);
+            Ircuitry.Core.Loc.Detect();
         }
         return fails;
     }

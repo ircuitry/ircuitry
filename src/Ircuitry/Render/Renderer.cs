@@ -282,6 +282,7 @@ public sealed class Renderer
     public static string SafeText(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
+        text = Ircuitry.Core.Loc.T(text);   // localize (no-op for English / untranslated strings) at the one draw+measure choke point
         for (int i = 0; i < text.Length; i++)
         {
             char c = text[i];

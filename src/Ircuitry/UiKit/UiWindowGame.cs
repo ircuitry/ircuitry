@@ -64,6 +64,7 @@ public sealed class UiWindowGame : Game
 
     protected override void LoadContent()
     {
+        Ircuitry.Core.Loc.LoadFromDir(Path.Combine(AppContext.BaseDirectory, "assets"));   // en->zh table (Chinese OS only)
         _fonts = new Fonts(Path.Combine(AppContext.BaseDirectory, "assets", "fonts"));
         _r = new Renderer(GraphicsDevice, _fonts);
         _screen = new UiWindowScreen(GraphicsDevice);

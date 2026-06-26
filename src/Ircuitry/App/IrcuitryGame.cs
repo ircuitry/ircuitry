@@ -92,6 +92,7 @@ public sealed class IrcuitryGame : Game
     protected override void LoadContent()
     {
         var fontDir = Path.Combine(AppContext.BaseDirectory, "assets", "fonts");
+        Ircuitry.Core.Loc.LoadFromDir(Path.Combine(AppContext.BaseDirectory, "assets"));   // en->zh table (Chinese OS only)
         _fonts = new Fonts(fontDir);
         _r = new Renderer(GraphicsDevice, _fonts);
         _app = new AppModel();

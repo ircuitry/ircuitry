@@ -23,6 +23,7 @@ public sealed class Fonts : IDisposable
 
     private readonly string _dir;
     private readonly byte[] _icons, _emoji;
+    private readonly byte[]? _cjk;   // Noto Sans SC fallback so Chinese (CJK) glyphs render in every face
     // kept so we can rebuild a face after a swap
     private readonly byte[] _ubuntuR, _ubuntuB, _monoR, _fredoka;
     private string _uiKey = "default", _displayKey = "default";   // current faces, so a no-op swap never rebuilds
@@ -42,6 +43,7 @@ public sealed class Fonts : IDisposable
         _ubuntuB = File.ReadAllBytes(Path.Combine(fontDir, "Ubuntu-B.ttf"));
         _monoR = File.ReadAllBytes(Path.Combine(fontDir, "UbuntuMono-R.ttf"));
         _fredoka = File.ReadAllBytes(Path.Combine(fontDir, "Fredoka.ttf"));
+        try { _cjk = File.ReadAllBytes(Path.Combine(fontDir, "NotoSansSC.ttf")); } catch { _cjk = null; }   // optional CJK fallback
 
         _sans = Build(_ubuntuR);
         _sansBold = Build(_ubuntuB);
@@ -54,6 +56,7 @@ public sealed class Fonts : IDisposable
     {
         var fs = new FontSystem();
         fs.AddFont(main);
+        if (_cjk != null) fs.AddFont(_cjk);   // Chinese glyphs fall back here when the main face lacks them
         fs.AddFont(_icons);
         fs.AddFont(_emoji);
         return fs;
