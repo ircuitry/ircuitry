@@ -1,4 +1,6 @@
 {
+"CIRCUIT NAME": "电路名称",
+"circuit name": "电路名称",
 "Delete circuit?": "删除电路？",
 "Run circuit": "运行电路",
 "Stop circuit": "停止电路",

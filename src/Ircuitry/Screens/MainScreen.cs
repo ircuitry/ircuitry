@@ -47,6 +47,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private float _consoleScroll;
     private float _inspScroll;        // inspector panel scroll (the connection panel can run long)
     private string _inspKey = "";     // what the inspector is showing, to reset scroll on change
+    private bool? _ircSectionOpen;    // inspector IRC-connection section: null = auto (open iff the circuit uses IRC)
     private string _nodeTestId = "", _nodeTestResult = "";   // last "test this node" result
     private string _paletteSearch = "";
     private float _clipCheckAt = -1f;     // throttle clipboard polling
@@ -1574,12 +1575,12 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 g.Connect(msg.Id, 0, has.Id, 0); g.Connect(msg.Id, 1, has.Id, 1);
                 g.Connect(has.Id, 0, rep2.Id, 0);
                 g.Connect(join.Id, 0, welcome.Id, 0);
-                b.Name = "my-bot"; b.Settings.Channels = "#ircuitry";
+                // only the IRC showcase configures a server, so the others read as non-IRC circuits
+                b.Name = "my-bot"; b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true; b.Settings.Channels = "#ircuitry";
                 break;
             }
         }
 
-        b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true;
         if (string.IsNullOrEmpty(b.Settings.Nick)) b.Settings.Nick = "ircuitry";
         _editor.Graph = g;
         _demoShotFit = true;
@@ -2446,22 +2447,14 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         // two community links pinned to the bottom of the panel (nodes open the in-app manager; workflows open the gallery)
         int customCount = NodeCatalog.Custom.Count;
-        bool devMode = Ircuitry.Core.NodePrefs.DevMode;
-        int footRows = devMode ? 3 : 2;
-        float footY = content.Bottom - footRows * 34;
+        float footY = content.Bottom - 102;
         r.Begin(BlendMode.Alpha, content.ToRectangle());
-        float fy = footY;
-        // "Bake a node" authors a composite node - a developer tool, surfaced only in Dev mode
-        if (devMode)
-        {
-            if (_ui.Button("palette.build", new RectF(x, fy, w, 30), Ircuitry.Core.Icons.Glyph("cake") + "  Bake a node…", Theme.Violet, primary: true))
-                OpenNodeBuilder();
-            fy += 34;
-        }
-        if (_ui.Button("palette.manage", new RectF(x, fy, w, 30), Ircuitry.Core.Icons.Glyph("puzzle-piece") + "  " + Ircuitry.Core.Loc.T("Community nodes") + (customCount > 0 ? $" · {customCount}" : ""), Theme.Berry))
+        // "Bake a node" turns selected nodes into a composite - a core building feature, always shown
+        if (_ui.Button("palette.build", new RectF(x, footY, w, 30), Ircuitry.Core.Icons.Glyph("cake") + "  Bake a node…", Theme.Violet, primary: true))
+            OpenNodeBuilder();
+        if (_ui.Button("palette.manage", new RectF(x, footY + 34, w, 30), Ircuitry.Core.Icons.Glyph("puzzle-piece") + "  " + Ircuitry.Core.Loc.T("Community nodes") + (customCount > 0 ? $" · {customCount}" : ""), Theme.Berry))
             OpenNodeManager();
-        fy += 34;
-        if (_ui.Button("palette.workflows", new RectF(x, fy, w, 30), Ircuitry.Core.Icons.Glyph("robot") + "  Community workflows", Theme.Sky))
+        if (_ui.Button("palette.workflows", new RectF(x, footY + 68, w, 30), Ircuitry.Core.Icons.Glyph("robot") + "  Community workflows", Theme.Sky))
             Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
         r.End();
 
@@ -3757,10 +3750,30 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         var s = Bot.Settings;
         float x = c.X + 14, w = c.W - 28, y = c.Y + 14;
 
-        y = Labeled(r, "BOT NAME", x, y);
-        var nm = _ui.TextField("c.name", new RectF(x, y, w, 30), Bot.Name, "bot name");
+        y = Labeled(r, "CIRCUIT NAME", x, y);
+        var nm = _ui.TextField("c.name", new RectF(x, y, w, 30), Bot.Name, "circuit name");
         if (nm != Bot.Name) { Bot.Name = string.IsNullOrWhiteSpace(nm) ? Bot.Name : nm; _app.MarkDirty(); }
-        y += 38;
+        y += 40;
+
+        // IRC is one capability, not the whole studio: the connection form lives in a section that is
+        // collapsed for non-IRC circuits (web / AI / automation) and opens when the circuit uses IRC.
+        bool ircOpen = _ircSectionOpen ?? CircuitUsesIrc();
+        {
+            var hdr = new RectF(x, y, w, 30);
+            bool hHover = hdr.Contains(In.Mouse) && c.Contains(In.Mouse);
+            r.RoundFill(hdr, Theme.Mix(Theme.PanelHi, Theme.Sky, hHover ? 0.26f : 0.14f), 9f);
+            r.RoundOutline(hdr, Theme.WithAlpha(Theme.Sky, 0.35f), 9f);
+            var hf = r.Fonts.Get(FontKind.SansBold, 13);
+            float hy = hdr.Center.Y - hf.MeasureString(Ircuitry.Render.Renderer.SafeText("M")).Y / 2f - 1;
+            r.Text(hf, Ircuitry.Core.Icons.Glyph(ircOpen ? "caret-down" : "caret-right"), new Vector2(hdr.X + 10, hy), Theme.WithAlpha(Theme.Text, 0.6f));
+            r.Text(hf, Ircuitry.Core.Icons.Glyph("broadcast") + "  IRC Connection", new Vector2(hdr.X + 28, hy), Theme.Text);
+            var (_, hsc) = ServerStatus(Bot.Runtime.FindConn(s.DisplayName));
+            Hud.SoftDot(r, new Vector2(hdr.Right - 16, hdr.Center.Y), 4f, hsc);
+            if (!Modal && In.LeftPressed && hHover) _ircSectionOpen = !ircOpen;
+            y += 38;
+        }
+        if (!ircOpen) return DrawCircuitRunButton(r, x, y, w);
+
         // reusable saved servers (the bots/servers/channels map lives globally in the title bar now)
         if (_ui.Button("c.servers", new RectF(x, y, w, 28), Ircuitry.Core.Icons.Glyph("broadcast") + " Servers", Theme.Sky)) { _serversOpen = true; _serversJustOpened = true; _serverSaveName = Bot.Name; }
         y += 40;
@@ -3878,12 +3891,38 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             y += 38;
         }
 
+        return DrawCircuitRunButton(r, x, y, w);
+    }
+
+    /// <summary>The RUN/STOP button at the foot of the inspector - shown for every circuit, IRC or not.</summary>
+    private float DrawCircuitRunButton(Renderer r, float x, float y, float w)
+    {
         bool runningNow = RunningOf(Bot);
         if (_ui.Button("c.run", new RectF(x, y, w, 34),
                 runningNow ? Ircuitry.Core.Icons.Glyph("square") + "  STOP" : (Bot.IsRemote ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ON SERVER" : Bot.Servers.Count > 1 ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ALL SERVERS" : Ircuitry.Core.Icons.Glyph("play") + "  RUN"),
                 runningNow ? Theme.Alert : Theme.Cyan, primary: true))
             ToggleRun();
         return y + 42;
+    }
+
+    /// <summary>True when a circuit actually talks to IRC: a server host is set, or it holds an IRC-category
+    /// node or a classic IRC trigger/action. Drives whether the inspector's IRC section opens by default.</summary>
+    private bool CircuitUsesIrc()
+    {
+        foreach (var sv in Bot.Servers) if (sv.Host.Length > 0) return true;
+        foreach (var n in Bot.Graph.Nodes)
+        {
+            if (NodeCatalog.TryGet(n.TypeId, out var def) && def.Category is NodeCategory.Irc or NodeCategory.Ircv3) return true;
+            switch (n.TypeId)
+            {
+                case "event.message": case "event.command": case "event.join": case "event.part":
+                case "event.kick": case "event.mode": case "event.nick": case "event.quit": case "event.invite":
+                case "action.reply": case "action.say": case "action.react": case "action.replythread":
+                case "action.join": case "action.part": case "action.tagmsg": case "action.redact":
+                    return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>Status label+colour for one server connection (or offline when it isn't live).</summary>
