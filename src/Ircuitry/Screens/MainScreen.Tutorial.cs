@@ -20,6 +20,15 @@ public sealed partial class MainScreen
 
     /// <summary>Called once by the host on first launch - runs only for users who've never seen it.</summary>
     public void MaybeAutostartTutorial() { if (!Tutorial.DoneOnDisk) { ResetTut(); _tut.Begin(); } }
+
+    /// <summary>On the very first launch, greet newcomers with the "what do you want to build?" picker
+    /// (which fills the seeded blank circuit) instead of the old IRC demo. The guided tour is one option in it.</summary>
+    public void MaybeShowStartingPoint()
+    {
+        if (Ircuitry.Core.NodePrefs.Welcomed) return;
+        Ircuitry.Core.NodePrefs.Welcomed = true;
+        _templateOpen = true; _templateJustOpened = true; _templateFirstRun = true;
+    }
     public void ForceStartTutorial() { ResetTut(); _tut.Begin(); }
 
     /// <summary>Debug/screenshot hook: jump to a step with the prerequisite nodes already built.</summary>
@@ -136,7 +145,7 @@ public sealed partial class MainScreen
             case 2:   // place reply
                 accent = Theme.Lime; spot = canvas;
                 title = "Add an action";
-                body = "Now the fun part - what the bot does. \"Send Reply\" answers right back in the channel. Add one next to your trigger.";
+                body = "Now the fun part - what your circuit does. \"Send Reply\" answers right back. Add one next to your trigger.";
                 prim = reply == null ? "+  Place 'Send Reply'" : "Next  " + Ircuitry.Core.Icons.Glyph("play");
                 break;
 
@@ -166,7 +175,7 @@ public sealed partial class MainScreen
                 TutSelect(reply);
                 bool wrote = reply != null && reply.GetParam("message").Trim().Length > 0;
                 title = "Write the reply";
-                body = "Pick the reply node and fill its \"Message\" field with what the bot should say. Try: hi there {nick} " + Ircuitry.Core.Icons.Glyph("sparkle") + "  ({nick} becomes who asked!)";
+                body = "Pick the reply node and fill its \"Message\" field with what your circuit should say. Try: hi there {nick} " + Ircuitry.Core.Icons.Glyph("sparkle") + "  ({nick} becomes who asked!)";
                 prim = wrote ? "Next  " + Ircuitry.Core.Icons.Glyph("play") : "Write a message first…";
                 sec = "Use a friendly one";
                 break;
@@ -174,22 +183,22 @@ public sealed partial class MainScreen
             case 6:   // test it
                 accent = Theme.Cyan; spot = TestButtonRect(); card = cardCenter;
                 title = "Try it out!";
-                body = "Moment of truth. Click " + Ircuitry.Core.Icons.Glyph("play") + " TEST up top - the message is already set to your command - then hit RUN and watch your bot reply. " + Ircuitry.Core.Icons.Glyph("confetti");
+                body = "Moment of truth. Click " + Ircuitry.Core.Icons.Glyph("play") + " TEST up top - the message is already set to your command - then hit RUN and watch your circuit reply. " + Ircuitry.Core.Icons.Glyph("confetti");
                 prim = "";   // they must click the real TEST button
                 if (_testRunSeq > _tutTestBaseline) { _tut.GoTo(Tutorial.Done); return; }
                 break;
 
             case Tutorial.Done:   // celebrate
                 accent = Theme.Lime; spot = null; card = cardCenter; confetti = true; showSkip = false;
-                title = Ircuitry.Core.Icons.Glyph("confetti") + "  You built a bot command!";
-                body = "When someone types your command, your bot replies - all wired up by you. Mix in AI, timers, files and more from the Node Library. Happy baking!";
+                title = Ircuitry.Core.Icons.Glyph("confetti") + "  You built your first circuit!";
+                body = "When someone types your command, your circuit replies - all wired up by you. Mix in AI, timers, files and more from the Node Library. Happy wiring!";
                 prim = "Finish  " + Ircuitry.Core.Icons.Glyph("balloon");
                 break;
 
             default:  // welcome (Step 0)
                 accent = Theme.Cyan; spot = null; card = cardCenter;
                 title = "Welcome to ircuitry!";
-                body = "Let's build your first bot command together - a friendly !hello that answers in chat. Takes about a minute, and you can skip anytime.";
+                body = "Let's build your first circuit together - a friendly command that answers back. Takes about a minute, and you can skip anytime.";
                 prim = "Let's go!  " + Ircuitry.Core.Icons.Glyph("play");
                 break;
         }

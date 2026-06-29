@@ -380,7 +380,7 @@ public sealed partial class MainScreen
         r.Begin();
         var f = r.Fonts.Get(FontKind.Mono, 11);
         int wins = IrcWindows(v).Count;
-        string foot = !v.Live && wins == 0 ? "read-only · start the bot to watch it live"
+        string foot = !v.Live && wins == 0 ? "read-only · start the circuit to watch it live"
             : $"read-only · {wins} window(s) · scroll to replay";
         r.Text(f, foot, new Vector2(win.X + 18, win.Bottom - 24), Theme.TextFaint);
         r.End();

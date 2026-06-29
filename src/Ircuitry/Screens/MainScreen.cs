@@ -268,6 +268,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
     // new-bot template picker
     private bool _templateOpen, _templateJustOpened;
+    private bool _templateFirstRun;   // first-launch picker: fills the active blank circuit instead of adding a tab
 
     // quick-add (double-click canvas)
     private bool _quickOpen, _quickJustOpened;
@@ -617,7 +618,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         "dialogs" => ("chat-circle-text", "Show toasts and popups"),
         "app-state" => ("info", "Read which bot is open"),
         "navigate" => ("arrow-line-right", "Switch between tabs"),
-        "control-bots" => ("play-circle", "Start and stop your bots"),
+        "control-bots" => ("play-circle", "Start and stop your circuits"),
         "edit-graph" => ("flow-arrow", "Add and change nodes in the open bot"),
         "run-commands" => ("terminal-window", "Run sandboxed shell commands"),
         "network" => ("globe", "Make network requests"),
@@ -1250,7 +1251,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), Ircuitry.Core.Icons.Glyph("robot") + "  " + _wfInstallName, new Vector2(x, y), Theme.Text); y += 26;
-        r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{_wfInstallNodes} node(s) · adds a new bot tab", new Vector2(x, y), Theme.TextDim); y += 22;
+        r.Text(r.Fonts.Get(FontKind.Mono, 11), $"{_wfInstallNodes} node(s) · adds a new circuit", new Vector2(x, y), Theme.TextDim); y += 22;
         if (_wfInstallDesc.Length > 0)
             foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 12), _wfInstallDesc, w).Take(2))
             { r.Text(r.Fonts.Get(FontKind.Sans, 12), line, new Vector2(x, y), Theme.TextDim); y += 16; }
@@ -1272,7 +1273,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         if (_ui.Button("wfinstall.go", goR, "INSTALL", Theme.Sky, primary: true))
         {
             var bot = _app.ImportText(_wfInstallText);
-            if (bot != null) { Bot.Log.Add(LogLevel.System, $"imported workflow “{bot.Name}” - set your server/nick/channels, then RUN BOT"); PushToast(Ircuitry.Core.Icons.Glyph("check") + $" {bot.Name} added as a new bot tab"); }
+            if (bot != null) { Bot.Log.Add(LogLevel.System, $"imported workflow “{bot.Name}” - press RUN (set a server/nick/channels first if it uses IRC)"); PushToast(Ircuitry.Core.Icons.Glyph("check") + $" {bot.Name} added as a new circuit"); }
             _wfInstallOpen = false;
         }
         if (In.LeftPressed && !panel.Contains(In.Mouse) && !_wfInstallJustOpened) _wfInstallOpen = false;
@@ -1344,6 +1345,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     // debug hooks for headless screenshots (set via CLI flags) ---------------
     public bool DebugAutoHistory, DebugAutoQuick;
     public void DebugOpenTemplate() { _templateOpen = true; _templateJustOpened = true; }
+    public void DebugFirstRun() { _templateOpen = true; _templateJustOpened = true; _templateFirstRun = true; }
     public void DebugOpenSecrets() { _secretsOpen = true; _secretsJustOpened = true; }
     public void DebugOpenTest() { _testOpen = true; _testJustOpened = true; RunTest(); }
     public void DebugOpenSaveNode() { _saveNodeName = "Greeting Macro"; _saveNodeOpen = true; _saveNodeJustOpened = true; }
@@ -2205,12 +2207,12 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         float pw = 480, ph = 190;
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
-        Hud.Panel(r, panel, "Delete bot?", Theme.Alert);
+        Hud.Panel(r, panel, "Delete circuit?", Theme.Alert);
 
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 18;
         r.Text(r.Fonts.Get(FontKind.SansBold, 16), $"Delete “{bot.Name}”?", new Vector2(x, y), Theme.Text);
         y += 26;
-        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), "This removes the bot's workflow, connection and variables. This can't be undone.", w))
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), "This removes the circuit's workflow, connection and variables. This can't be undone.", w))
         { r.Text(r.Fonts.Get(FontKind.Sans, 13), line, new Vector2(x, y), Theme.TextDim); y += 17; }
 
         var delRect = new RectF(panel.Right - 22 - 130, panel.Bottom - 50, 130, 34);
@@ -2320,10 +2322,10 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         Item("camera", "Save a snapshot", "", true, () => { _app.SaveSnapshot(); Notify(Ircuitry.Core.Icons.Glyph("camera") + " Snapshot saved"); });
         Item("arrow-bend-up-left", "Restore a snapshot…", "", _app.Snapshots().Length > 0, () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
         Sep();
-        Item("export", "Export this bot…", "Ctrl+E", true, () => { _app.ExportActive(); Notify(Ircuitry.Core.Icons.Glyph("export") + $" Exported {Bot.Name}"); });
-        Item("tray", "Import a bot…", "", true, () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
+        Item("export", "Export this circuit…", "Ctrl+E", true, () => { _app.ExportActive(); Notify(Ircuitry.Core.Icons.Glyph("export") + $" Exported {Bot.Name}"); });
+        Item("tray", "Import a circuit…", "", true, () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
         Sep();
-        Item("cake", "Bot Bakery (merge bots)…", "", _app.Bots.Count >= 2, OpenBakery);
+        Item("cake", "Merge circuits…", "", _app.Bots.Count >= 2, OpenBakery);
         Sep();
         Item("folder-open", "Show files", "", true, () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
         _ctxOpen = true; _ctxJustOpened = true;
@@ -2351,17 +2353,28 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         Item("target", "Frame selection", "F", hasNodes, () => _editor.FrameSelection(_l.Canvas));
         Item("grid-four", _editor.SnapToGrid ? "Snap to grid: on" : "Snap to grid: off", "", true, () => _editor.SnapToGrid = !_editor.SnapToGrid);
         Item("video-camera", _followCam ? "Follow the action: on" : "Follow the action: off", "", true, () => _followCam = !_followCam);
+        Item("code", Ircuitry.Core.NodePrefs.DevMode ? "Developer mode: on" : "Developer mode: off", "", true, () => { Ircuitry.Core.NodePrefs.DevMode = !Ircuitry.Core.NodePrefs.DevMode; Notify(Ircuitry.Core.Icons.Glyph("code") + (Ircuitry.Core.NodePrefs.DevMode ? " Developer mode on - plugin, UI and code nodes shown" : " Developer mode off")); });
         Sep();
         Item("graduation-cap", "Tutorial", "", true, ForceStartTutorial);
         Item("book-open", "Documentation", "F1", true, () => Ircuitry.App.DeepLink.OpenUrl(DocsUrl));
-        Sep();
-        foreach (var c in _plugins.Contributions("menu"))   // plugin-contributed menu items
+        // plugin-contributed menu items stay visible (the user installed them); the plugin-authoring
+        // tools (bundle / manager) are developer surfaces, gated behind Dev mode
+        var pluginMenu = _plugins.Contributions("menu").ToList();
+        bool devTools = Ircuitry.Core.NodePrefs.DevMode;
+        if (pluginMenu.Count > 0 || devTools)
         {
-            var cap = c;
-            Item(string.IsNullOrEmpty(cap.Icon) ? "puzzle-piece" : cap.Icon, cap.Label, "", true, () => _plugins.Activate(cap.PluginId, "menu", cap.Id));
+            Sep();
+            foreach (var c in pluginMenu)
+            {
+                var cap = c;
+                Item(string.IsNullOrEmpty(cap.Icon) ? "puzzle-piece" : cap.Icon, cap.Label, "", true, () => _plugins.Activate(cap.PluginId, "menu", cap.Id));
+            }
+            if (devTools)
+            {
+                Item("package", "Bundle this as a plugin…", "", Ircuitry.App.PluginBundle.LooksLikePlugin(Bot.Graph), BundleActivePlugin);
+                Item("puzzle-piece", "Plugins…", "", true, OpenPluginManager);
+            }
         }
-        Item("package", "Bundle this as a plugin…", "", Ircuitry.App.PluginBundle.LooksLikePlugin(Bot.Graph), BundleActivePlugin);
-        Item("puzzle-piece", "Plugins…", "", true, OpenPluginManager);
         _ctxOpen = true; _ctxJustOpened = true;
     }
 
@@ -2433,13 +2446,22 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         // two community links pinned to the bottom of the panel (nodes open the in-app manager; workflows open the gallery)
         int customCount = NodeCatalog.Custom.Count;
-        float footY = content.Bottom - 102;
+        bool devMode = Ircuitry.Core.NodePrefs.DevMode;
+        int footRows = devMode ? 3 : 2;
+        float footY = content.Bottom - footRows * 34;
         r.Begin(BlendMode.Alpha, content.ToRectangle());
-        if (_ui.Button("palette.build", new RectF(x, footY, w, 30), Ircuitry.Core.Icons.Glyph("cake") + "  Bake a node…", Theme.Violet, primary: true))
-            OpenNodeBuilder();
-        if (_ui.Button("palette.manage", new RectF(x, footY + 34, w, 30), Ircuitry.Core.Icons.Glyph("puzzle-piece") + "  " + Ircuitry.Core.Loc.T("Community nodes") + (customCount > 0 ? $" · {customCount}" : ""), Theme.Berry))
+        float fy = footY;
+        // "Bake a node" authors a composite node - a developer tool, surfaced only in Dev mode
+        if (devMode)
+        {
+            if (_ui.Button("palette.build", new RectF(x, fy, w, 30), Ircuitry.Core.Icons.Glyph("cake") + "  Bake a node…", Theme.Violet, primary: true))
+                OpenNodeBuilder();
+            fy += 34;
+        }
+        if (_ui.Button("palette.manage", new RectF(x, fy, w, 30), Ircuitry.Core.Icons.Glyph("puzzle-piece") + "  " + Ircuitry.Core.Loc.T("Community nodes") + (customCount > 0 ? $" · {customCount}" : ""), Theme.Berry))
             OpenNodeManager();
-        if (_ui.Button("palette.workflows", new RectF(x, footY + 68, w, 30), Ircuitry.Core.Icons.Glyph("robot") + "  Community workflows", Theme.Sky))
+        fy += 34;
+        if (_ui.Button("palette.workflows", new RectF(x, fy, w, 30), Ircuitry.Core.Icons.Glyph("robot") + "  Community workflows", Theme.Sky))
             Ircuitry.App.DeepLink.OpenUrl(WorkflowsUrl);
         r.End();
 
@@ -2488,6 +2510,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         foreach (var group in NodeCatalog.ByCategory())
         {
+            // developer-only categories (App / Plugins, UI, Code) are hidden unless Dev mode is on
+            if (Ircuitry.Core.NodePrefs.IsDevCategory(group.Key) && !Ircuitry.Core.NodePrefs.DevMode) continue;
             var matches = searching
                 ? group.Where(d => Has(d.Title, q) || Has(d.Subtitle, q) || Has(d.TypeId, q) || Has(d.Description, q)).ToList()
                 : group.ToList();
@@ -3664,7 +3688,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             bool known = Bot.Servers.Any(s => string.Equals(s.DisplayName, val, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(s.Label, val, StringComparison.OrdinalIgnoreCase) || string.Equals(s.Host, val, StringComparison.OrdinalIgnoreCase));
-            if (!known) return $"no server “{val}” on this bot (blank = reply on the origin server)";
+            if (!known) return $"no server “{val}” on this circuit (blank = reply on the origin server)";
         }
         return "";
     }
@@ -3856,7 +3880,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         bool runningNow = RunningOf(Bot);
         if (_ui.Button("c.run", new RectF(x, y, w, 34),
-                runningNow ? Ircuitry.Core.Icons.Glyph("square") + "  STOP BOT" : (Bot.IsRemote ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ON SERVER" : Bot.Servers.Count > 1 ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ALL SERVERS" : Ircuitry.Core.Icons.Glyph("play") + "  RUN BOT"),
+                runningNow ? Ircuitry.Core.Icons.Glyph("square") + "  STOP" : (Bot.IsRemote ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ON SERVER" : Bot.Servers.Count > 1 ? Ircuitry.Core.Icons.Glyph("play") + "  RUN ALL SERVERS" : Ircuitry.Core.Icons.Glyph("play") + "  RUN"),
                 runningNow ? Theme.Alert : Theme.Cyan, primary: true))
             ToggleRun();
         return y + 42;
@@ -3993,7 +4017,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         Hud.Panel(r, panel, "Saved servers", Theme.Sky);
         float x = panel.X + 20, w = panel.W - 40, y = panel.Y + Hud.HeaderH + 14;
         var list = Ircuitry.Core.Servers.All();
-        r.Text(r.Fonts.Get(FontKind.Sans, 12), list.Count == 0 ? "No saved servers yet. Save this bot's connection below to reuse it." : "Reuse a server across bots. Passwords stay in your secrets file.", new Vector2(x, y), Theme.TextDim);
+        r.Text(r.Fonts.Get(FontKind.Sans, 12), list.Count == 0 ? "No saved servers yet. Save this circuit's connection below to reuse it." : "Reuse a server across circuits. Passwords stay in your secrets file.", new Vector2(x, y), Theme.TextDim);
         y += 24;
 
         float saveY = panel.Bottom - 92;
@@ -4022,7 +4046,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         r.End();
 
         r.Begin();
-        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "SAVE THIS BOT'S CONNECTION", new Vector2(x, saveY), Theme.TextFaint);
+        r.Text(r.Fonts.Get(FontKind.SansBold, 11), "SAVE THIS CIRCUIT'S CONNECTION", new Vector2(x, saveY), Theme.TextFaint);
         _serverSaveName = _ui.TextField("sv.name", new RectF(x, saveY + 18, w - 120, 30), _serverSaveName, "server name");
         bool canSave = _serverSaveName.Trim().Length > 0 && Bot.Settings.Host.Length > 0;
         if (_ui.Button("sv.save", new RectF(x + w - 112, saveY + 18, 112, 30), Ircuitry.Core.Icons.Glyph("floppy-disk") + " Save", canSave ? Theme.Sky : Theme.Idle, primary: canSave) && canSave)
@@ -4088,7 +4112,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         if (servers.Count == 0)
         {
             r.Begin();
-            r.Text(r.Fonts.Get(FontKind.SansBold, 15), "No servers yet - add one from a bot's connection settings.", new Vector2(area.X, area.Y + 30), Theme.TextDim);
+            r.Text(r.Fonts.Get(FontKind.SansBold, 15), "No servers yet - add one from a circuit's connection settings.", new Vector2(area.X, area.Y + 30), Theme.TextDim);
             if (_ui.Button("nw.close", new RectF(panel.Right - 16 - 100, panel.Bottom - 44, 100, 32), "CLOSE", Theme.Cyan, primary: true)) _networkOpen = false;
             if (In.LeftPressed && !panel.Contains(In.Mouse) && !_networkJustOpened) _networkOpen = false;
             _networkJustOpened = false;
@@ -4116,7 +4140,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         r.Begin();
         var lf = r.Fonts.Get(FontKind.SansBold, 11);
-        r.Text(lf, "BOTS", new Vector2(botX + 2, labelY), Theme.TextDim);
+        r.Text(lf, "CIRCUITS", new Vector2(botX + 2, labelY), Theme.TextDim);
         r.Text(lf, "SERVERS", new Vector2(srvX + 2, labelY), Theme.TextDim);
         r.Text(lf, "CHANNELS", new Vector2(chanX + 2, labelY), Theme.TextDim);
         r.End();
@@ -4611,9 +4635,9 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         bool running = Bot.Runtime.Running, hasNodes = Bot.Graph.Nodes.Count > 0;
 
         A("floppy-disk", "Save workspace", "Ctrl+S", () => { _app.Save(); Notify(Ircuitry.Core.Icons.Glyph("floppy-disk") + " Workspace saved"); });
-        A(running ? "square" : "play", running ? "Stop bot" : "Run bot", "Ctrl+R", ToggleRun);
+        A(running ? "square" : "play", running ? "Stop circuit" : "Run circuit", "Ctrl+R", ToggleRun);
         bool remoteRunning = Bot.IsRemote && Bot.Remote?.Connected == true && Bot.Remote.BotRunning(Bot.RemoteName);
-        if (running) A("arrows-clockwise", "Apply changes to the live bot", "", () => Bot.Runtime.ApplyGraph(Bot.Graph));
+        if (running) A("arrows-clockwise", "Apply changes to the live circuit", "", () => Bot.Runtime.ApplyGraph(Bot.Graph));
         else if (remoteRunning) A("arrows-clockwise", "Apply changes to the live bot", "", () => ApplyRemote(Bot));
         A("test-tube", "Test (dry run)", "", () => { _testOpen = true; _testJustOpened = true; RunTest(); });
         A("ruler", "Tidy layout", "Ctrl+L", () => { if (hasNodes) { _editor.AutoLayout(); _editor.FocusContent(_l.Canvas); _app.MarkDirty(); } });
@@ -4627,14 +4651,15 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         A("map-trifold", "Network map", "", () => { _networkOpen = true; _networkJustOpened = true; });
         A("camera", "Save a snapshot", "", () => { _app.SaveSnapshot(); Notify(Ircuitry.Core.Icons.Glyph("camera") + " Snapshot saved"); });
         if (_app.Snapshots().Length > 0) A("arrow-bend-up-left", "Restore a snapshot", "", () => { _snapFiles = _app.Snapshots(); _snapOpen = true; _snapJustOpened = true; });
-        A("export", "Export this bot", "Ctrl+E", () => { _app.ExportActive(); Notify(Ircuitry.Core.Icons.Glyph("export") + $" Exported {Bot.Name}"); });
-        A("tray", "Import a bot", "", () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
+        A("export", "Export this circuit", "Ctrl+E", () => { _app.ExportActive(); Notify(Ircuitry.Core.Icons.Glyph("export") + $" Exported {Bot.Name}"); });
+        A("tray", "Import a circuit", "", () => { _importFiles = _app.Importable().ToArray(); _importOpen = true; _importJustOpened = true; });
         A("folder-open", "Show files", "", () => Ircuitry.App.DeepLink.OpenUrl(AppModel.WorkspaceDir));
         A("graduation-cap", "Tutorial", "", ForceStartTutorial);
 
         // every node: "Add <Title>", spawned at the centre of the visible map (not under a docked panel)
         foreach (var def in NodeCatalog.All)
         {
+            if (Ircuitry.Core.NodePrefs.IsDevCategory(def.Category) && !Ircuitry.Core.NodePrefs.DevMode) continue;
             var d = def;
             A(Ircuitry.Core.Icons.Glyph(d.Icon), "Add: " + d.Title, d.Category.ToString().ToLowerInvariant(), () =>
             {
@@ -4830,10 +4855,10 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         var (slabel, scol, _) = StatusInfo();
         Hud.SoftDot(r, new Vector2(16, bar.Center.Y), 3.5f, scol);
         r.Text(f, slabel, new Vector2(28, y), scol);
-        r.Text(f, Ircuitry.Core.Loc.T("BOTS") + $" {_app.Bots.Count}", new Vector2(210, y), Theme.TextDim);
-        r.Text(f, Ircuitry.Core.Loc.T("NODES") + $" {Bot.Graph.Nodes.Count}", new Vector2(294, y), Theme.TextDim);
-        r.Text(f, Ircuitry.Core.Loc.T("WIRES") + $" {Bot.Graph.Connections.Count}", new Vector2(384, y), Theme.TextDim);
-        r.Text(f, "ircuitry v" + Ircuitry.App.AppInfo.Version, new Vector2(478, y), Theme.TextFaint);
+        r.Text(f, Ircuitry.Core.Loc.T("CIRCUITS") + $" {_app.Bots.Count}", new Vector2(210, y), Theme.TextDim);
+        r.Text(f, Ircuitry.Core.Loc.T("NODES") + $" {Bot.Graph.Nodes.Count}", new Vector2(330, y), Theme.TextDim);
+        r.Text(f, Ircuitry.Core.Loc.T("WIRES") + $" {Bot.Graph.Connections.Count}", new Vector2(420, y), Theme.TextDim);
+        r.Text(f, "ircuitry v" + Ircuitry.App.AppInfo.Version, new Vector2(514, y), Theme.TextFaint);
 
         // flood send-queue gauge: warms green->red as the outgoing backlog grows toward an Excess Flood kill
         var rb = RemBot();   // remotely-hosted bot: use the server's live numbers, not this desktop's local zeros
@@ -4842,8 +4867,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             int depth = rb?.Queue ?? Bot.Runtime.OutQueueDepth;
             float p = Math.Clamp(depth / 12f, 0f, 1f);
             var fill = Theme.Mix(Theme.Ok, Theme.Alert, p);
-            r.Text(r.Fonts.Get(FontKind.Mono, 12), Ircuitry.Core.Icons.Glyph("paper-plane-tilt"), new Vector2(600, y), depth > 0 ? fill : Theme.TextFaint);
-            var gx = new RectF(620, bar.Center.Y - 5, 64, 10);
+            r.Text(r.Fonts.Get(FontKind.Mono, 12), Ircuitry.Core.Icons.Glyph("paper-plane-tilt"), new Vector2(636, y), depth > 0 ? fill : Theme.TextFaint);
+            var gx = new RectF(656, bar.Center.Y - 5, 64, 10);
             r.RoundFill(gx, Theme.PanelHi, 5f);
             float tw = depth > 8 ? 0.5f + 0.5f * clock.Sin01(3f) : 1f;   // twinkle a warning when it's near the limit
             r.RoundFill(new RectF(gx.X, gx.Y, gx.W * Math.Max(0.05f, p), gx.H), Theme.WithAlpha(fill, tw), 5f);
@@ -5002,7 +5027,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         {
             r.Begin();
             r.TextCenteredX(r.Fonts.Get(FontKind.SansBold, 16), "No runs recorded yet", panel.Center.X, panel.Center.Y - 18, Theme.TextDim);
-            r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 13), "Run the bot and trigger an event - every fire is captured here with its data.", panel.Center.X, panel.Center.Y + 8, Theme.TextFaint);
+            r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 13), "Run the circuit and trigger an event - every fire is captured here with its data.", panel.Center.X, panel.Center.Y + 8, Theme.TextFaint);
             r.End();
         }
         else { DrawHistoryList(r, listRect); DrawHistoryDetail(r, detailRect); }
@@ -5136,7 +5161,8 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         y += 38;
 
         var listRect = new RectF(x, y, w, panel.Bottom - 12 - y);
-        var matches = NodeCatalog.All.Where(d => QuickMatch(d, _quickSearch)).ToList();
+        var matches = NodeCatalog.All.Where(d => QuickMatch(d, _quickSearch)
+            && (Ircuitry.Core.NodePrefs.DevMode || !Ircuitry.Core.NodePrefs.IsDevCategory(d.Category))).ToList();
         const float rowH = 30f;
         float total = matches.Count * rowH;
         _quickScroll = ClampScroll("quickScroll", Wheel("quickScroll", _quickScroll, listRect), total, listRect.H);
@@ -5604,9 +5630,10 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         r.Begin();
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.45f));
         var tpl = AppModel.Templates;
-        float pw = 560, ph = 150 + tpl.Length * 66;
+        int rows = tpl.Length + (_templateFirstRun ? 1 : 0);   // first run adds a "guided tour" row
+        float pw = 560, ph = 150 + rows * 66;
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
-        Hud.Panel(r, panel, "New bot - pick a starter", Theme.Cyan);
+        Hud.Panel(r, panel, _templateFirstRun ? "What do you want to build?" : "New circuit - pick a starter", Theme.Cyan);
         r.End();
 
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 16;
@@ -5627,19 +5654,40 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             r.End();
             if (hover && In.LeftPressed && !_templateJustOpened)
             {
-                _app.AddBot(t.Key);
+                if (_templateFirstRun) { _app.ReplaceActiveWithTemplate(t.Key); _editor.FocusContent(_l.Canvas); }
+                else _app.AddBot(t.Key);
                 _editor.Selection.Clear();
-                _templateOpen = false;
+                _templateOpen = false; _templateFirstRun = false;
+            }
+            y += 66;
+        }
+
+        // first launch only: a guided-tour row that hands off to the tutorial
+        if (_templateFirstRun)
+        {
+            var row = new RectF(x, y, w, 58);
+            bool hover = row.Contains(In.Mouse);
+            r.Begin();
+            r.RoundFill(row, hover ? Theme.Mix(Theme.Panel, Theme.Lime, 0.18f) : Theme.PanelLo, 9);
+            r.RoundOutline(row, hover ? Theme.WithAlpha(Theme.Lime, 0.8f) : Theme.Edge, 9);
+            r.Text(icf, Ircuitry.Core.Icons.Glyph("graduation-cap"), new Vector2(row.X + 14, row.Y + 14), Theme.Lime);
+            r.Text(tf, "Guided tour", new Vector2(row.X + 58, row.Y + 10), Theme.Text);
+            r.Text(bf, "New here? Build your first circuit in a minute.", new Vector2(row.X + 58, row.Y + 32), Theme.TextDim);
+            r.End();
+            if (hover && In.LeftPressed && !_templateJustOpened)
+            {
+                _templateOpen = false; _templateFirstRun = false;
+                ForceStartTutorial();
             }
             y += 66;
         }
 
         r.Begin();
-        if (_ui.Button("tpl.cancel", new RectF(panel.Right - 22 - 110, panel.Bottom - 46, 110, 32), "CANCEL", Theme.Idle))
-            _templateOpen = false;
+        if (_ui.Button("tpl.cancel", new RectF(panel.Right - 22 - 110, panel.Bottom - 46, 110, 32), _templateFirstRun ? "START BLANK" : "CANCEL", Theme.Idle))
+        { _templateOpen = false; _templateFirstRun = false; }
         r.End();
 
-        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_templateJustOpened) _templateOpen = false;
+        if (In.LeftPressed && !panel.Contains(In.Mouse) && !_templateJustOpened) { _templateOpen = false; _templateFirstRun = false; }
         _templateJustOpened = false;
     }
 }

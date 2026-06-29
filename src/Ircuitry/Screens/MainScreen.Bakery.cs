@@ -66,7 +66,7 @@ public partial class MainScreen
         r.Fill(new RectF(0, 0, _vw, _vh), Theme.WithAlpha(Color.Black, 0.5f));
         float pw = Math.Min(760, _vw - 60), ph = Math.Min(640, _vh - 60);
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
-        Hud.Panel(r, panel, Ircuitry.Core.Icons.Glyph("cake") + "  Bot Bakery", Theme.Berry);
+        Hud.Panel(r, panel, Ircuitry.Core.Icons.Glyph("cake") + "  Merge circuits", Theme.Berry);
 
         float pad = 22, cx = panel.X + pad, cw = panel.W - 2 * pad;
         float y = panel.Y + Hud.HeaderH + 12;
@@ -74,7 +74,7 @@ public partial class MainScreen
         var lbl = r.Fonts.Get(FontKind.SansBold, 10);
         void Label(string t, float ly) => r.Text(lbl, t, new Vector2(cx, ly), Theme.TextDim);
 
-        r.Text(sans, "Pick two or more bots to merge into a brand-new one. Originals are left untouched.", new Vector2(cx, y), Theme.TextDim);
+        r.Text(sans, "Pick two or more circuits to merge into a brand-new one. Originals are left untouched.", new Vector2(cx, y), Theme.TextDim);
         y += 22;
 
         RefreshBakeConflicts();
@@ -107,7 +107,7 @@ public partial class MainScreen
             if (_bakeConf.Count == 0)
             {
                 r.RoundFill(new RectF(cx, y, cw, 30), Theme.WithAlpha(Theme.Ok, 0.14f), 8f);
-                r.Text(sans, Ircuitry.Core.Icons.Glyph("check") + " No command clashes - these bots merge cleanly.", new Vector2(cx + 10, y + 8), Theme.Text);
+                r.Text(sans, Ircuitry.Core.Icons.Glyph("check") + " No command clashes - these circuits merge cleanly.", new Vector2(cx + 10, y + 8), Theme.Text);
                 y += 40;
             }
             else
@@ -143,8 +143,8 @@ public partial class MainScreen
                 chx = ResBtn(r, $"bk.conn{oi}", ref y, chx, Trunc(_app.Bots[_bakeOrder[oi]].Name, 12), on, () => _bakeConn = oi, asRow: false);
             }
             y += 34;
-            Label("NEW BOT NAME", y); y += 16;
-            _bakeName = _ui.TextField("bk.name", new RectF(cx, y, cw - 170, 28), _bakeName, "Merged Bot");
+            Label("NEW CIRCUIT NAME", y); y += 16;
+            _bakeName = _ui.TextField("bk.name", new RectF(cx, y, cw - 170, 28), _bakeName, "Merged circuit");
         }
 
         // ---- footer ----
@@ -174,7 +174,7 @@ public partial class MainScreen
         var graphs = _bakeOrder.Select(i => _app.Bots[i].Graph).ToList();
         var merged = BotMerge.Merge(graphs, _bakeConf);
         var servers = _app.Bots[_bakeOrder[Math.Clamp(_bakeConn, 0, _bakeOrder.Count - 1)]].Servers;
-        string name = _bakeName.Trim().Length > 0 ? _bakeName.Trim() : "Merged Bot";
+        string name = _bakeName.Trim().Length > 0 ? _bakeName.Trim() : "Merged circuit";
         _bakeAnimName = name;
         _bakeFinish = () =>
         {
@@ -355,7 +355,7 @@ public partial class MainScreen
 
         // ---- caption ----
         r.Begin(BlendMode.Alpha);
-        string cap = popT > 0.5f ? $"{_bakeAnimName} is ready!" : "Baking your bot…";
+        string cap = popT > 0.5f ? $"{_bakeAnimName} is ready!" : "Merging your circuits…";
         r.TextCenteredX(r.Fonts.Get(FontKind.Display, 30), cap, cx, cy + 104f, Theme.WithAlpha(Theme.Text, a));
         // progress bar
         float barW = 220f, barH = 5f;

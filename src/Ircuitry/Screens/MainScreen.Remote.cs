@@ -255,7 +255,7 @@ public partial class MainScreen
     private void DrawBotsView(Renderer r, RectF panel, float x, float w, ref float y, ControlClient rc)
     {
         bool canCreate = rc.Role is "admin" or "editor";
-        _newBotName = _ui.TextField("rm.newbot", new RectF(x, y, w - 92, 30), _newBotName, "new bot name");
+        _newBotName = _ui.TextField("rm.newbot", new RectF(x, y, w - 92, 30), _newBotName, "new circuit name");
         if (_ui.Button("rm.newbtn", new RectF(panel.Right - 22 - 82, y, 82, 30), Ircuitry.Core.Icons.Glyph("plus") + " New", Theme.Ok, primary: true, enabled: canCreate && _newBotName.Trim().Length > 0))
         { var nm = _newBotName.Trim(); _newBotName = ""; rc.CreateBot(nm, _ => { rc.Snapshot(); OpenRemoteBotInEditor(rc, nm); }); }
         y += 40;
@@ -401,7 +401,7 @@ public partial class MainScreen
         var panel = new RectF((_vw - pw) / 2f, (_vh - ph) / 2f, pw, ph);
         Hud.Panel(r, panel, "Copy keys to the server?", Theme.Violet);
         float x = panel.X + 22, w = panel.W - 44, y = panel.Y + Hud.HeaderH + 14;
-        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), "This bot uses keys the server's vault doesn't have. Copy their values up (over the encrypted connection) so it can run there?", w))
+        foreach (var line in Wrap(r.Fonts.Get(FontKind.Sans, 13), "This circuit uses keys the server's vault doesn't have. Copy their values up (over the encrypted connection) so it can run there?", w))
         { r.Text(r.Fonts.Get(FontKind.Sans, 13), line, new Vector2(x, y), Theme.TextDim); y += 18; }
         y += 4;
         for (int i = 0; i < _secretCopy.Count && i < 6; i++) { r.Text(r.Fonts.Get(FontKind.SansBold, 12), Ircuitry.Core.Icons.Glyph("key") + "  " + _secretCopy[i], new Vector2(x + 6, y), Theme.Lime); y += 20; }

@@ -16,13 +16,24 @@ public static class NodePrefs
     {
         public List<string> favorites { get; set; } = new();
         public List<string> recents { get; set; } = new();
+        public bool devMode { get; set; } = false;
+        public bool welcomed { get; set; } = false;
     }
 
     private const int MaxRecents = 8;
     private static readonly object Gate = new();
     private static Store? _cache;
 
-    private static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry");
+    // Honour IRCUITRY_HOME (sandboxed/alternate/test workspaces) just like AppModel.WorkspaceDir, so
+    // per-user prefs (favourites, dev mode, first-run welcome) live alongside the workspace they belong to.
+    private static string Dir
+    {
+        get
+        {
+            var ov = Environment.GetEnvironmentVariable("IRCUITRY_HOME");
+            return !string.IsNullOrEmpty(ov) ? ov : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ircuitry");
+        }
+    }
     private static string FilePath => Path.Combine(Dir, "nodeprefs.json");
 
     private static Store Load()
@@ -66,5 +77,28 @@ public static class NodePrefs
         s.recents.Insert(0, typeId);
         while (s.recents.Count > MaxRecents) s.recents.RemoveAt(s.recents.Count - 1);
         Save();
+    }
+
+    /// <summary>
+    /// Developer mode: off by default. When off, advanced/developer node categories (App / Plugins, UI,
+    /// Code &amp; Dev) and the plugin-authoring tools (Bake a node, Plugins manager, Bundle as plugin) are
+    /// hidden from discovery so the app reads as a friendly visual studio. Existing graphs using those
+    /// nodes still load and run - we only gate where they're surfaced.
+    /// </summary>
+    public static bool DevMode
+    {
+        get => Load().devMode;
+        set { var s = Load(); if (s.devMode == value) return; s.devMode = value; Save(); }
+    }
+
+    /// <summary>True when this category should be hidden from the palette / add menus unless dev mode is on.</summary>
+    public static bool IsDevCategory(NodeCategory c) =>
+        c is NodeCategory.App or NodeCategory.Ui or NodeCategory.Code;
+
+    /// <summary>Set once the newcomer has seen the "what do you want to build?" picker, so it shows only on the very first launch.</summary>
+    public static bool Welcomed
+    {
+        get => Load().welcomed;
+        set { var s = Load(); if (s.welcomed == value) return; s.welcomed = value; Save(); }
     }
 }

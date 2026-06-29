@@ -114,7 +114,7 @@ public sealed class Splash
         float ty = cy + 132f - (1f - EaseOut(textP)) * 12f;
         r.TextCenteredX(r.Fonts.Get(FontKind.Display, 46), "ircuitry", cx, ty, Theme.WithAlpha(Theme.Text, a * textP));
         float tagP = Clamp01((t - 0.55f) / 0.45f);
-        r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 15), "·  IRCv3 Bot Bakery  ·", cx, ty + 58f, Theme.WithAlpha(Theme.TextDim, a * tagP));
+        r.TextCenteredX(r.Fonts.Get(FontKind.Sans, 15), "·  wire up anything  ·", cx, ty + 58f, Theme.WithAlpha(Theme.TextDim, a * tagP));
 
         float barW = 220f, barH = 5f;
         var track = new RectF(cx - barW / 2f, cy + 212f, barW, barH);

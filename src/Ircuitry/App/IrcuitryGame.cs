@@ -69,7 +69,7 @@ public sealed class IrcuitryGame : Game
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
         IsFixedTimeStep = false;
-        Window.Title = "ircuitry ~ * ~ IRCv3 Bot Bakery";
+        Window.Title = "ircuitry ~ * ~ wire up anything";
         Window.AllowUserResizing = true;
 
         for (int i = 0; i < args.Length; i++)
@@ -156,7 +156,7 @@ public sealed class IrcuitryGame : Game
         if (_shotPath == null || Array.IndexOf(_args, "--splash") >= 0) _splash = new Splash();
 
         // first-run onboarding (skipped in demo/screenshot modes); --tutorial forces it for capture
-        if (_shotPath == null && !_demo) ms?.MaybeAutostartTutorial();
+        if (_shotPath == null && !_demo) ms?.MaybeShowStartingPoint();
         if (_shotPath == null && !_demo) ms?.StartUpdateCheck();   // quietly check GitHub for a newer release
         // bring any "connect on app startup" servers online right away
         if (_shotPath == null && !_demo)
@@ -171,6 +171,7 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--showhistory") >= 0 && ms != null) ms.DebugAutoHistory = true;
         if (Array.IndexOf(_args, "--showquick") >= 0 && ms != null) ms.DebugAutoQuick = true;
         if (Array.IndexOf(_args, "--showtemplate") >= 0) ms?.DebugOpenTemplate();
+        if (Array.IndexOf(_args, "--showfirstrun") >= 0) ms?.DebugFirstRun();
         if (Array.IndexOf(_args, "--showsecrets") >= 0) ms?.DebugOpenSecrets();
         if (Array.IndexOf(_args, "--showtest") >= 0) ms?.DebugOpenTest();
         if (Array.IndexOf(_args, "--showctxnode") >= 0) ms?.DebugOpenContextMenu(true);
@@ -482,7 +483,7 @@ public sealed class IrcuitryGame : Game
             _ => rt.Running ? "STARTING" : "OFFLINE",
         };
         string title = $"ircuitry - {bot.Name}{(_app.Dirty ? " *" : "")}  ·  {status}  ·  {bot.Graph.Nodes.Count} nodes / {bot.Graph.Connections.Count} wires"
-                     + $"  ·  {_app.Bots.Count} bot{(_app.Bots.Count == 1 ? "" : "s")}";
+                     + $"  ·  {_app.Bots.Count} circuit{(_app.Bots.Count == 1 ? "" : "s")}";
         if (title != _lastTitle) { Window.Title = title; _lastTitle = title; }
     }
 

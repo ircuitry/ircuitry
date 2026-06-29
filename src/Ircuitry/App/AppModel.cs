@@ -102,7 +102,7 @@ public sealed class AppModel
         if (!TryLoad())
         {
             Bots.Add(SeedDemoBot());
-            ActiveBot.Log.Add(LogLevel.System, "ircuitry online. Build a workflow, set a connection, press RUN BOT.");
+            ActiveBot.Log.Add(LogLevel.System, "ircuitry online. Build a circuit and press RUN.");
         }
         else SecureCredentials();   // any plaintext left in a password field moves into the encrypted key store
     }
@@ -192,12 +192,12 @@ public sealed class AppModel
 
     public Bot AddBot(string template = "blank")
     {
-        var bot = new Bot($"bot-{Bots.Count + 1}");
-        bot.Settings.Nick = Ircuitry.Core.BakeryNames.Random();   // a fresh cozy default handle per bot
+        var bot = new Bot($"circuit-{Bots.Count + 1}");
+        bot.Settings.Nick = Ircuitry.Core.BakeryNames.Random();   // a fresh cozy default handle per circuit
         BuildTemplate(bot.Graph, template);
         bot.Log.Add(LogLevel.System, bot.Graph.Nodes.Count == 0
-            ? "New blank bot. Add an event node and a connection."
-            : $"New bot from “{template}” template - {bot.Graph.Nodes.Count} node(s) ready.");
+            ? "New blank circuit. Add an event node to get started."
+            : $"New circuit from “{template}” template - {bot.Graph.Nodes.Count} node(s) ready.");
         Bots.Add(bot);
         Active = Bots.Count - 1;
         Dirty = true;
@@ -209,7 +209,7 @@ public sealed class AppModel
     /// connection settings so the new bot is independent of its sources.</summary>
     public Bot AddBotFrom(string name, NodeGraph graph, System.Collections.Generic.IEnumerable<Ircuitry.Irc.IrcSettings>? servers = null)
     {
-        var bot = new Bot(name.Trim().Length > 0 ? name.Trim() : $"bot-{Bots.Count + 1}");
+        var bot = new Bot(name.Trim().Length > 0 ? name.Trim() : $"circuit-{Bots.Count + 1}");
         bot.Graph = graph;
         if (servers != null)
         {
@@ -225,14 +225,17 @@ public sealed class AppModel
         return bot;
     }
 
-    /// <summary>Starter workflows offered when creating a bot: (key, icon, label, blurb).</summary>
+    /// <summary>Starter circuits offered when creating one: (key, icon, label, blurb). Universal builds lead;
+    /// the IRC starters follow. The on-screen order here is the order shown in the picker.</summary>
     public static readonly (string Key, string Icon, string Label, string Blurb)[] Templates =
     {
-        ("blank",    Ircuitry.Core.Icons.Glyph("file"),        "Blank",        "Start from an empty canvas."),
-        ("pingpong", Ircuitry.Core.Icons.Glyph("ping-pong"),   "Ping-Pong",    "Classic !ping " + Ircuitry.Core.Icons.Glyph("arrow-right") + " pong command."),
-        ("greeter",  Ircuitry.Core.Icons.Glyph("hand-waving"), "Welcomer",     "Greet people when they join a channel."),
-        ("reactor",  Ircuitry.Core.Icons.Glyph("heart"),       "Auto-React",   "React with an emoji when a keyword appears."),
-        ("ai",       Ircuitry.Core.Icons.Glyph("robot"),       "AI Chatbot",   "Answer !ask questions with any OpenAI-compatible model."),
+        ("blank",      Ircuitry.Core.Icons.Glyph("file"),        "Blank",       "Start from an empty canvas."),
+        ("website",    Ircuitry.Core.Icons.Glyph("browser"),     "Website",     "A reactive page you can preview and eject as React."),
+        ("ai",         Ircuitry.Core.Icons.Glyph("robot"),       "AI Agent",    "Ask AI anything, with tools and memory."),
+        ("automation", Ircuitry.Core.Icons.Glyph("lightning"),   "Automation",  "On a schedule, call an API and log the result."),
+        ("pingpong",   Ircuitry.Core.Icons.Glyph("ping-pong"),   "IRC Bot",     "Classic !ping " + Ircuitry.Core.Icons.Glyph("arrow-right") + " pong command."),
+        ("greeter",    Ircuitry.Core.Icons.Glyph("hand-waving"), "Welcomer",    "Greet people when they join a channel."),
+        ("reactor",    Ircuitry.Core.Icons.Glyph("heart"),       "Auto-React",  "React when a keyword appears."),
     };
 
     private static void BuildTemplate(NodeGraph g, string template)
@@ -272,6 +275,35 @@ public sealed class AppModel
                 g.Connect(cmd.Id, 0, ai.Id, 0);     // exec
                 g.Connect(ai.Id, 0, reply.Id, 0);   // then reply exec
                 g.Connect(ai.Id, 1, reply.Id, 1);   // AI text reply message
+                break;
+            }
+            case "website":
+            {
+                // a reactive page assembled from nodes: state + an element tree feed a live web preview
+                var start = N("event.start", 0, -40);
+                var prev = N("web.preview", 320, -40); prev.SetParam("window", "page"); prev.SetParam("title", "My Page"); prev.SetParam("width", "380"); prev.SetParam("height", "320");
+                var state = N("web.state", 0, 170); state.SetParam("name", "count"); state.SetParam("initial", "0"); state.SetParam("kind", "number");
+                var root = N("web.element", 320, 170); root.SetParam("tag", "div"); root.SetParam("class", "app");
+                var hero = N("web.element", 640, 60); hero.SetParam("tag", "h1"); hero.SetParam("text", "Hello from ircuitry");
+                var btn = N("web.element", 640, 170); btn.SetParam("tag", "button"); btn.SetParam("text", "Click me"); btn.SetParam("event", "click"); btn.SetParam("action", "count.inc");
+                var label = N("web.element", 640, 280); label.SetParam("tag", "p"); label.SetParam("bind", "count");
+                g.Connect(start.Id, 0, prev.Id, 0);
+                g.Connect(root.Id, 0, prev.Id, 1);
+                g.Connect(state.Id, 0, prev.Id, 2);
+                g.Connect(hero.Id, 0, root.Id, 0);
+                g.Connect(btn.Id, 0, root.Id, 0);
+                g.Connect(label.Id, 0, root.Id, 0);
+                break;
+            }
+            case "automation":
+            {
+                // on a schedule, call a web API and log the response - no IRC needed
+                var sched = N("event.schedule", -360, -40);
+                var http = N("net.http", -20, -40); http.SetParam("url", "https://api.github.com/repos/ircuitry/ircuitry");
+                var log = N("action.log", 320, -40);
+                g.Connect(sched.Id, 0, http.Id, 0);
+                g.Connect(http.Id, 0, log.Id, 0);
+                g.Connect(http.Id, 1, log.Id, 1);
                 break;
             }
             // "blank" and anything unknown -> empty canvas
@@ -458,7 +490,7 @@ public sealed class AppModel
             _lastPersisted = text;
             Dirty = false;
             ActiveBot.Log.Add(LogLevel.System, keptLive > 0
-                ? Ircuitry.Core.Icons.Glyph("arrows-clockwise") + $" reloaded workspace from disk (external change; {keptLive} running bot(s) kept live - restart to apply)"
+                ? Ircuitry.Core.Icons.Glyph("arrows-clockwise") + $" reloaded workspace from disk (external change; {keptLive} running circuit(s) kept live - restart to apply)"
                 : Ircuitry.Core.Icons.Glyph("arrows-clockwise") + " reloaded workspace from disk (external change)");
             return true;
         }
@@ -530,31 +562,32 @@ public sealed class AppModel
             Active = active;
             NormalizeGroups();
             _lastPersisted = text;
-            ActiveBot.Log.Add(LogLevel.System, "loaded workspace - " + bots.Count + " bot(s).");
+            ActiveBot.Log.Add(LogLevel.System, "loaded workspace - " + bots.Count + " circuit(s).");
             return true;
         }
         catch { return false; }
     }
 
+    // First launch seeds a single blank circuit; the on-startup "what do you want to build?" picker
+    // (see MainScreen.MaybeShowStartingPoint) fills it in. No IRC demo is forced on newcomers anymore.
     private static Bot SeedDemoBot()
     {
-        var bot = new Bot("main");
+        var bot = new Bot("circuit-1");
         bot.Settings.Nick = Ircuitry.Core.BakeryNames.Random();
-        var g = bot.Graph;
-        Node N(string type, float x, float y) => g.Add(NodeCatalog.Get(type), new Vector2(x, y));
-
-        // chain 1: !ping -> pong
-        var cmd = N("event.command", -300, -150); cmd.SetParam("command", "ping");
-        var reply = N("action.reply", 40, -150); reply.SetParam("message", "pong! \U0001F3D3");   // intentional unicode (ping-pong)
-        g.Connect(cmd.Id, 0, reply.Id, 0);
-
-        // chain 2: message contains 'ircuitry' -> reply with the nick
-        var msg = N("event.message", -300, 90);
-        var contains = N("filter.contains", 40, 90); contains.SetParam("needle", "ircuitry");
-        var reply2 = N("action.reply", 360, 70); reply2.SetParam("message", "you rang, {nick}? \U0001F44B");   // intentional unicode (waving hand)
-        g.Connect(msg.Id, 0, contains.Id, 0);
-        g.Connect(msg.Id, 1, contains.Id, 1);
-        g.Connect(contains.Id, 0, reply2.Id, 0);
         return bot;
+    }
+
+    /// <summary>Build a starter template into the ACTIVE circuit's (empty) graph - used by the first-run
+    /// picker so picking a starter fills the existing blank tab instead of spawning a second one.</summary>
+    public void ReplaceActiveWithTemplate(string key)
+    {
+        var bot = ActiveBot;
+        bot.Graph.Nodes.Clear();
+        bot.Graph.Connections.Clear();
+        BuildTemplate(bot.Graph, key);
+        bot.Log.Add(LogLevel.System, bot.Graph.Nodes.Count == 0
+            ? "Blank circuit. Add an event node to get started."
+            : $"Started from the “{key}” template - {bot.Graph.Nodes.Count} node(s) ready.");
+        Dirty = true;
     }
 }
