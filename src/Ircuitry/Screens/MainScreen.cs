@@ -48,6 +48,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     private float _inspScroll;        // inspector panel scroll (the connection panel can run long)
     private string _inspKey = "";     // what the inspector is showing, to reset scroll on change
     private bool? _ircSectionOpen;    // inspector IRC-connection section: null = auto (open iff the circuit uses IRC)
+    private object? _ircSectionBot;   // which circuit the override belongs to, so it resets when you switch circuits
     private string _nodeTestId = "", _nodeTestResult = "";   // last "test this node" result
     private string _paletteSearch = "";
     private float _clipCheckAt = -1f;     // throttle clipboard polling
@@ -1654,7 +1655,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 else if (_pluginSettingsOpen && !_secretPickOpen) _pluginSettingsOpen = false;   // (the key picker, if up, closes first)
                 else if (_appearanceOpen) CloseAppearance();
                 else if (_themeInstallOpen) CancelThemeInstall();
-                else { _pluginInstallOpen = false; _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; _timelineOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
+                else { _pluginInstallOpen = false; _importOpen = false; _confirmDeleteBot = null; _historyOpen = false; _quickOpen = false; _templateOpen = false; _templateFirstRun = false; _closePromptOpen = false; _secretsOpen = false; _testOpen = false; _ctxOpen = false; _saveNodeOpen = false; _installOpen = false; _wfInstallOpen = false; _uninstallOpen = false; _nodeMgrOpen = false; _secretPickOpen = false; _serversOpen = false; _networkOpen = false; _achOpen = false; _snapOpen = false; _serverLinkOpen = false; _nbOpen = false; _cmdkOpen = false; _ircWinOpen = false; _remoteOpen = false; _evalOpen = false; _fleetOpen = false; _timelineOpen = false; if (_upState != UpState.Downloading && _upState != UpState.Applying) _upPromptOpen = false; }
             }
         }
         else if (_renamingBot != null)
@@ -3757,6 +3758,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         // IRC is one capability, not the whole studio: the connection form lives in a section that is
         // collapsed for non-IRC circuits (web / AI / automation) and opens when the circuit uses IRC.
+        if (!ReferenceEquals(_ircSectionBot, Bot)) { _ircSectionBot = Bot; _ircSectionOpen = null; }   // each circuit keeps its own expand state
         bool ircOpen = _ircSectionOpen ?? CircuitUsesIrc();
         {
             var hdr = new RectF(x, y, w, 30);

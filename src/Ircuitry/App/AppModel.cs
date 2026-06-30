@@ -96,12 +96,17 @@ public sealed class AppModel
     public string WorkspacePath => Path.Combine(WorkspaceDir, "workspace.ircuitry");
     public string ProjectName => "workspace.ircuitry";
 
+    /// <summary>True only when this launch started from an empty workspace (a brand-new user). Drives the
+    /// first-run "what do you want to build?" picker, so it never touches an existing user's circuits.</summary>
+    public bool SeededFresh { get; private set; }
+
     public AppModel()
     {
         MigrateLegacyData();
         if (!TryLoad())
         {
             Bots.Add(SeedDemoBot());
+            SeededFresh = true;
             ActiveBot.Log.Add(LogLevel.System, "ircuitry online. Build a circuit and press RUN.");
         }
         else SecureCredentials();   // any plaintext left in a password field moves into the encrypted key store

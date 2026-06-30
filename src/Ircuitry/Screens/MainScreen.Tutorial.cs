@@ -25,7 +25,8 @@ public sealed partial class MainScreen
     /// (which fills the seeded blank circuit) instead of the old IRC demo. The guided tour is one option in it.</summary>
     public void MaybeShowStartingPoint()
     {
-        if (Ircuitry.Core.NodePrefs.Welcomed) return;
+        // only for a brand-new user (freshly seeded, blank workspace) - never overwrite existing circuits
+        if (Ircuitry.Core.NodePrefs.Welcomed || !_app.SeededFresh) return;
         Ircuitry.Core.NodePrefs.Welcomed = true;
         _templateOpen = true; _templateJustOpened = true; _templateFirstRun = true;
     }
