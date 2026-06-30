@@ -116,7 +116,6 @@ public sealed class IrcuitryGame : Game
         if (_initialDeepLink != null) _deepLinks.Enqueue(_initialDeepLink);
 
         UpdateViewport();
-        if (_demo) StartDemo();
         var ms = _screen as MainScreen;
 
         // custom client-side title bar: drop the OS frame and draw our own (Linux/Windows). macOS keeps its
@@ -152,8 +151,8 @@ public sealed class IrcuitryGame : Game
             TrayIcon.Start();
         }
 
-        // flashy startup splash in interactive runs; suppressed for screenshots unless --splash is passed
-        if (_shotPath == null || Array.IndexOf(_args, "--splash") >= 0) _splash = new Splash();
+        // flashy startup splash in interactive runs; suppressed for screenshots, and for --nosplash (video capture)
+        if ((_shotPath == null || Array.IndexOf(_args, "--splash") >= 0) && Array.IndexOf(_args, "--nosplash") < 0) _splash = new Splash();
 
         // first-run onboarding (skipped in demo/screenshot modes); --tutorial forces it for capture
         if (_shotPath == null && !_demo) ms?.MaybeShowStartingPoint();
@@ -191,6 +190,11 @@ public sealed class IrcuitryGame : Game
         if (Array.IndexOf(_args, "--demoshot") >= 0) ms?.DebugDemoShot();
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--showcase") ms?.DebugShowcase(_args[i + 1]);
+        for (int i = 0; i < _args.Length - 1; i++)
+            if (_args[i] == "--loadbot") ms?.DebugLoadBot(_args[i + 1]);
+        if (Array.IndexOf(_args, "--follow") >= 0) ms?.DebugFollowCam();
+        // run the demo AFTER the graph is built (--showcase/--loadbot), so a live run executes that graph
+        if (_demo) StartDemo();
         if (Array.IndexOf(_args, "--showsecretpick") >= 0) ms?.DebugOpenSecretPick();
         if (Array.IndexOf(_args, "--showservers") >= 0) ms?.DebugShowServers();
         if (Array.IndexOf(_args, "--shownetwork") >= 0) ms?.DebugShowNetwork();
@@ -226,24 +230,59 @@ public sealed class IrcuitryGame : Game
 
     private void StartDemo()
     {
-        var script = new (int, string)[]
-        {
-            (90, ":alice!a@h PRIVMSG #ircuitry-test :!ping"),
-            (1100, ":bob!b@h PRIVMSG #ircuitry-test :hey ircuitry, you around?"),
-            (1200, ":carol!c@h PRIVMSG #ircuitry-test :lol nice bot"),
-            (1100, ":dave!d@h PRIVMSG #ircuitry-test :!ping"),
-            (1000, ":erin!e@h JOIN #ircuitry-test"),
-            (900, ":erin!e@h PRIVMSG #ircuitry-test :ircuitry rules"),
-        };
-        _mock = new MockIrcServer(script);
+        _mock = new MockIrcServer(BuildDemoScript());
         Console.WriteLine($"ircuitry_DEMO mock server on 127.0.0.1:{_mock.Port}");
         var bot = _app.ActiveBot;
+        // the first-run seed is a blank circuit now; give the demo something to react to so the live run
+        // shows wires firing (only when the active circuit is empty - never clobber a real graph)
+        if (bot.Graph.Nodes.Count == 0)
+        {
+            var g = bot.Graph;
+            Ircuitry.Graph.Node N(string t, float x, float y) => g.Add(Ircuitry.Graph.NodeCatalog.Get(t), new Microsoft.Xna.Framework.Vector2(x, y));
+            var cmd = N("event.command", -300, -150); cmd.SetParam("command", "ping");
+            var rep = N("action.reply", 60, -150); rep.SetParam("message", "pong!");
+            g.Connect(cmd.Id, 0, rep.Id, 0);
+            var msg = N("event.message", -300, 60);
+            var has = N("filter.contains", 40, 60); has.SetParam("needle", "ircuitry");
+            var rep2 = N("action.reply", 360, 40); rep2.SetParam("message", "you rang, {nick}?");
+            g.Connect(msg.Id, 0, has.Id, 0); g.Connect(msg.Id, 1, has.Id, 1); g.Connect(has.Id, 0, rep2.Id, 0);
+            var join = N("event.join", -300, 230);
+            var wel = N("action.reply", 60, 230); wel.SetParam("message", "welcome to {channel}, {nick}!");
+            g.Connect(join.Id, 0, wel.Id, 0);
+        }
         bot.Settings.Host = "127.0.0.1";
         bot.Settings.Port = _mock.Port;
         bot.Settings.UseTls = false;
         bot.Settings.Nick = "ircuitry";
         bot.Settings.Channels = "#ircuitry-test";
         bot.Runtime.Start(bot.Graph, bot.Settings);
+    }
+
+    // A long, dense conversation so a live demo keeps firing for ~16s - a steady stream of commands,
+    // keyword hits and joins so nodes glow and wires pulse continuously through any capture window.
+    // Deterministic (no RNG): cycles fixed nicks/lines. Commands cover the showcase + mega demo graphs.
+    private static (int, string)[] BuildDemoScript()
+    {
+        var nicks = new[] { "alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi", "ivan", "judy", "mallory", "trent" };
+        var lines = new[]
+        {
+            "!ping", "ircuitry you around?", "!hello", "lol nice bot", "!roll", "ircuitry rules",
+            "!weather london", "!time", "this bot is cool", "!ping", "!8ball will it work",
+            "ircuitry is alive", "!joke", "!hello there", "gg", "!ping", "!quote", "wow ircuitry",
+        };
+        var script = new List<(int, string)>();
+        int n = 0;
+        for (int round = 0; round < 7; round++)
+        {
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var nick = nicks[n % nicks.Length];
+                if (n % 7 == 3) script.Add((150, $":{nicks[(n + 5) % nicks.Length]}!u@h JOIN #ircuitry-test"));
+                script.Add((220, $":{nick}!u@h PRIVMSG #ircuitry-test :{lines[i]}"));
+                n++;
+            }
+        }
+        return script.ToArray();
     }
 
     private int _trayTick;

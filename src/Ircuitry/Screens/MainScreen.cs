@@ -1348,6 +1348,20 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
     public bool DebugAutoHistory, DebugAutoQuick;
     public void DebugOpenTemplate() { _templateOpen = true; _templateJustOpened = true; }
     public void DebugFirstRun() { _templateOpen = true; _templateJustOpened = true; _templateFirstRun = true; }
+    /// <summary>Load a graph from a .ircbot/.ircflow file into the active circuit and frame it (for demos/video).</summary>
+    public void DebugLoadBot(string path)
+    {
+        try
+        {
+            var (g, name) = Ircuitry.Graph.GraphSerializer.Load(System.IO.File.ReadAllText(path));
+            var b = Bot;
+            b.Graph = g;
+            if (!string.IsNullOrWhiteSpace(name)) b.Name = name;
+            _editor.Graph = g;
+            _demoShotFit = true;
+        }
+        catch { }
+    }
     public void DebugOpenSecrets() { _secretsOpen = true; _secretsJustOpened = true; }
     public void DebugOpenTest() { _testOpen = true; _testJustOpened = true; RunTest(); }
     public void DebugOpenSaveNode() { _saveNodeName = "Greeting Macro"; _saveNodeOpen = true; _saveNodeJustOpened = true; }
@@ -1561,6 +1575,33 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 g.Connect(json.Id, 0, db.Id, 1);
                 g.Connect(hook.Id, 0, db.Id, 0);
                 b.Name = "automation";
+                break;
+            }
+            case "mega":   // a big reactive bot: many command/keyword/join chains so a live run lights up everywhere
+            {
+                var cmds = new[] { ("ping", "pong!"), ("hello", "hi {nick}!"), ("roll", "you rolled a 4"), ("weather", "sunny, 21C"),
+                    ("time", "it is tea time"), ("joke", "why did the bot cross the road"), ("quote", "be excellent"),
+                    ("8ball", "signs point to yes"), ("uptime", "up 4 days"), ("help", "commands: ping hello roll") };
+                for (int i = 0; i < cmds.Length; i++)
+                {
+                    float y = -560 + i * 116;
+                    var c = Add("event.command", -560, y); c.SetParam("command", cmds[i].Item1);
+                    var r = Add("action.reply", -180, y); r.SetParam("message", cmds[i].Item2);
+                    g.Connect(c.Id, 0, r.Id, 0);
+                }
+                var keys = new[] { ("ircuitry", "you rang, {nick}?"), ("cool", "thanks {nick}!"), ("alive", "very much so") };
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    float y = -560 + i * 150;
+                    var m = Add("event.message", 280, y);
+                    var f = Add("filter.contains", 600, y); f.SetParam("needle", keys[i].Item1);
+                    var r = Add("action.reply", 960, y); r.SetParam("message", keys[i].Item2);
+                    g.Connect(m.Id, 0, f.Id, 0); g.Connect(m.Id, 1, f.Id, 1); g.Connect(f.Id, 0, r.Id, 0);
+                }
+                var jn = Add("event.join", 280, -20);
+                var wl = Add("action.reply", 600, -20); wl.SetParam("message", "welcome to {channel}, {nick}!");
+                g.Connect(jn.Id, 0, wl.Id, 0);
+                b.Name = "mega-bot"; b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true; b.Settings.Channels = "#ircuitry";
                 break;
             }
             default:   // "irc": the classic bot - command, message filter, and a join greeter

@@ -15,6 +15,9 @@ public partial class MainScreen
 {
     private bool _followCam;
 
+    /// <summary>Debug/video hook: turn the director camera on so it pans to firing nodes during a live run.</summary>
+    public void DebugFollowCam() => _followCam = true;
+
     private void UpdateFollowCam()
     {
         if (!Bot.Runtime.Running || _editor.IsGrabbing) return;
