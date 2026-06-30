@@ -36,7 +36,7 @@ public static class Loc
     /// <summary>(Re)detect the UI language from IRCUITRY_LANG, then the OS locale. zh* -> Chinese, else English.</summary>
     public static void Detect()
     {
-        string lang = Environment.GetEnvironmentVariable("IRCUITRY_LANG");
+        string? lang = Environment.GetEnvironmentVariable("IRCUITRY_LANG");
         if (string.IsNullOrEmpty(lang)) lang = Environment.GetEnvironmentVariable("LC_ALL");
         if (string.IsNullOrEmpty(lang)) lang = Environment.GetEnvironmentVariable("LC_MESSAGES");
         if (string.IsNullOrEmpty(lang)) lang = Environment.GetEnvironmentVariable("LANG");
