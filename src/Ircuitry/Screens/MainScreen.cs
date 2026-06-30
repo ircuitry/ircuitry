@@ -1531,7 +1531,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             {
                 var start = Add("event.start", 0, -40);
                 var prev = Add("web.preview", 320, -40);
-                prev.SetParam("window", "rescue"); prev.SetParam("title", "Rescue Dogs"); prev.SetParam("width", "360"); prev.SetParam("height", "340");
+                prev.SetParam("window", "rescue"); prev.SetParam("title", "Rescue Dogs"); prev.SetParam("width", "860"); prev.SetParam("height", "640");
                 var state = Add("web.state", 0, 180); state.SetParam("name", "adopted"); state.SetParam("initial", "0"); state.SetParam("kind", "number");
                 var root = Add("web.element", 320, 180); root.SetParam("tag", "div"); root.SetParam("class", "app");
                 var hero = Add("web.element", 640, 60); hero.SetParam("tag", "h1"); hero.SetParam("text", "Adopt a Rescue Dog");
@@ -1577,6 +1577,18 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 b.Name = "automation";
                 break;
             }
+            case "chain":   // ONE long command with many sequential steps - the only good follow-cam subject
+            {
+                var cmd = Add("event.command", -780, 0); cmd.SetParam("command", "weather");
+                Node prev = cmd;
+                var steps = new[] { "looking up {args}…", "querying the weather service…", "parsing the response…", "checking the forecast…", "formatting it nicely…", "almost there…" };
+                float x = -520;
+                foreach (var s in steps) { var l = Add("action.log", x, 0); l.SetParam("text", s); g.Connect(prev.Id, 0, l.Id, 0); prev = l; x += 250; }
+                var rep = Add("action.reply", x, 0); rep.SetParam("message", "{args}: sunny, 21C, light breeze");
+                g.Connect(prev.Id, 0, rep.Id, 0);
+                b.Name = "weather-bot"; b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true; b.Settings.Channels = "#ircuitry";
+                break;
+            }
             case "ui2d":   // a real 2D app window painted by ircuitry's own renderer (run it to open the window)
             {
                 Node prev = Add("event.start", -640, 0);
@@ -1600,7 +1612,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 { var n = Add(type, x, y); foreach (var (k, v) in ps) n.SetParam(k, v); g.Connect(prev.Id, 0, n.Id, 0); prev = n; return n; }
                 Chain("ui.window", -440, 0, ("window", "stage"), ("title", "ircuitry 3D"), ("width", "1280"), ("height", "760"), ("bg", "#0E0B16"));
                 Chain("ui.scene3d", -200, 0, ("window", "stage"), ("eyeX", "0"), ("eyeY", "5"), ("eyeZ", "12"), ("lookY", "0.5"), ("fov", "50"));
-                Chain("ui.mesh", 40, -160, ("window", "stage"), ("id", "ground"), ("shape", "plane"), ("y", "-1"), ("sx", "14"), ("sz", "14"), ("color", "#2A2440"), ("texture", "checker"));
+                Chain("ui.mesh", 40, -160, ("window", "stage"), ("id", "ground"), ("shape", "plane"), ("y", "-1"), ("sx", "14"), ("sz", "14"), ("color", "#3E3A57"));
                 Chain("ui.mesh", 40, -40, ("window", "stage"), ("id", "b1"), ("shape", "box"), ("x", "-3.2"), ("color", "#56C0D2"));
                 Chain("ui.mesh", 40, 80, ("window", "stage"), ("id", "s1"), ("shape", "sphere"), ("x", "0"), ("color", "#F08A9E"));
                 Chain("ui.mesh", 40, 200, ("window", "stage"), ("id", "c1"), ("shape", "cylinder"), ("x", "3.2"), ("color", "#8CC454"));
