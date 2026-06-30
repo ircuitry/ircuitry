@@ -227,7 +227,13 @@ public sealed class GraphEditor
             min = Vector2.Min(min, l.Card.Pos); max = Vector2.Max(max, new Vector2(l.Card.Right, l.Card.Bottom));
         }
         var center = (min + max) / 2f;
-        Cam.Zoom = 1f;
+        // fit the whole graph in view with a margin: zoom out for big graphs, but never zoom IN past 100%
+        // (so a tiny graph stays readable instead of ballooning). Was previously a no-op fixed at 1.0.
+        var span = max - min;
+        const float margin = 90f;
+        float zx = (canvas.W - margin * 2f) / MathF.Max(1f, span.X);
+        float zy = (canvas.H - margin * 2f) / MathF.Max(1f, span.Y);
+        Cam.Zoom = Math.Clamp(MathF.Min(MathF.Min(zx, zy), 1f), Camera.MinZoom, Camera.MaxZoom);
         Cam.CenterOn(center, canvas.Center);
     }
 

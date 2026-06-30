@@ -193,6 +193,7 @@ public sealed class IrcuitryGame : Game
         for (int i = 0; i < _args.Length - 1; i++)
             if (_args[i] == "--loadbot") ms?.DebugLoadBot(_args[i + 1]);
         if (Array.IndexOf(_args, "--follow") >= 0) ms?.DebugFollowCam();
+        if (Array.IndexOf(_args, "--slowmo") >= 0) Ircuitry.Core.Playback.SlowMo = true;
         // run the demo AFTER the graph is built (--showcase/--loadbot), so a live run executes that graph
         if (_demo) StartDemo();
         if (Array.IndexOf(_args, "--showsecretpick") >= 0) ms?.DebugOpenSecretPick();

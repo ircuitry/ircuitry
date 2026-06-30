@@ -1577,6 +1577,41 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 b.Name = "automation";
                 break;
             }
+            case "ui2d":   // a real 2D app window painted by ircuitry's own renderer (run it to open the window)
+            {
+                Node prev = Add("event.start", -640, 0);
+                Node Chain(string type, float x, float y, params (string, string)[] ps)
+                { var n = Add(type, x, y); foreach (var (k, v) in ps) n.SetParam(k, v); g.Connect(prev.Id, 0, n.Id, 0); prev = n; return n; }
+                Chain("ui.window", -380, 0, ("window", "app"), ("title", "Control Panel"), ("width", "560"), ("height", "440"), ("bg", "#141018"));
+                Chain("ui.panel", -120, 0, ("window", "app"), ("id", "card"), ("x", "24"), ("y", "24"), ("w", "512"), ("h", "392"), ("color", "#1E1B26"), ("radius", "18"));
+                Chain("ui.text", 140, -120, ("window", "app"), ("id", "ttl"), ("parent", "card"), ("text", "ircuitry UI"), ("x", "28"), ("y", "26"), ("size", "30"), ("font", "display"), ("color", "#56C0D2"));
+                Chain("ui.text", 140, 0, ("window", "app"), ("id", "sub"), ("parent", "card"), ("text", "this window is built from nodes"), ("x", "28"), ("y", "70"), ("size", "15"), ("color", "#C9C2D9"));
+                Chain("ui.slider", 400, -120, ("window", "app"), ("id", "vol"), ("parent", "card"), ("x", "28"), ("y", "150"), ("w", "440"), ("value", "60"), ("color", "#F08A9E"));
+                Chain("ui.button", 400, 0, ("window", "app"), ("id", "go"), ("parent", "card"), ("text", "Launch"), ("x", "28"), ("y", "230"), ("w", "200"), ("h", "54"), ("color", "#8CC454"));
+                Chain("ui.animate", 660, -60, ("window", "app"), ("id", "vol"), ("prop", "value"), ("from", "10"), ("to", "92"), ("duration", "2.2"), ("loop", "true"), ("pingpong", "true"));
+                Chain("ui.animate", 660, 80, ("window", "app"), ("id", "go"), ("prop", "y"), ("from", "230"), ("to", "245"), ("duration", "1.1"), ("loop", "true"), ("pingpong", "true"));
+                b.Name = "ui-app";
+                break;
+            }
+            case "game":   // a little 3D world: ground + spinning shapes, the "build a game" rung (run it to open the window)
+            {
+                Node prev = Add("event.start", -680, 0);
+                Node Chain(string type, float x, float y, params (string, string)[] ps)
+                { var n = Add(type, x, y); foreach (var (k, v) in ps) n.SetParam(k, v); g.Connect(prev.Id, 0, n.Id, 0); prev = n; return n; }
+                Chain("ui.window", -440, 0, ("window", "stage"), ("title", "ircuitry 3D"), ("width", "1280"), ("height", "760"), ("bg", "#0E0B16"));
+                Chain("ui.scene3d", -200, 0, ("window", "stage"), ("eyeX", "0"), ("eyeY", "5"), ("eyeZ", "12"), ("lookY", "0.5"), ("fov", "50"));
+                Chain("ui.mesh", 40, -160, ("window", "stage"), ("id", "ground"), ("shape", "plane"), ("y", "-1"), ("sx", "14"), ("sz", "14"), ("color", "#2A2440"), ("texture", "checker"));
+                Chain("ui.mesh", 40, -40, ("window", "stage"), ("id", "b1"), ("shape", "box"), ("x", "-3.2"), ("color", "#56C0D2"));
+                Chain("ui.mesh", 40, 80, ("window", "stage"), ("id", "s1"), ("shape", "sphere"), ("x", "0"), ("color", "#F08A9E"));
+                Chain("ui.mesh", 40, 200, ("window", "stage"), ("id", "c1"), ("shape", "cylinder"), ("x", "3.2"), ("color", "#8CC454"));
+                Chain("ui.mesh", 300, -40, ("window", "stage"), ("id", "b2"), ("shape", "box"), ("y", "2.4"), ("z", "-2"), ("color", "#F2AE46"));
+                Chain("ui.animate", 540, -120, ("window", "stage"), ("id", "b1"), ("prop", "ry"), ("from", "0"), ("to", "360"), ("duration", "5"), ("loop", "true"));
+                Chain("ui.animate", 540, 0, ("window", "stage"), ("id", "s1"), ("prop", "py"), ("from", "0"), ("to", "2.2"), ("duration", "1.4"), ("loop", "true"), ("pingpong", "true"));
+                Chain("ui.animate", 540, 120, ("window", "stage"), ("id", "c1"), ("prop", "ry"), ("from", "0"), ("to", "360"), ("duration", "3.5"), ("loop", "true"));
+                Chain("ui.animate", 540, 240, ("window", "stage"), ("id", "b2"), ("prop", "ry"), ("from", "360"), ("to", "0"), ("duration", "6"), ("loop", "true"));
+                b.Name = "3d-world";
+                break;
+            }
             case "mega":   // a big reactive bot: many command/keyword/join chains so a live run lights up everywhere
             {
                 var cmds = new[] { ("ping", "pong!"), ("hello", "hi {nick}!"), ("roll", "you rolled a 4"), ("weather", "sunny, 21C"),
@@ -1779,7 +1814,9 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
         _vw = r.ViewW; _vh = r.ViewH;
         _gd ??= r.Gd;   // first frame: capture the device so plugin panels can build their render surfaces
         _l = DockLayout();
-        if (_demoShotFit && _vw > 0) { _demoShotFit = false; _editor.FocusContent(_l.Canvas); }   // frame the demo graph for screenshots
+        // frame the demo graph: fit-to-view by default (whole graph + UI visible); when the director
+        // camera is on, zoom in close so it follows the firing nodes instead of showing everything.
+        if (_demoShotFit && _vw > 0) { _demoShotFit = false; _editor.FocusContent(_l.Canvas); if (_followCam) _editor.Cam.Zoom = 1.45f; }
         _editor.Graph = Bot.Graph;
         _editor.Running = RunningOf(Bot);
         if (!ReferenceEquals(_lastGraph, Bot.Graph)) { _editor.Selection.Clear(); _lastGraph = Bot.Graph; }
