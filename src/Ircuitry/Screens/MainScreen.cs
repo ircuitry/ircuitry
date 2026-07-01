@@ -1533,6 +1533,15 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 var prev = Add("web.preview", 240, -60);
                 prev.SetParam("window", "rescue"); prev.SetParam("title", "Rescue Dogs"); prev.SetParam("width", "880"); prev.SetParam("height", "660");
                 var state = Add("web.state", -40, 420); state.SetParam("name", "adopted"); state.SetParam("initial", "0"); state.SetParam("kind", "number");
+                var css = Add("web.css", -40, 540); css.SetParam("css",
+                    "body{margin:0;font-family:system-ui,sans-serif;background:#14121c;color:#ece8f5}" +
+                    ".app{max-width:620px;margin:0 auto;padding:48px 28px;text-align:center}" +
+                    "h1{font-size:46px;margin:0 0 6px;background:linear-gradient(90deg,#56C0D2,#F08A9E);-webkit-background-clip:text;background-clip:text;color:transparent}" +
+                    ".app>p{color:#b7b0c8;margin:0 0 26px;font-size:17px}" +
+                    ".card{background:#1e1b28;border:1px solid #2c2838;border-radius:16px;padding:18px 22px;margin:14px 0;text-align:left}" +
+                    ".card h3{margin:0 0 6px;color:#56C0D2}.card p{margin:0;color:#c9c2d9}" +
+                    "button{margin-top:22px;background:linear-gradient(90deg,#8CC454,#56C0D2);border:0;color:#14121c;font-weight:700;font-size:16px;padding:14px 30px;border-radius:12px;cursor:pointer}" +
+                    "h2{margin:30px 0 2px;color:#F08A9E}");
                 var root = Add("web.element", 240, 200); root.SetParam("tag", "div"); root.SetParam("class", "app");
                 Node El(float x, float y, string tag, string text = "", string cls = "")
                 { var n = Add("web.element", x, y); n.SetParam("tag", tag); if (text.Length > 0) n.SetParam("text", text); if (cls.Length > 0) n.SetParam("class", cls); return n; }
@@ -1542,7 +1551,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 var c2 = El(540, 130, "div", "", "card"); var c2h = El(820, 150, "h3", "Meet the pack"); var c2p = El(820, 220, "p", "Dozens of good dogs are waiting right now.");
                 var btn = El(540, 240, "button", "Adopt one"); btn.SetParam("event", "click"); btn.SetParam("action", "adopted.inc");
                 var tally = El(540, 330, "h2", "Adopted today"); var label = Add("web.element", 540, 410); label.SetParam("tag", "p"); label.SetParam("bind", "adopted");
-                g.Connect(start.Id, 0, prev.Id, 0); g.Connect(root.Id, 0, prev.Id, 1); g.Connect(state.Id, 0, prev.Id, 2);
+                g.Connect(start.Id, 0, prev.Id, 0); g.Connect(root.Id, 0, prev.Id, 1); g.Connect(state.Id, 0, prev.Id, 2); g.Connect(css.Id, 0, prev.Id, 2);
                 foreach (var n in new[] { hero, sub, c1, c2, btn, tally, label }) g.Connect(n.Id, 0, root.Id, 0);
                 g.Connect(c1h.Id, 0, c1.Id, 0); g.Connect(c1p.Id, 0, c1.Id, 0);
                 g.Connect(c2h.Id, 0, c2.Id, 0); g.Connect(c2p.Id, 0, c2.Id, 0);
@@ -1588,7 +1597,7 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 ai.SetParam("apiKey", "{{secret.zai}}");
                 ai.SetParam("system", "You output ONLY a complete standalone HTML5 document, starting with <!DOCTYPE html>. Embed a colorful, playable arcade game on a <canvas> with inline CSS and JavaScript (keyboard controls, a score, a game loop). No markdown, no code fences, no commentary - just the HTML.");
                 ai.SetParam("prompt", "Make a fun little browser game.");
-                ai.SetParam("maxTokens", "6000"); ai.SetParam("timeout", "120");
+                ai.SetParam("maxTokens", "6000"); ai.SetParam("timeout", "300");
                 var sv = Add("data.setvar", 60, 0); sv.SetParam("name", "gamehtml");
                 var web = Add("ui.web", 360, 0);
                 web.SetParam("window", "game"); web.SetParam("html", "{gamehtml}"); web.SetParam("title", "AI Game"); web.SetParam("width", "900"); web.SetParam("height", "660");
