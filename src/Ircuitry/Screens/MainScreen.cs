@@ -1527,22 +1527,25 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
 
         switch ((key ?? "").Trim().ToLowerInvariant())
         {
-            case "web":   // a reactive page, built from nodes (mirrors the Web Counter example, themed for a rescue site)
+            case "web":   // a reactive page built from nodes: hero, cards and a live counter
             {
-                var start = Add("event.start", 0, -40);
-                var prev = Add("web.preview", 320, -40);
-                prev.SetParam("window", "rescue"); prev.SetParam("title", "Rescue Dogs"); prev.SetParam("width", "860"); prev.SetParam("height", "640");
-                var state = Add("web.state", 0, 180); state.SetParam("name", "adopted"); state.SetParam("initial", "0"); state.SetParam("kind", "number");
-                var root = Add("web.element", 320, 180); root.SetParam("tag", "div"); root.SetParam("class", "app");
-                var hero = Add("web.element", 640, 60); hero.SetParam("tag", "h1"); hero.SetParam("text", "Adopt a Rescue Dog");
-                var btn = Add("web.element", 640, 180); btn.SetParam("tag", "button"); btn.SetParam("text", "Adopt one"); btn.SetParam("event", "click"); btn.SetParam("action", "adopted.inc");
-                var label = Add("web.element", 640, 300); label.SetParam("tag", "p"); label.SetParam("bind", "adopted");
-                g.Connect(start.Id, 0, prev.Id, 0);
-                g.Connect(root.Id, 0, prev.Id, 1);
-                g.Connect(state.Id, 0, prev.Id, 2);
-                g.Connect(hero.Id, 0, root.Id, 0);
-                g.Connect(btn.Id, 0, root.Id, 0);
-                g.Connect(label.Id, 0, root.Id, 0);
+                var start = Add("event.start", -40, -60);
+                var prev = Add("web.preview", 240, -60);
+                prev.SetParam("window", "rescue"); prev.SetParam("title", "Rescue Dogs"); prev.SetParam("width", "880"); prev.SetParam("height", "660");
+                var state = Add("web.state", -40, 420); state.SetParam("name", "adopted"); state.SetParam("initial", "0"); state.SetParam("kind", "number");
+                var root = Add("web.element", 240, 200); root.SetParam("tag", "div"); root.SetParam("class", "app");
+                Node El(float x, float y, string tag, string text = "", string cls = "")
+                { var n = Add("web.element", x, y); n.SetParam("tag", tag); if (text.Length > 0) n.SetParam("text", text); if (cls.Length > 0) n.SetParam("class", cls); return n; }
+                var hero = El(540, -140, "h1", "Rescue Dogs");
+                var sub = El(540, -60, "p", "Give a shelter dog a forever home.");
+                var c1 = El(540, 20, "div", "", "card"); var c1h = El(820, 0, "h3", "How it works"); var c1p = El(820, 70, "p", "Browse, meet and adopt in three easy steps.");
+                var c2 = El(540, 130, "div", "", "card"); var c2h = El(820, 150, "h3", "Meet the pack"); var c2p = El(820, 220, "p", "Dozens of good dogs are waiting right now.");
+                var btn = El(540, 240, "button", "Adopt one"); btn.SetParam("event", "click"); btn.SetParam("action", "adopted.inc");
+                var tally = El(540, 330, "h2", "Adopted today"); var label = Add("web.element", 540, 410); label.SetParam("tag", "p"); label.SetParam("bind", "adopted");
+                g.Connect(start.Id, 0, prev.Id, 0); g.Connect(root.Id, 0, prev.Id, 1); g.Connect(state.Id, 0, prev.Id, 2);
+                foreach (var n in new[] { hero, sub, c1, c2, btn, tally, label }) g.Connect(n.Id, 0, root.Id, 0);
+                g.Connect(c1h.Id, 0, c1.Id, 0); g.Connect(c1p.Id, 0, c1.Id, 0);
+                g.Connect(c2h.Id, 0, c2.Id, 0); g.Connect(c2p.Id, 0, c2.Id, 0);
                 b.Name = "rescue-site";
                 break;
             }
@@ -1575,6 +1578,38 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 g.Connect(json.Id, 0, db.Id, 1);
                 g.Connect(hook.Id, 0, db.Id, 0);
                 b.Name = "automation";
+                break;
+            }
+            case "aigame":   // AI writes a game: GLM-5.1 outputs a standalone HTML game, a webview renders it live
+            {
+                var start = Add("event.start", -520, 0);
+                var ai = Add("ai.reply", -240, 0);
+                ai.SetParam("baseUrl", "https://api.z.ai/api/coding/paas/v4"); ai.SetParam("model", "glm-5.1");
+                ai.SetParam("apiKey", "{{secret.zai}}");
+                ai.SetParam("system", "You output ONLY a complete standalone HTML5 document, starting with <!DOCTYPE html>. Embed a colorful, playable arcade game on a <canvas> with inline CSS and JavaScript (keyboard controls, a score, a game loop). No markdown, no code fences, no commentary - just the HTML.");
+                ai.SetParam("prompt", "Make a fun little browser game.");
+                ai.SetParam("maxTokens", "6000"); ai.SetParam("timeout", "120");
+                var sv = Add("data.setvar", 60, 0); sv.SetParam("name", "gamehtml");
+                var web = Add("ui.web", 360, 0);
+                web.SetParam("window", "game"); web.SetParam("html", "{gamehtml}"); web.SetParam("title", "AI Game"); web.SetParam("width", "900"); web.SetParam("height", "660");
+                g.Connect(start.Id, 0, ai.Id, 0);
+                g.Connect(ai.Id, 0, sv.Id, 0); g.Connect(ai.Id, 1, sv.Id, 1);
+                g.Connect(sv.Id, 0, web.Id, 0);
+                b.Name = "ai-game";
+                break;
+            }
+            case "aichat":   // a real AI bot: a command asks GLM-5.1 (z.ai) and the reply goes back
+            {
+                var cmd = Add("event.command", -420, 0); cmd.SetParam("command", "ask");
+                var ai = Add("ai.reply", -60, 0);
+                ai.SetParam("baseUrl", "https://api.z.ai/api/coding/paas/v4"); ai.SetParam("model", "glm-5.1");
+                ai.SetParam("apiKey", "{{secret.zai}}");
+                ai.SetParam("system", "You are ircuitry, a friendly IRC bot. Reply in one short, witty sentence.");
+                ai.SetParam("prompt", "{args}"); ai.SetParam("maxTokens", "160"); ai.SetParam("timeout", "60");
+                var rep = Add("action.reply", 320, 0);
+                g.Connect(cmd.Id, 0, ai.Id, 0); g.Connect(cmd.Id, 1, ai.Id, 1);
+                g.Connect(ai.Id, 0, rep.Id, 0); g.Connect(ai.Id, 1, rep.Id, 1);
+                b.Name = "ai-bot"; b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true; b.Settings.Channels = "#ircuitry";
                 break;
             }
             case "chain":   // ONE long command with many sequential steps - the only good follow-cam subject
@@ -1617,6 +1652,13 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 Chain("ui.mesh", 40, 80, ("window", "stage"), ("id", "s1"), ("shape", "sphere"), ("x", "0"), ("color", "#F08A9E"));
                 Chain("ui.mesh", 40, 200, ("window", "stage"), ("id", "c1"), ("shape", "cylinder"), ("x", "3.2"), ("color", "#8CC454"));
                 Chain("ui.mesh", 300, -40, ("window", "stage"), ("id", "b2"), ("shape", "box"), ("y", "2.4"), ("z", "-2"), ("color", "#F2AE46"));
+                // a back row of pillars + orbiting satellites for a fuller scene
+                Chain("ui.mesh", 300, 60, ("window", "stage"), ("id", "p1"), ("shape", "cylinder"), ("x", "-6"), ("z", "-4"), ("sy", "3"), ("color", "#B09EE2"));
+                Chain("ui.mesh", 300, 140, ("window", "stage"), ("id", "p2"), ("shape", "cylinder"), ("x", "6"), ("z", "-4"), ("sy", "3"), ("color", "#74AEE0"));
+                Chain("ui.mesh", 300, 220, ("window", "stage"), ("id", "s2"), ("shape", "sphere"), ("x", "-1.6"), ("y", "3.4"), ("z", "-1"), ("sx", "0.6"), ("sy", "0.6"), ("sz", "0.6"), ("color", "#F2AE46"));
+                Chain("ui.mesh", 300, 300, ("window", "stage"), ("id", "s3"), ("shape", "sphere"), ("x", "1.6"), ("y", "3.4"), ("z", "-1"), ("sx", "0.6"), ("sy", "0.6"), ("sz", "0.6"), ("color", "#8CC454"));
+                Chain("ui.animate", 780, 60, ("window", "stage"), ("id", "s2"), ("prop", "px"), ("from", "-1.6"), ("to", "1.6"), ("duration", "2.2"), ("loop", "true"), ("pingpong", "true"));
+                Chain("ui.animate", 780, 140, ("window", "stage"), ("id", "s3"), ("prop", "px"), ("from", "1.6"), ("to", "-1.6"), ("duration", "2.2"), ("loop", "true"), ("pingpong", "true"));
                 Chain("ui.animate", 540, -120, ("window", "stage"), ("id", "b1"), ("prop", "ry"), ("from", "0"), ("to", "360"), ("duration", "5"), ("loop", "true"));
                 Chain("ui.animate", 540, 0, ("window", "stage"), ("id", "s1"), ("prop", "py"), ("from", "0"), ("to", "2.2"), ("duration", "1.4"), ("loop", "true"), ("pingpong", "true"));
                 Chain("ui.animate", 540, 120, ("window", "stage"), ("id", "c1"), ("prop", "ry"), ("from", "0"), ("to", "360"), ("duration", "3.5"), ("loop", "true"));

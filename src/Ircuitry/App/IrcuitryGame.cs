@@ -231,7 +231,7 @@ public sealed class IrcuitryGame : Game
 
     private void StartDemo()
     {
-        _mock = new MockIrcServer(BuildDemoScript());
+        _mock = new MockIrcServer(BuildDemoScript()) { EchoBotMessages = true };
         Console.WriteLine($"ircuitry_DEMO mock server on 127.0.0.1:{_mock.Port}");
         var bot = _app.ActiveBot;
         // the first-run seed is a blank circuit now; give the demo something to react to so the live run
@@ -270,6 +270,7 @@ public sealed class IrcuitryGame : Game
             "!ping", "ircuitry you around?", "!hello", "lol nice bot", "!roll", "ircuitry rules",
             "!weather london", "!time", "this bot is cool", "!ping", "!8ball will it work",
             "ircuitry is alive", "!joke", "!hello there", "gg", "!ping", "!quote", "wow ircuitry",
+            "!ask what makes ircuitry special?", "!ask tell me a fun fact",
         };
         var script = new List<(int, string)>();
         int n = 0;

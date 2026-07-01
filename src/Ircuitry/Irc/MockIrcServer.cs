@@ -33,6 +33,7 @@ public sealed class MockIrcServer : IDisposable
     public volatile string SaslMechUsed = "";   // the mechanism the client chose (PLAIN / EXTERNAL / SCRAM-SHA-256)
     public volatile bool SaslOk;                 // set true once the mock has accepted authentication
     public bool OfferLabeledResponse = true;     // advertise labeled-response in CAP LS (off to test the fallback path)
+    public bool EchoBotMessages;                 // echo the bot's own channel PRIVMSGs back (demos/captures show what it says)
     public readonly Dictionary<string, string> Metadata = new();   // key -> value the mock answers METADATA GET with
     public volatile bool SawLabeledRequest;      // set true if a METADATA GET arrived carrying a label tag
 
@@ -173,6 +174,12 @@ public sealed class MockIrcServer : IDisposable
                 else if (body.StartsWith("PRIVMSG", StringComparison.Ordinal) || body.StartsWith("NOTICE", StringComparison.Ordinal) || body.StartsWith("TAGMSG", StringComparison.Ordinal))
                 {
                     lock (_lock) _outgoing.Add(line);   // record the FULL line incl. client tags (+reply, +draft/bot-tools, ...)
+                    // echo the bot's own PRIVMSGs back into the channel so a demo/capture shows what it says
+                    if (EchoBotMessages && body.StartsWith("PRIVMSG", StringComparison.Ordinal))
+                    {
+                        int sp = body.IndexOf(' '); int co = body.IndexOf(" :", StringComparison.Ordinal);
+                        if (sp > 0 && co > sp) { var tgt = body.Substring(sp + 1, co - sp - 1).Trim(); var txt = body[(co + 2)..]; if (tgt.StartsWith("#")) Send($":{nick}!ircuitry@mock PRIVMSG {tgt} :{txt}"); }
+                    }
                 }
                 else if (body.StartsWith("PONG", StringComparison.Ordinal))
                 {
