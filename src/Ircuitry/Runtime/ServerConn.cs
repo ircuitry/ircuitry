@@ -406,6 +406,21 @@ public sealed class ServerConn : IRuntimeSink
         // keep the live session model (channels, members, topics, network, narration) current for EVERY line
         _session.Observe(m, CurrentNick);
 
+        // On Raw Line: the universal hook - fires for every incoming line (except our own echo) so a graph can
+        // react to anything without a dedicated trigger. Filtered by {command} in the node.
+        if (!string.Equals(m.Nick, CurrentNick, StringComparison.OrdinalIgnoreCase))
+        {
+            var rv = BaseVars();
+            rv["raw"] = m.Raw;
+            rv["command"] = m.Command;
+            rv["nick"] = m.Nick ?? "";
+            rv["source"] = m.Source ?? "";
+            rv["target"] = m.P(0);
+            rv["message"] = m.Trailing;
+            foreach (var kv in m.Tags) rv["tag." + kv.Key] = kv.Value;
+            FireFamily("raw", rv);
+        }
+
         if (m.Is("PRIVMSG"))
         {
             MessagesSeen++;
@@ -477,6 +492,31 @@ public sealed class ServerConn : IRuntimeSink
 
             if (TryResolveApproval(nick, target, toChannel, text)) return;   // a human answered a pending gate
             FireFamily("message", vars);
+        }
+        else if (m.Is("NOTICE"))
+        {
+            string nick = m.Nick ?? "";
+            if (nick.Equals(CurrentNick, StringComparison.OrdinalIgnoreCase)) return;   // never trigger on our own notice
+            string target = m.P(0);
+            bool toChannel = _session.IsChannel(target);
+            var vars = BaseVars();
+            vars["nick"] = nick;
+            vars["user"] = m.User ?? "";
+            vars["host"] = m.Host ?? "";
+            vars["target"] = target;
+            vars["channel"] = toChannel ? target : nick;
+            vars["message"] = m.Trailing;
+            vars["replyto"] = toChannel ? target : nick;
+            foreach (var kv in m.Tags) vars["tag." + kv.Key] = kv.Value;
+            FireFamily("notice", vars);
+        }
+        else if (m.Is("TOPIC"))
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";
+            vars["channel"] = vars["target"] = vars["replyto"] = m.P(0);
+            vars["topic"] = m.Trailing;
+            FireFamily("topic", vars);
         }
         else if (m.Is("TAGMSG"))
         {
@@ -576,6 +616,17 @@ public sealed class ServerConn : IRuntimeSink
 
         if (_cfg.AdvertiseCommands && m.Tag("+draft/bot-cmd") is { Length: > 0 } cmdTag)
             HandleInvocation(m, nick, target, cmdTag);
+
+        // On TAGMSG: surface the tag-only message to user triggers (reactions, typing, custom client tags)
+        var tv = BaseVars();
+        tv["nick"] = nick;
+        tv["target"] = target;
+        tv["channel"] = _session.IsChannel(target) ? target : nick;
+        tv["react"] = m.Tag("+draft/react");
+        string rmsgid = m.Tag("+draft/reply"); if (rmsgid.Length == 0) rmsgid = m.Tag("+reply"); if (rmsgid.Length == 0) rmsgid = m.Tag("msgid");
+        tv["msgid"] = rmsgid;
+        foreach (var kv in m.Tags) tv["tag." + kv.Key] = kv.Value;
+        FireFamily("tagmsg", tv);
     }
 
     private void AdvertiseCommandsTo(string nick)

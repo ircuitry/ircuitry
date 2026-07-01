@@ -907,6 +907,69 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+            new()
+            {
+                TypeId = "event.raw", Icon = "code", Title = "On Raw Line", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "raw",
+                Description = "Fires on every raw IRC line the bot receives - the universal escape hatch for anything without a dedicated trigger (TAGMSG, WALLOPS, custom or numeric verbs). Filter by command, or leave it blank for all lines. Exposes {raw} {command} {nick} {target} {message}, the prefix {source}, and every message tag as {tag.name}. Skips the bot's own echoed lines.",
+                Outputs = new[] { Ex("then"), Tx("raw"), Tx("command"), Us("nick"), Ch("target"), Tx("message") },
+                Params = new[] { P("command", "Command", ParamType.Text, "", "blank = any · e.g. TAGMSG, NOTICE, WALLOPS, 001") },
+                SummaryParam = "command",
+                Exec = c =>
+                {
+                    var want = c.Param("command").Trim();
+                    if (want.Length > 0 && !want.Equals(c.Var("command"), StringComparison.OrdinalIgnoreCase)) return;
+                    c.SetOut(1, c.Var("raw"));
+                    c.SetOut(2, c.Var("command"));
+                    c.SetOut(3, c.Var("nick"));
+                    c.SetOut(4, c.Var("target"));
+                    c.SetOut(5, c.Var("message"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.tagmsg", Icon = "tag", Title = "On TAGMSG", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "tagmsg",
+                Description = "Fires on an incoming IRCv3 TAGMSG - a message that carries only tags and no body (typing notifications, reactions, and other client tags). Exposes {nick} {target}, the reaction {react} (+draft/react), the {msgid} it refers to, and every tag as {tag.name}.",
+                Outputs = new[] { Ex("then"), Us("nick"), Ch("target"), Tx("react"), Tx("msgid") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("nick"));
+                    c.SetOut(2, c.Var("target"));
+                    c.SetOut(3, c.Var("react"));
+                    c.SetOut(4, c.Var("msgid"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.notice", Icon = "info", Title = "On Notice", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "notice",
+                Description = "Fires on an incoming NOTICE - server notices, services (NickServ/ChanServ), and other bots. Like On Message but for NOTICE. Exposes {nick} {channel} {message}. By convention a bot should never auto-reply to a NOTICE.",
+                Outputs = new[] { Ex("then"), Tx("message"), Us("nick"), Ch("channel") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("message"));
+                    c.SetOut(2, c.Var("nick"));
+                    c.SetOut(3, c.Var("channel"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.topic", Icon = "textbox", Title = "On Topic", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "topic",
+                Description = "Fires when someone changes a channel's topic. Exposes {nick} {channel} {topic}.",
+                Outputs = new[] { Ex("then"), Tx("topic"), Us("nick"), Ch("channel") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("topic"));
+                    c.SetOut(2, c.Var("nick"));
+                    c.SetOut(3, c.Var("channel"));
+                    c.Pulse(0);
+                },
+            },
 
             // ============================ FILTERS ===========================
             new()
@@ -1074,6 +1137,153 @@ public static class NodeCatalog
                     var ch = c.InOr(1, c.Resolve(c.Param("channel")));
                     var msg = c.InOr(2, c.Resolve(c.Param("message")));
                     if (ch.Length > 0 && msg.Length > 0) c.Send(ch, msg);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.notice", Icon = "info", Title = "Send Notice", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Sends a NOTICE to a channel or nick. NOTICE is the 'do not auto-reply' message type - use it for service-style or out-of-band messages so other bots don't loop on it.",
+                Inputs = new[] { Ex(), Ch("target"), Tx("message") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("target", "Target", ParamType.Text, "#channel", "#channel or nick"),
+                    P("message", "Message", ParamType.Multiline, "", "supports {nick} {args} …"),
+                },
+                SummaryParam = "message",
+                Exec = c =>
+                {
+                    var t = c.InOr(1, c.Resolve(c.Param("target")));
+                    var msg = c.InOr(2, c.Resolve(c.Param("message")));
+                    if (t.Length > 0 && msg.Length > 0) c.Notice(t, msg);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.raw", Icon = "terminal-window", Title = "Send Raw", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Sends a raw IRC protocol line exactly as written - the universal escape hatch for any command without a dedicated node (WALLOPS, KNOCK, precise MODE strings, custom verbs). No CRLF needed; tokens like {nick} {channel} are expanded first.",
+                Inputs = new[] { Ex(), Tx("line") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("line", "Line", ParamType.Text, "", "e.g. WALLOPS :hello · MODE {channel} +o {nick}") },
+                SummaryParam = "line",
+                Exec = c =>
+                {
+                    var line = c.InOr(1, c.Resolve(c.Param("line")));
+                    if (line.Trim().Length > 0) c.Raw(line);
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.ctcp", Icon = "chat-circle", Title = "Send CTCP", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Sends a CTCP request or an action to a channel or nick. Command ACTION is the /me emote; others include VERSION, PING, TIME. Sent as a PRIVMSG wrapped in \\x01.",
+                Inputs = new[] { Ex(), Ch("target"), Tx("args") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("target", "Target", ParamType.Text, "#channel", "#channel or nick"),
+                    P("command", "CTCP command", ParamType.Text, "ACTION", "ACTION · VERSION · PING · TIME"),
+                    P("args", "Args", ParamType.Text, "", "e.g. waves hello (for ACTION / me)"),
+                },
+                SummaryParam = "command",
+                Exec = c =>
+                {
+                    var t = c.InOr(1, c.Resolve(c.Param("target")));
+                    var cmd = c.Resolve(c.Param("command")).Trim().ToUpperInvariant();
+                    var args = c.InOr(2, c.Resolve(c.Param("args")));
+                    if (t.Length > 0 && cmd.Length > 0)
+                        c.Send(t, "\u0001" + cmd + (args.Length > 0 ? " " + args : "") + "\u0001");
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.kick", Icon = "boot", Title = "Kick", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Kicks a user from a channel (needs operator status). Optional reason.",
+                Inputs = new[] { Ex(), Ch("channel"), Us("nick") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("channel", "Channel", ParamType.Text, "{channel}", "#channel"),
+                    P("nick", "Nick", ParamType.Text, "{nick}", "who to kick"),
+                    P("reason", "Reason", ParamType.Text, "", "(optional)"),
+                },
+                SummaryParam = "nick",
+                Exec = c =>
+                {
+                    var ch = c.InOr(1, c.Resolve(c.Param("channel")));
+                    var nk = c.InOr(2, c.Resolve(c.Param("nick")));
+                    var reason = c.Resolve(c.Param("reason"));
+                    if (ch.Length > 0 && nk.Length > 0) c.Raw($"KICK {ch} {nk}" + (reason.Length > 0 ? " :" + reason : ""));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.mode", Icon = "sliders-horizontal", Title = "Set Mode", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Sets modes on a channel or user, e.g. +o a nick, +b a mask, +m. Needs the right privileges.",
+                Inputs = new[] { Ex(), Ch("target") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("target", "Target", ParamType.Text, "{channel}", "#channel or nick"),
+                    P("modes", "Modes", ParamType.Text, "", "e.g. +o {nick} · +b someone!*@*"),
+                },
+                SummaryParam = "modes",
+                Exec = c =>
+                {
+                    var t = c.InOr(1, c.Resolve(c.Param("target")));
+                    var modes = c.Resolve(c.Param("modes")).Trim();
+                    if (t.Length > 0 && modes.Length > 0) c.Raw($"MODE {t} {modes}");
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.invite", Icon = "user-plus", Title = "Invite", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Invites a user to a channel.",
+                Inputs = new[] { Ex(), Us("nick"), Ch("channel") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("nick", "Nick", ParamType.Text, "{nick}", "who to invite"),
+                    P("channel", "Channel", ParamType.Text, "{channel}", "#channel"),
+                },
+                SummaryParam = "nick",
+                Exec = c =>
+                {
+                    var nk = c.InOr(1, c.Resolve(c.Param("nick")));
+                    var ch = c.InOr(2, c.Resolve(c.Param("channel")));
+                    if (nk.Length > 0 && ch.Length > 0) c.Raw($"INVITE {nk} {ch}");
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "action.topic", Icon = "textbox", Title = "Set Topic", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Sets a channel's topic (needs the right privileges if the channel is +t). An empty topic clears it.",
+                Inputs = new[] { Ex(), Ch("channel"), Tx("topic") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("channel", "Channel", ParamType.Text, "{channel}", "#channel"),
+                    P("topic", "Topic", ParamType.Multiline, "", "the new topic"),
+                },
+                SummaryParam = "topic",
+                Exec = c =>
+                {
+                    var ch = c.InOr(1, c.Resolve(c.Param("channel")));
+                    var topic = c.InOr(2, c.Resolve(c.Param("topic")));
+                    if (ch.Length > 0) c.Raw($"TOPIC {ch} :" + topic);
                     c.Pulse(0);
                 },
             },
@@ -3834,7 +4044,7 @@ public static class NodeCatalog
                 {
                     var target = c.Var("replyto"); if (target.Length == 0) target = c.Var("channel");
                     var text = OneLine(c.InOr(1, c.Resolve(c.Param("text"))));
-                    if (target.Length > 0 && text.Length > 0) c.Send(target, "ACTION " + text + "");
+                    if (target.Length > 0 && text.Length > 0) c.Send(target, "\u0001ACTION " + text + "\u0001");
                     c.Pulse(0);
                 },
             },

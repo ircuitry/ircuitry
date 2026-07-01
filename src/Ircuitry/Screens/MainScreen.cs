@@ -1675,6 +1675,24 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 b.Name = "3d-world";
                 break;
             }
+            case "irctest":   // exercises the new IRC primitives: raw/tagmsg/notice triggers + notice/raw sends
+            {
+                var cmd = Add("event.command", -420, -220); cmd.SetParam("command", "ping");
+                var notice = Add("action.notice", -80, -220); notice.SetParam("target", "#ircuitry-test"); notice.SetParam("message", "pong via NOTICE, {nick}");
+                var raw = Add("action.raw", 260, -220); raw.SetParam("line", "WALLOPS :hello from a raw line");
+                g.Connect(cmd.Id, 0, notice.Id, 0); g.Connect(notice.Id, 0, raw.Id, 0);
+                var er = Add("event.raw", -420, -60); er.SetParam("command", "TAGMSG");
+                var erl = Add("action.log", -80, -60); erl.SetParam("text", "[RAW] {command} from {nick}: {raw}");
+                g.Connect(er.Id, 0, erl.Id, 0);
+                var et = Add("event.tagmsg", -420, 100);
+                var etl = Add("action.log", -80, 100); etl.SetParam("text", "[TAGMSG] {nick} react={react} on {msgid}");
+                g.Connect(et.Id, 0, etl.Id, 0);
+                var en = Add("event.notice", -420, 240);
+                var enl = Add("action.log", -80, 240); enl.SetParam("text", "[NOTICE] from {nick}: {message}");
+                g.Connect(en.Id, 0, enl.Id, 0);
+                b.Name = "irc-primitives"; b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true; b.Settings.Channels = "#ircuitry";
+                break;
+            }
             case "mega":   // a big reactive bot: many command/keyword/join chains so a live run lights up everywhere
             {
                 var cmds = new[] { ("ping", "pong!"), ("hello", "hi {nick}!"), ("roll", "you rolled a 4"), ("weather", "sunny, 21C"),

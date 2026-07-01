@@ -273,6 +273,9 @@ public sealed class IrcuitryGame : Game
             "!ask what makes ircuitry special?", "!ask tell me a fun fact",
         };
         var script = new List<(int, string)>();
+        // a NOTICE and a reaction TAGMSG early on, so On Notice / On TAGMSG / On Raw Line have live traffic
+        script.Add((500, ":services!s@host NOTICE #ircuitry-test :heads up - the bot is live"));
+        script.Add((350, "@+draft/react=heart;+draft/reply=m1 :alice!a@host TAGMSG #ircuitry-test"));
         int n = 0;
         for (int round = 0; round < 7; round++)
         {
