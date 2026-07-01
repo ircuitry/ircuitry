@@ -492,6 +492,21 @@ public sealed class ServerConn : IRuntimeSink
 
             if (TryResolveApproval(nick, target, toChannel, text)) return;   // a human answered a pending gate
             FireFamily("message", vars);
+
+            // On CTCP: a \u0001-wrapped PRIVMSG that isn't DCC (VERSION/PING/TIME/ACTION/...). Additive - the
+            // message already fired, so /me still reaches On Message; this just also surfaces the parsed request.
+            if (text.Length > 1 && text[0] == '\u0001')
+            {
+                var body = text.Trim('\u0001');
+                int csp = body.IndexOf(' ');
+                var cv = new Dictionary<string, string>(vars);
+                cv["ctcp"] = (csp < 0 ? body : body[..csp]).ToUpperInvariant();
+                cv["ctcpargs"] = csp < 0 ? "" : body[(csp + 1)..];
+                FireFamily("ctcp", cv);
+            }
+            // On Mention: the bot's own nick appears in the message
+            else if (CurrentNick.Length > 0 && text.IndexOf(CurrentNick, StringComparison.OrdinalIgnoreCase) >= 0)
+                FireFamily("mention", vars);
         }
         else if (m.Is("NOTICE"))
         {
@@ -561,6 +576,7 @@ public sealed class ServerConn : IRuntimeSink
             vars["kicked"] = m.P(1);                              // the victim
             vars["reason"] = m.Trailing;
             FireFamily("kick", vars);
+            if (m.P(1).Equals(CurrentNick, StringComparison.OrdinalIgnoreCase)) FireFamily("kicked", vars);   // it was us - On Kicked (wire to Join to auto-rejoin)
         }
         else if (m.Is("NICK"))
         {
@@ -584,6 +600,37 @@ public sealed class ServerConn : IRuntimeSink
             vars["nick"] = m.Nick ?? "";                          // who invited us
             vars["channel"] = vars["target"] = vars["replyto"] = m.P(1).Length > 0 ? m.P(1) : m.Trailing;
             FireFamily("invite", vars);
+        }
+        else if (m.Is("ACCOUNT"))                                 // IRCv3 account-notify
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";
+            string acct = m.P(0);
+            vars["account"] = acct == "*" ? "" : acct;            // '*' means logged out
+            FireFamily("account", vars);
+        }
+        else if (m.Is("AWAY"))                                    // IRCv3 away-notify
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";
+            vars["message"] = m.Trailing;                         // blank = back
+            FireFamily("away", vars);
+        }
+        else if (m.Is("CHGHOST"))                                 // IRCv3 chghost
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";
+            vars["user"] = m.P(0);
+            vars["host"] = m.P(1);
+            FireFamily("chghost", vars);
+        }
+        else if (m.Is("WALLOPS"))
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";
+            vars["source"] = m.Source ?? "";
+            vars["message"] = m.Trailing;
+            FireFamily("wallops", vars);
         }
         else if (m.IsNumeric(out int num))
         {
@@ -830,7 +877,7 @@ public sealed class ServerConn : IRuntimeSink
         if (due != null) foreach (var p in due) ResumeApproval(p, 1, "(timed out)", "");
     }
 
-    // auto-lift temp bans (State key "__tempban|<channel><mask>" = expiry unix sec). Only the server
+    // auto-lift temp bans (State key "__tempban|<channel>\u0001<mask>" = expiry unix sec). Only the server
     // actually in the channel lifts it; the entry persists in State so a restart still cleans it up.
     private void SweepTempBans()
     {

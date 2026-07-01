@@ -1677,19 +1677,31 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
             }
             case "irctest":   // exercises the new IRC primitives: raw/tagmsg/notice triggers + notice/raw sends
             {
-                var cmd = Add("event.command", -420, -220); cmd.SetParam("command", "ping");
-                var notice = Add("action.notice", -80, -220); notice.SetParam("target", "#ircuitry-test"); notice.SetParam("message", "pong via NOTICE, {nick}");
-                var raw = Add("action.raw", 260, -220); raw.SetParam("line", "WALLOPS :hello from a raw line");
-                g.Connect(cmd.Id, 0, notice.Id, 0); g.Connect(notice.Id, 0, raw.Id, 0);
-                var er = Add("event.raw", -420, -60); er.SetParam("command", "TAGMSG");
-                var erl = Add("action.log", -80, -60); erl.SetParam("text", "[RAW] {command} from {nick}: {raw}");
-                g.Connect(er.Id, 0, erl.Id, 0);
-                var et = Add("event.tagmsg", -420, 100);
-                var etl = Add("action.log", -80, 100); etl.SetParam("text", "[TAGMSG] {nick} react={react} on {msgid}");
-                g.Connect(et.Id, 0, etl.Id, 0);
-                var en = Add("event.notice", -420, 240);
-                var enl = Add("action.log", -80, 240); enl.SetParam("text", "[NOTICE] from {nick}: {message}");
-                g.Connect(en.Id, 0, enl.Id, 0);
+                float ty = -300;
+                Node TrigLog(string trig, string logtext, string pk = "", string pv = "")
+                {
+                    var t = Add(trig, -420, ty); if (pk.Length > 0) t.SetParam(pk, pv);
+                    var l = Add("action.log", -80, ty); l.SetParam("text", logtext);
+                    g.Connect(t.Id, 0, l.Id, 0); ty += 80; return t;
+                }
+                var cmd = Add("event.command", -420, ty); cmd.SetParam("command", "ping");
+                var notice = Add("action.notice", -80, ty); notice.SetParam("target", "#ircuitry-test"); notice.SetParam("message", "pong via NOTICE, {nick}");
+                var raw = Add("irc.raw", 260, ty); raw.SetParam("line", "WALLOPS :hello from a raw line");
+                var whois = Add("action.whois", 600, ty); whois.SetParam("nick", "{nick}");
+                g.Connect(cmd.Id, 0, notice.Id, 0); g.Connect(notice.Id, 0, raw.Id, 0); g.Connect(raw.Id, 0, whois.Id, 0);
+                ty += 80;
+                TrigLog("event.raw", "[RAW] {command} from {nick}", "command", "WALLOPS");
+                TrigLog("event.mention", "[MENTION] {nick}: {message}");
+                TrigLog("event.notice", "[NOTICE] from {nick}: {message}");
+                TrigLog("event.tagmsg", "[TAGMSG] {nick} react={react}");
+                TrigLog("event.account", "[ACCOUNT] {nick} -> {account}");
+                TrigLog("event.away", "[AWAY] {nick}: {message}");
+                TrigLog("event.chghost", "[CHGHOST] {nick} -> {user}@{host}");
+                TrigLog("event.wallops", "[WALLOPS] {message}");
+                var ct = Add("event.ctcp", -420, ty);
+                var cr = Add("action.ctcpreply", -80, ty); cr.SetParam("target", "{nick}"); cr.SetParam("command", "{ctcp}"); cr.SetParam("args", "ircuitry 1.0");
+                var ctl = Add("action.log", 260, ty); ctl.SetParam("text", "[CTCP] {ctcp} args={ctcpargs} from {nick}");
+                g.Connect(ct.Id, 0, cr.Id, 0); g.Connect(cr.Id, 0, ctl.Id, 0);
                 b.Name = "irc-primitives"; b.Settings.Host = "irc.libera.chat"; b.Settings.Port = 6697; b.Settings.UseTls = true; b.Settings.Channels = "#ircuitry";
                 break;
             }

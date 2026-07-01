@@ -970,6 +970,106 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+            new()
+            {
+                TypeId = "event.ctcp", Icon = "chat-circle", Title = "On CTCP", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "ctcp",
+                Description = "Fires on an incoming CTCP request (a PRIVMSG wrapped in \\x01): VERSION, PING, TIME, SOURCE, ACTION (/me), etc. Exposes {nick} {channel}, the {ctcp} command (upper-case) and its {ctcpargs}. Answer with Reply to CTCP.",
+                Outputs = new[] { Ex("then"), Tx("ctcp"), Tx("ctcpargs"), Us("nick"), Ch("channel") },
+                Params = new[] { P("which", "CTCP command", ParamType.Text, "", "blank = any · e.g. VERSION, PING, ACTION") },
+                SummaryParam = "which",
+                Exec = c =>
+                {
+                    var want = c.Param("which").Trim();
+                    if (want.Length > 0 && !want.Equals(c.Var("ctcp"), StringComparison.OrdinalIgnoreCase)) return;
+                    c.SetOut(1, c.Var("ctcp"));
+                    c.SetOut(2, c.Var("ctcpargs"));
+                    c.SetOut(3, c.Var("nick"));
+                    c.SetOut(4, c.Var("channel"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.mention", Icon = "at", Title = "On Mention", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "mention",
+                Description = "Fires when a channel message mentions the bot's current nick (a highlight). Exposes {nick} {channel} {message} - like On Message, but only when you are named.",
+                Outputs = new[] { Ex("then"), Tx("message"), Us("nick"), Ch("channel") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("message"));
+                    c.SetOut(2, c.Var("nick"));
+                    c.SetOut(3, c.Var("channel"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.kicked", Icon = "boot", Title = "On Kicked", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "kicked",
+                Description = "Fires when the BOT ITSELF is kicked from a channel (On Kick fires for anyone). Exposes the {channel}, who kicked it {nick}, and the {reason} - wire it to Join to auto-rejoin.",
+                Outputs = new[] { Ex("then"), Ch("channel"), Us("nick"), Tx("reason") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("channel"));
+                    c.SetOut(2, c.Var("nick"));
+                    c.SetOut(3, c.Var("reason"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.account", Icon = "user-circle", Title = "On Account", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "account",
+                Description = "Fires when a user logs in to or out of a services account (IRCv3 account-notify). Exposes {nick} and {account} (blank on logout) - a spoof-proof way to track who is authenticated.",
+                Outputs = new[] { Ex("then"), Us("nick"), Tx("account") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("nick"));
+                    c.SetOut(2, c.Var("account"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.away", Icon = "moon", Title = "On Away", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "away",
+                Description = "Fires when a user goes away or comes back (IRCv3 away-notify). Exposes {nick} and the away {message} (blank means they are back).",
+                Outputs = new[] { Ex("then"), Us("nick"), Tx("message") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("nick"));
+                    c.SetOut(2, c.Var("message"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.chghost", Icon = "arrows-left-right", Title = "On Host Change", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "chghost",
+                Description = "Fires when a user's user@host changes without a reconnect (IRCv3 chghost - e.g. a cloak being applied). Exposes {nick}, the new {user} and {host}.",
+                Outputs = new[] { Ex("then"), Us("nick"), Tx("user"), Tx("host") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("nick"));
+                    c.SetOut(2, c.Var("user"));
+                    c.SetOut(3, c.Var("host"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.wallops", Icon = "megaphone", Title = "On Wallops", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "wallops",
+                Description = "Fires on a WALLOPS - a broadcast from an operator or the server to users with +w. Exposes the {message} and its {nick}/source.",
+                Outputs = new[] { Ex("then"), Tx("message"), Us("nick") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("message"));
+                    c.SetOut(2, c.Var("nick"));
+                    c.Pulse(0);
+                },
+            },
 
             // ============================ FILTERS ===========================
             new()
@@ -992,6 +1092,21 @@ public static class NodeCatalog
                     var cmp = c.ParamBool("ci") ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
                     bool hit = needle.Length == 0 || text.IndexOf(needle, cmp) >= 0;
                     c.Pulse(hit ? 0 : 1);
+                },
+            },
+            new()
+            {
+                TypeId = "filter.isChannel", Icon = "hash", Title = "In Channel?", Subtitle = "filter",
+                Category = NodeCategory.Filter,
+                Description = "Branches on whether the event happened in a channel or in a private message (DM). Defaults to the triggering {target}.",
+                Inputs = new[] { Ex(), Tx("target") },
+                Outputs = new[] { Ex("channel"), Ex("private") },
+                Params = new[] { P("target", "Target", ParamType.Text, "{target}", "leave as {target} for the current event") },
+                Exec = c =>
+                {
+                    var t = c.InOr(1, c.Resolve(c.Param("target"))).Trim();
+                    bool isChan = t.Length > 0 && (t[0] == '#' || t[0] == '&' || t[0] == '+' || t[0] == '!');
+                    c.Pulse(isChan ? 0 : 1);
                 },
             },
             new()
@@ -1163,90 +1278,6 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.raw", Icon = "terminal-window", Title = "Send Raw", Subtitle = "action",
-                Category = NodeCategory.Action,
-                Description = "Sends a raw IRC protocol line exactly as written - the universal escape hatch for any command without a dedicated node (WALLOPS, KNOCK, precise MODE strings, custom verbs). No CRLF needed; tokens like {nick} {channel} are expanded first.",
-                Inputs = new[] { Ex(), Tx("line") },
-                Outputs = new[] { Ex("then") },
-                Params = new[] { P("line", "Line", ParamType.Text, "", "e.g. WALLOPS :hello · MODE {channel} +o {nick}") },
-                SummaryParam = "line",
-                Exec = c =>
-                {
-                    var line = c.InOr(1, c.Resolve(c.Param("line")));
-                    if (line.Trim().Length > 0) c.Raw(line);
-                    c.Pulse(0);
-                },
-            },
-            new()
-            {
-                TypeId = "action.ctcp", Icon = "chat-circle", Title = "Send CTCP", Subtitle = "action",
-                Category = NodeCategory.Action,
-                Description = "Sends a CTCP request or an action to a channel or nick. Command ACTION is the /me emote; others include VERSION, PING, TIME. Sent as a PRIVMSG wrapped in \\x01.",
-                Inputs = new[] { Ex(), Ch("target"), Tx("args") },
-                Outputs = new[] { Ex("then") },
-                Params = new[]
-                {
-                    P("target", "Target", ParamType.Text, "#channel", "#channel or nick"),
-                    P("command", "CTCP command", ParamType.Text, "ACTION", "ACTION · VERSION · PING · TIME"),
-                    P("args", "Args", ParamType.Text, "", "e.g. waves hello (for ACTION / me)"),
-                },
-                SummaryParam = "command",
-                Exec = c =>
-                {
-                    var t = c.InOr(1, c.Resolve(c.Param("target")));
-                    var cmd = c.Resolve(c.Param("command")).Trim().ToUpperInvariant();
-                    var args = c.InOr(2, c.Resolve(c.Param("args")));
-                    if (t.Length > 0 && cmd.Length > 0)
-                        c.Send(t, "\u0001" + cmd + (args.Length > 0 ? " " + args : "") + "\u0001");
-                    c.Pulse(0);
-                },
-            },
-            new()
-            {
-                TypeId = "action.kick", Icon = "boot", Title = "Kick", Subtitle = "action",
-                Category = NodeCategory.Action,
-                Description = "Kicks a user from a channel (needs operator status). Optional reason.",
-                Inputs = new[] { Ex(), Ch("channel"), Us("nick") },
-                Outputs = new[] { Ex("then") },
-                Params = new[]
-                {
-                    P("channel", "Channel", ParamType.Text, "{channel}", "#channel"),
-                    P("nick", "Nick", ParamType.Text, "{nick}", "who to kick"),
-                    P("reason", "Reason", ParamType.Text, "", "(optional)"),
-                },
-                SummaryParam = "nick",
-                Exec = c =>
-                {
-                    var ch = c.InOr(1, c.Resolve(c.Param("channel")));
-                    var nk = c.InOr(2, c.Resolve(c.Param("nick")));
-                    var reason = c.Resolve(c.Param("reason"));
-                    if (ch.Length > 0 && nk.Length > 0) c.Raw($"KICK {ch} {nk}" + (reason.Length > 0 ? " :" + reason : ""));
-                    c.Pulse(0);
-                },
-            },
-            new()
-            {
-                TypeId = "action.mode", Icon = "sliders-horizontal", Title = "Set Mode", Subtitle = "action",
-                Category = NodeCategory.Action,
-                Description = "Sets modes on a channel or user, e.g. +o a nick, +b a mask, +m. Needs the right privileges.",
-                Inputs = new[] { Ex(), Ch("target") },
-                Outputs = new[] { Ex("then") },
-                Params = new[]
-                {
-                    P("target", "Target", ParamType.Text, "{channel}", "#channel or nick"),
-                    P("modes", "Modes", ParamType.Text, "", "e.g. +o {nick} · +b someone!*@*"),
-                },
-                SummaryParam = "modes",
-                Exec = c =>
-                {
-                    var t = c.InOr(1, c.Resolve(c.Param("target")));
-                    var modes = c.Resolve(c.Param("modes")).Trim();
-                    if (t.Length > 0 && modes.Length > 0) c.Raw($"MODE {t} {modes}");
-                    c.Pulse(0);
-                },
-            },
-            new()
-            {
                 TypeId = "action.invite", Icon = "user-plus", Title = "Invite", Subtitle = "action",
                 Category = NodeCategory.Action,
                 Description = "Invites a user to a channel.",
@@ -1268,22 +1299,109 @@ public static class NodeCatalog
             },
             new()
             {
-                TypeId = "action.topic", Icon = "textbox", Title = "Set Topic", Subtitle = "action",
+                TypeId = "action.whois", Icon = "identification-card", Title = "Whois", Subtitle = "query",
                 Category = NodeCategory.Action,
-                Description = "Sets a channel's topic (needs the right privileges if the channel is +t). An empty topic clears it.",
-                Inputs = new[] { Ex(), Ch("channel"), Tx("topic") },
+                Description = "Asks the server about a nick (WHOIS). The answer arrives as numerics - 311 (user), 319 (channels), 312 (server), 317 (idle/signon), 330 (account), ending 318 - so read it with On Numeric.",
+                Inputs = new[] { Ex(), Us("nick") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("nick", "Nick", ParamType.Text, "{nick}", "who to look up") },
+                SummaryParam = "nick",
+                Exec = c => { var nk = c.InOr(1, c.Resolve(c.Param("nick"))); if (nk.Length > 0) c.Raw($"WHOIS {nk}"); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.who", Icon = "users", Title = "Who", Subtitle = "query",
+                Category = NodeCategory.Action,
+                Description = "Sends a WHO for a channel or a mask; matching users come back as numeric 352 (or 354 for WHOX), ending with 315. Read them with On Numeric.",
+                Inputs = new[] { Ex(), Tx("target") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("target", "Target", ParamType.Text, "{channel}", "#channel or a mask like *!*@*.host") },
+                SummaryParam = "target",
+                Exec = c => { var t = c.InOr(1, c.Resolve(c.Param("target"))); if (t.Length > 0) c.Raw($"WHO {t}"); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.names", Icon = "list-bullets", Title = "Names", Subtitle = "query",
+                Category = NodeCategory.Action,
+                Description = "Requests a channel's member list (NAMES); names come back as numeric 353, ending 366. The live list is also on Channel Info.",
+                Inputs = new[] { Ex(), Ch("channel") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("channel", "Channel", ParamType.Text, "{channel}", "#channel") },
+                SummaryParam = "channel",
+                Exec = c => { var ch = c.InOr(1, c.Resolve(c.Param("channel"))); if (ch.Length > 0) c.Raw($"NAMES {ch}"); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.oper", Icon = "crown-simple", Title = "Oper Up", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Authenticates as an IRC operator (OPER name password) - server-level privileges if the credentials match the server's O:line. Keep the password in a secret.",
+                Inputs = new[] { Ex() },
                 Outputs = new[] { Ex("then") },
                 Params = new[]
                 {
-                    P("channel", "Channel", ParamType.Text, "{channel}", "#channel"),
-                    P("topic", "Topic", ParamType.Multiline, "", "the new topic"),
+                    P("name", "Oper name", ParamType.Text, "", "your O:line name"),
+                    P("pass", "Password", ParamType.Text, "", "{{secret.operpass}}", secret: true),
                 },
-                SummaryParam = "topic",
+                SummaryParam = "name",
+                Exec = c => { var nm = c.Resolve(c.Param("name")); var pw = c.Resolve(c.Param("pass")); if (nm.Length > 0) c.Raw($"OPER {nm} {pw}"); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.knock", Icon = "hand-tap", Title = "Knock", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Sends KNOCK to ask for an invite to an invite-only (+i) channel, with an optional message. Needs a server that supports KNOCK.",
+                Inputs = new[] { Ex(), Ch("channel") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("channel", "Channel", ParamType.Text, "", "#channel"),
+                    P("message", "Message", ParamType.Text, "", "(optional)"),
+                },
+                SummaryParam = "channel",
+                Exec = c => { var ch = c.InOr(1, c.Resolve(c.Param("channel"))); var msg = c.Resolve(c.Param("message")); if (ch.Length > 0) c.Raw($"KNOCK {ch}" + (msg.Length > 0 ? " :" + msg : "")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.nick", Icon = "pencil-simple", Title = "Change Nick", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Changes the bot's own nickname. If the nick is taken the server replies ERR_NICKNAMEINUSE (433) - catch it with On Numeric.",
+                Inputs = new[] { Ex(), Us("nick") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("nick", "New nick", ParamType.Text, "", "the new nickname") },
+                SummaryParam = "nick",
+                Exec = c => { var nk = c.InOr(1, c.Resolve(c.Param("nick"))); if (nk.Length > 0) c.Raw($"NICK {nk}"); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.quit", Icon = "sign-out", Title = "Quit Server", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Disconnects the bot from this server with an optional quit message. Use Reconnect to come back.",
+                Inputs = new[] { Ex(), Tx("message") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("message", "Quit message", ParamType.Text, "ircuitry out", "shown to the channel") },
+                SummaryParam = "message",
+                Exec = c => { var msg = c.InOr(1, c.Resolve(c.Param("message"))); c.Raw("QUIT :" + msg); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.ctcpreply", Icon = "arrow-bend-up-left", Title = "Reply to CTCP", Subtitle = "action",
+                Category = NodeCategory.Action,
+                Description = "Answers a CTCP query - a NOTICE wrapped in \\x01, which is how you reply to VERSION / PING / TIME. Pair with On CTCP: reply to {nick} using the same {ctcp} command.",
+                Inputs = new[] { Ex(), Us("target"), Tx("args") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("target", "Target", ParamType.Text, "{nick}", "who asked"),
+                    P("command", "CTCP command", ParamType.Text, "{ctcp}", "VERSION · PING · TIME"),
+                    P("args", "Reply", ParamType.Text, "", "e.g. ircuitry 1.0"),
+                },
+                SummaryParam = "command",
                 Exec = c =>
                 {
-                    var ch = c.InOr(1, c.Resolve(c.Param("channel")));
-                    var topic = c.InOr(2, c.Resolve(c.Param("topic")));
-                    if (ch.Length > 0) c.Raw($"TOPIC {ch} :" + topic);
+                    var t = c.InOr(1, c.Resolve(c.Param("target")));
+                    var cmd = c.Resolve(c.Param("command")).Trim().ToUpperInvariant();
+                    var args = c.InOr(2, c.Resolve(c.Param("args")));
+                    if (t.Length > 0 && cmd.Length > 0) c.Notice(t, "\u0001" + cmd + (args.Length > 0 ? " " + args : "") + "\u0001");
                     c.Pulse(0);
                 },
             },

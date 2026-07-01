@@ -276,6 +276,12 @@ public sealed class IrcuitryGame : Game
         // a NOTICE and a reaction TAGMSG early on, so On Notice / On TAGMSG / On Raw Line have live traffic
         script.Add((500, ":services!s@host NOTICE #ircuitry-test :heads up - the bot is live"));
         script.Add((350, "@+draft/react=heart;+draft/reply=m1 :alice!a@host TAGMSG #ircuitry-test"));
+        // extra protocol events so the newer triggers have something to fire on in a demo/test
+        script.Add((300, ":alice!a@host ACCOUNT alice_acct"));
+        script.Add((300, ":bob!b@host AWAY :grabbing coffee"));
+        script.Add((300, ":carol!c@host CHGHOST carol cloak.example"));
+        script.Add((300, ":admin!a@host WALLOPS :server maintenance soon"));
+        script.Add((300, ":dave!d@host PRIVMSG ircuitry :\u0001VERSION\u0001"));
         int n = 0;
         for (int round = 0; round < 7; round++)
         {
@@ -291,7 +297,7 @@ public sealed class IrcuitryGame : Game
     }
 
     private int _trayTick;
-    private string _traySig = "";   // sentinel: forces a MenuChanged on the first real build
+    private string _traySig = "\u0001";   // sentinel: forces a MenuChanged on the first real build
 
     // Snapshot the current bots/servers into the tray model; returns a content signature so callers can tell
     // when it changed. Built from the workspace bots (present even before anything connects), so the menu is
