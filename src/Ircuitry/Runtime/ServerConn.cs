@@ -654,6 +654,34 @@ public sealed class ServerConn : IRuntimeSink
             vars["message"] = m.Trailing;
             FireFamily("wallops", vars);
         }
+        else if (m.Is("SETNAME"))                                // IRCv3 draft/setname: someone changed their realname
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";
+            vars["realname"] = m.Trailing;
+            FireFamily("setname", vars);
+        }
+        else if (m.Is("METADATA"))                               // IRCv3 draft/metadata-2: a key was set/cleared
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";
+            vars["target"] = m.P(0);
+            vars["key"] = m.P(1);
+            vars["visibility"] = m.P(2);
+            vars["value"] = m.Trailing;                          // blank = key was cleared
+            FireFamily("metadata", vars);
+        }
+        else if (m.Is("REDACT"))                                 // IRCv3 draft/message-redaction: a message was deleted
+        {
+            var vars = BaseVars();
+            vars["nick"] = m.Nick ?? "";
+            string tgt = m.P(0);
+            vars["target"] = tgt;
+            vars["channel"] = _session.IsChannel(tgt) ? tgt : (m.Nick ?? "");
+            vars["msgid"] = m.P(1);
+            vars["reason"] = m.Params.Count > 2 ? m.Trailing : "";
+            FireFamily("redact", vars);
+        }
         else if (m.Is("ERROR"))
         {
             var vars = BaseVars();
@@ -713,6 +741,17 @@ public sealed class ServerConn : IRuntimeSink
         tv["msgid"] = rmsgid;
         foreach (var kv in m.Tags) tv["tag." + kv.Key] = kv.Value;
         FireFamily("tagmsg", tv);
+
+        // On Typing: a friendly wrapper over the +typing tag (draft/typing: active / paused / done)
+        string typing = m.Tag("+typing"); if (typing.Length == 0) typing = m.Tag("+draft/typing");
+        if (typing.Length > 0)
+        {
+            var yv = BaseVars();
+            yv["nick"] = nick;
+            yv["channel"] = _session.IsChannel(target) ? target : nick;
+            yv["state"] = typing;                                // "active" | "paused" | "done"
+            FireFamily("typing", yv);
+        }
     }
 
     private void AdvertiseCommandsTo(string nick)

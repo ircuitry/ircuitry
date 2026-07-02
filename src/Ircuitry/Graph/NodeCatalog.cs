@@ -1110,6 +1110,57 @@ public static class NodeCatalog
                 Outputs = new[] { Ex("then"), Us("nick"), Tx("online") },
                 Exec = c => { c.SetOut(1, c.Var("nick")); c.SetOut(2, c.Var("online")); c.Pulse(0); },
             },
+            new()
+            {
+                TypeId = "event.redact", Icon = "eraser", Title = "On Message Deleted", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "redact",
+                Description = "Fires when someone deletes (redacts) a message (IRCv3 draft/message-redaction) - the counterpart to Delete Message. Exposes the {channel}/target, the deleted {msgid}, who did it ({nick}) and any {reason}.",
+                Outputs = new[] { Ex("then"), Ch("channel"), Tx("msgid"), Us("nick"), Tx("reason") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("channel"));
+                    c.SetOut(2, c.Var("msgid"));
+                    c.SetOut(3, c.Var("nick"));
+                    c.SetOut(4, c.Var("reason"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.metadata", Icon = "tag", Title = "On Metadata Changed", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "metadata",
+                Description = "Fires when a metadata key is set or cleared on a user or channel (IRCv3 draft/metadata-2) - the counterpart to Set Metadata. Exposes the {target}, the {key}, its new {value} (blank = cleared) and {visibility}.",
+                Outputs = new[] { Ex("then"), Tx("target"), Tx("key"), Tx("value") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("target"));
+                    c.SetOut(2, c.Var("key"));
+                    c.SetOut(3, c.Var("value"));
+                    c.Pulse(0);
+                },
+            },
+            new()
+            {
+                TypeId = "event.setname", Icon = "identification-card", Title = "On Realname Changed", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "setname",
+                Description = "Fires when a user changes their realname/GECOS live (IRCv3 draft/setname) - the counterpart to Set Realname. Exposes {nick} and the new {realname}.",
+                Outputs = new[] { Ex("then"), Us("nick"), Tx("realname") },
+                Exec = c => { c.SetOut(1, c.Var("nick")); c.SetOut(2, c.Var("realname")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.typing", Icon = "pencil-simple-line", Title = "On Typing", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "typing",
+                Description = "Fires when someone starts, pauses or stops typing (IRCv3 draft/typing, carried in TAGMSG). Exposes {nick}, the {channel} and the {state} (active / paused / done).",
+                Outputs = new[] { Ex("then"), Us("nick"), Ch("channel"), Tx("state") },
+                Exec = c =>
+                {
+                    c.SetOut(1, c.Var("nick"));
+                    c.SetOut(2, c.Var("channel"));
+                    c.SetOut(3, c.Var("state"));
+                    c.Pulse(0);
+                },
+            },
 
             // ============================ FILTERS ===========================
             new()
@@ -1369,6 +1420,32 @@ public static class NodeCatalog
                 Params = new[] { P("channel", "Channel", ParamType.Text, "{channel}", "#channel") },
                 SummaryParam = "channel",
                 Exec = c => { var ch = c.InOr(1, c.Resolve(c.Param("channel"))); if (ch.Length > 0) c.Raw($"NAMES {ch}"); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.list", Icon = "list-magnifying-glass", Title = "List Channels", Subtitle = "query",
+                Category = NodeCategory.Action,
+                Description = "Searches the server's channel list (LIST), optionally filtered (e.g. '>50' for busy channels, or a *mask*). Each channel comes back as numeric 322 (name, user count, topic), ending 323. Read them with On Numeric. No filter = the whole network, which can be huge.",
+                Inputs = new[] { Ex(), Tx("filter") },
+                Outputs = new[] { Ex("then") },
+                Params = new[] { P("filter", "Filter", ParamType.Text, "", ">50  or  *chat*  (blank = all)") },
+                SummaryParam = "filter",
+                Exec = c => { var f = c.InOr(1, c.Resolve(c.Param("filter"))); c.Raw("LIST" + (f.Length > 0 ? " " + f : "")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "action.whowas", Icon = "clock-counter-clockwise", Title = "Whowas", Subtitle = "query",
+                Category = NodeCategory.Action,
+                Description = "Looks up a nick that has since quit or changed name (WHOWAS) - the historical counterpart to Whois. The answer arrives as numerics 314 (the old user record) and 312 (server/time), ending 369. Read it with On Numeric.",
+                Inputs = new[] { Ex(), Us("nick") },
+                Outputs = new[] { Ex("then") },
+                Params = new[]
+                {
+                    P("nick", "Nick", ParamType.Text, "{nick}", "who to look up"),
+                    P("count", "Max entries", ParamType.Text, "", "(optional, e.g. 1)"),
+                },
+                SummaryParam = "nick",
+                Exec = c => { var nk = c.InOr(1, c.Resolve(c.Param("nick"))); var n = c.Resolve(c.Param("count")); if (nk.Length > 0) c.Raw($"WHOWAS {nk}" + (n.Length > 0 ? " " + n : "")); c.Pulse(0); },
             },
             new()
             {

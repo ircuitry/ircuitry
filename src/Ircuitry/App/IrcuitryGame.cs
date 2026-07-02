@@ -283,6 +283,10 @@ public sealed class IrcuitryGame : Game
         script.Add((300, ":admin!a@host WALLOPS :server maintenance soon"));
         script.Add((300, ":dave!d@host NOTICE ircuitry :\u0001VERSION ircuitry 0.9\u0001"));   // a CTCP reply
         script.Add((300, ":mockserv 730 ircuitry :eve!e@host,frank!f@host"));            // MONITOR: users came online
+        script.Add((300, ":ivan!i@host SETNAME :Ivan the Helpful Bot"));                 // draft/setname
+        script.Add((300, ":mockserv METADATA #ircuitry-test url * :https://ircuitry.dev")); // draft/metadata-2
+        script.Add((300, "@+typing=active :grace!g@host TAGMSG #ircuitry-test"));         // draft/typing
+        script.Add((300, ":heidi!h@host REDACT #ircuitry-test m1 :off-topic"));           // draft/message-redaction
         script.Add((300, "ERROR :Closing link: (demo) just testing"));                   // server ERROR
         script.Add((300, ":dave!d@host PRIVMSG ircuitry :\u0001VERSION\u0001"));
         int n = 0;

@@ -1702,6 +1702,10 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 TrigLog("event.error", "[ERROR] {message}");
                 TrigLog("event.ctcpreply", "[CTCPREPLY] {ctcp} = {ctcpargs} from {nick}");
                 TrigLog("event.monitor", "[MONITOR] {nick} online={online}");
+                TrigLog("event.redact", "[REDACT] {nick} deleted {msgid} in {channel}");
+                TrigLog("event.metadata", "[METADATA] {target} {key}={value}");
+                TrigLog("event.setname", "[SETNAME] {nick} -> {realname}");
+                TrigLog("event.typing", "[TYPING] {nick} {state} in {channel}");
                 TrigLog("event.disconnect", "[DISCONNECT] {reason}");
                 var ct = Add("event.ctcp", -420, ty);
                 var cr = Add("action.ctcpreply", -80, ty); cr.SetParam("target", "{nick}"); cr.SetParam("command", "{ctcp}"); cr.SetParam("args", "ircuitry 1.0");
