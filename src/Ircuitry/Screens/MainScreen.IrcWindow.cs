@@ -21,7 +21,7 @@ public sealed partial class MainScreen
     private bool _ircWinDragging, _ircWinResizing;
     private Vector2 _ircWinDragOff;
 
-    private const string StatusTab = "status";   // sentinel for the Status (narration) view
+    private const string StatusTab = "\u0001status";   // sentinel for the Status (narration) view
     private string _ircSel = StatusTab;
     private float _ircMsgScroll, _ircMemScroll, _ircNarrScroll;
 

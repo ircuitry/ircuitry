@@ -2023,7 +2023,7 @@ public static class SelfTest
             bool ok = s.Logs.Contains("RAW TOPIC #c :hello alice")
                    && s.Logs.Contains("RAW KICK #c bob :bye")
                    && s.Logs.Contains("RAW MODE #c +o bob")
-                   && s.Sent.Exists(x => x.target == "#c" && x.text == "ACTION waves");
+                   && s.Sent.Exists(x => x.target == "#c" && x.text == "\u0001ACTION waves\u0001");
             fails += Expect("irc-moderation-nodes", ok, "logs=[" + string.Join(",", s.Logs) + "] " + Dump(s));
         }
 

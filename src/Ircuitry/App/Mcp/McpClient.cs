@@ -48,7 +48,7 @@ public sealed class McpClient : IDisposable
     /// <summary>Get (or create + initialize) a cached client for this config. Key it uniquely per node config.</summary>
     public static McpClient ForConfig(string transport, string commandOrUrl, List<(string, string)>? headers, int timeoutMs)
     {
-        string key = transport + "" + commandOrUrl + "" + string.Join(";", (headers ?? new()).ConvertAll(h => h.Item1 + "=" + h.Item2));
+        string key = transport + "\u0001" + commandOrUrl + "\u0001" + string.Join(";", (headers ?? new()).ConvertAll(h => h.Item1 + "=" + h.Item2));
         if (_failed.TryGetValue(key, out var f))   // a recent hard failure: report the real reason, don't respawn every message
         {
             if (f.until > DateTime.UtcNow) throw new Exception(f.msg);
