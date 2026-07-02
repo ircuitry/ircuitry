@@ -1698,6 +1698,11 @@ public sealed partial class MainScreen : IScreen, Ircuitry.App.IAppHost
                 TrigLog("event.away", "[AWAY] {nick}: {message}");
                 TrigLog("event.chghost", "[CHGHOST] {nick} -> {user}@{host}");
                 TrigLog("event.wallops", "[WALLOPS] {message}");
+                TrigLog("event.selfjoin", "[READY] joined {channel}");
+                TrigLog("event.error", "[ERROR] {message}");
+                TrigLog("event.ctcpreply", "[CTCPREPLY] {ctcp} = {ctcpargs} from {nick}");
+                TrigLog("event.monitor", "[MONITOR] {nick} online={online}");
+                TrigLog("event.disconnect", "[DISCONNECT] {reason}");
                 var ct = Add("event.ctcp", -420, ty);
                 var cr = Add("action.ctcpreply", -80, ty); cr.SetParam("target", "{nick}"); cr.SetParam("command", "{ctcp}"); cr.SetParam("args", "ircuitry 1.0");
                 var ctl = Add("action.log", 260, ty); ctl.SetParam("text", "[CTCP] {ctcp} args={ctcpargs} from {nick}");

@@ -57,7 +57,12 @@ public sealed class ServerConn : IRuntimeSink
         _client.RawOut = line => _owner.LogFrom(Label, LogLevel.Out, line);
         _client.Status = (msg, err) => _owner.LogFrom(Label, err ? LogLevel.Error : LogLevel.System, msg);
         _client.Registered = OnRegistered;
-        _client.Closed = reason => { _running = false; _owner.LogFrom(Label, LogLevel.System, Ircuitry.Core.Icons.Glyph("circle") + " " + reason); };
+        _client.Closed = reason =>
+        {
+            if (_running) { try { var dv = BaseVars(); dv["reason"] = reason; FireFamily("disconnect", dv); } catch { } }   // On Disconnect (best effort during teardown)
+            _running = false;
+            _owner.LogFrom(Label, LogLevel.System, Ircuitry.Core.Icons.Glyph("circle") + " " + reason);
+        };
         _client.Message = OnIrc;
         _sockets = new SocketManager(FireSocketEvent, (msg, err) => _owner.LogFrom(Label, err ? LogLevel.Error : LogLevel.System, msg));
     }
@@ -524,6 +529,18 @@ public sealed class ServerConn : IRuntimeSink
             vars["replyto"] = toChannel ? target : nick;
             foreach (var kv in m.Tags) vars["tag." + kv.Key] = kv.Value;
             FireFamily("notice", vars);
+
+            // On CTCP Reply: a \u0001-wrapped NOTICE is the answer to a CTCP we sent (VERSION/PING/...)
+            var ntext = m.Trailing;
+            if (ntext.Length > 1 && ntext[0] == '\u0001')
+            {
+                var body = ntext.Trim('\u0001');
+                int csp = body.IndexOf(' ');
+                var cv = new Dictionary<string, string>(vars);
+                cv["ctcp"] = (csp < 0 ? body : body[..csp]).ToUpperInvariant();
+                cv["ctcpargs"] = csp < 0 ? "" : body[(csp + 1)..];
+                FireFamily("ctcpreply", cv);
+            }
         }
         else if (m.Is("TOPIC"))
         {
@@ -541,7 +558,12 @@ public sealed class ServerConn : IRuntimeSink
         {
             string nick = m.Nick ?? "";
             string channel = m.P(0).Length > 0 ? m.P(0) : m.Trailing;
-            if (nick.Equals(CurrentNick, StringComparison.OrdinalIgnoreCase)) return; // our own join
+            if (nick.Equals(CurrentNick, StringComparison.OrdinalIgnoreCase))
+            {
+                var sv = BaseVars(); sv["channel"] = sv["target"] = sv["replyto"] = channel;
+                FireFamily("selfjoin", sv);   // On Ready: the bot itself joined - per-channel setup
+                return;
+            }
             var vars = BaseVars();
             vars["nick"] = nick;
             vars["channel"] = channel;
@@ -632,6 +654,12 @@ public sealed class ServerConn : IRuntimeSink
             vars["message"] = m.Trailing;
             FireFamily("wallops", vars);
         }
+        else if (m.Is("ERROR"))
+        {
+            var vars = BaseVars();
+            vars["message"] = m.Trailing.Length > 0 ? m.Trailing : string.Join(' ', m.Params);
+            FireFamily("error", vars);
+        }
         else if (m.IsNumeric(out int num))
         {
             // a server numeric (001, 005, 353, 433, INVITE-related, ...) - lets On Numeric nodes react
@@ -644,6 +672,17 @@ public sealed class ServerConn : IRuntimeSink
             vars["args"] = string.Join(' ', m.Params);
             for (int i = 0; i < m.Params.Count; i++) vars["arg" + (i + 1)] = m.P(i);
             FireFamily("numeric", vars);
+            // On User Online: MONITOR notifications (730 online / 731 offline) carry a comma-separated nick!user@host list
+            if (num == 730 || num == 731)
+            {
+                foreach (var entry in m.Trailing.Split(','))
+                {
+                    var who = entry.Trim(); if (who.Length == 0) continue;
+                    int bang = who.IndexOf('!'); if (bang > 0) who = who[..bang];
+                    var mv = BaseVars(); mv["nick"] = who; mv["online"] = num == 730 ? "true" : "false";
+                    FireFamily("monitor", mv);
+                }
+            }
         }
     }
 

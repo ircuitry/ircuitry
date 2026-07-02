@@ -1070,6 +1070,46 @@ public static class NodeCatalog
                     c.Pulse(0);
                 },
             },
+            new()
+            {
+                TypeId = "event.disconnect", Icon = "plugs", Title = "On Disconnect", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "disconnect",
+                Description = "Fires when the bot loses or closes its connection to this server (quit, kill, timeout, network drop). Exposes the {reason}. Good for alerting or cleanup; auto-reconnect is a separate setting.",
+                Outputs = new[] { Ex("then"), Tx("reason") },
+                Exec = c => { c.SetOut(1, c.Var("reason")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.selfjoin", Icon = "door-open", Title = "On Ready (Joined)", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "selfjoin",
+                Description = "Fires when the BOT ITSELF finishes joining a channel (On Join is for other people). The place for per-channel setup - set the topic, greet, request history. Exposes {channel}.",
+                Outputs = new[] { Ex("then"), Ch("channel") },
+                Exec = c => { c.SetOut(1, c.Var("channel")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.error", Icon = "warning-octagon", Title = "On Server Error", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "error",
+                Description = "Fires on a raw ERROR from the server - usually right before it drops you (e.g. 'Closing link: throttled'). Exposes the {message}.",
+                Outputs = new[] { Ex("then"), Tx("message") },
+                Exec = c => { c.SetOut(1, c.Var("message")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.ctcpreply", Icon = "arrow-bend-up-left", Title = "On CTCP Reply", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "ctcpreply",
+                Description = "Fires on a CTCP reply (a NOTICE wrapped in \\x01) - the answer to a CTCP you sent, e.g. someone's VERSION or PING result. Exposes {nick}, the {ctcp} command and its {ctcpargs}.",
+                Outputs = new[] { Ex("then"), Tx("ctcp"), Tx("ctcpargs"), Us("nick") },
+                Exec = c => { c.SetOut(1, c.Var("ctcp")); c.SetOut(2, c.Var("ctcpargs")); c.SetOut(3, c.Var("nick")); c.Pulse(0); },
+            },
+            new()
+            {
+                TypeId = "event.monitor", Icon = "eyes", Title = "On User Online", Subtitle = "trigger",
+                Category = NodeCategory.Event, TriggerEvent = "monitor",
+                Description = "Fires when a MONITORed user comes online or goes offline (IRCv3 MONITOR, numerics 730/731). Pair with Monitor User. Exposes {nick} and {online} (true / false).",
+                Outputs = new[] { Ex("then"), Us("nick"), Tx("online") },
+                Exec = c => { c.SetOut(1, c.Var("nick")); c.SetOut(2, c.Var("online")); c.Pulse(0); },
+            },
 
             // ============================ FILTERS ===========================
             new()

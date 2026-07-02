@@ -281,6 +281,9 @@ public sealed class IrcuitryGame : Game
         script.Add((300, ":bob!b@host AWAY :grabbing coffee"));
         script.Add((300, ":carol!c@host CHGHOST carol cloak.example"));
         script.Add((300, ":admin!a@host WALLOPS :server maintenance soon"));
+        script.Add((300, ":dave!d@host NOTICE ircuitry :\u0001VERSION ircuitry 0.9\u0001"));   // a CTCP reply
+        script.Add((300, ":mockserv 730 ircuitry :eve!e@host,frank!f@host"));            // MONITOR: users came online
+        script.Add((300, "ERROR :Closing link: (demo) just testing"));                   // server ERROR
         script.Add((300, ":dave!d@host PRIVMSG ircuitry :\u0001VERSION\u0001"));
         int n = 0;
         for (int round = 0; round < 7; round++)
